@@ -1445,6 +1445,12 @@ class TinySessionStore implements SessionStore {
   private headers = new Map<string, SessionHeader>();
   private messages = new Map<string, StoredMessage[]>();
 
+  async createSubagent(
+    _input: CreateSessionInput,
+  ): Promise<{ header: SessionHeader; created: boolean }> {
+    throw new Error('not implemented');
+  }
+
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     const header: SessionHeader = {
       id: `session-${this.headers.size + 1}`,

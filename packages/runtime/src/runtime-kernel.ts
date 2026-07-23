@@ -5,7 +5,7 @@ import type {
   RuntimeEventStore,
   ToolBoundaryProtocol,
 } from '@maka/core';
-import { isSessionInlineRun } from '@maka/core';
+import { isPermissionModeWithinCeiling, isSessionInlineRun } from '@maka/core';
 import type {
   CompleteEvent,
   QueueEnqueueOutcome,
@@ -60,11 +60,7 @@ import {
   normalizeStopSessionSource,
   turnHasRetainedOutput as messagesHaveRetainedOutput,
 } from './session-projection-helpers.js';
-import {
-  assertAgentDefinitionRunnable,
-  buildToolsForAgentDefinition,
-  requireBuiltinAgentDefinitionByProfile,
-} from './agent-catalog.js';
+import { assertAgentDefinitionRunnable, buildToolsForAgentDefinition } from './agent-catalog.js';
 import { parseExpertAgentId, requireResolvedAgentDefinition } from './expert-catalog.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
@@ -1538,27 +1534,21 @@ export class RuntimeKernel implements RuntimeKernelLike {
     if (!header.subagentParent) {
       throw new Error('Subagent runtime snapshot requires a linked child session');
     }
-    const definition = requireBuiltinAgentDefinitionByProfile(snapshot.profile);
-    if (definition.id !== snapshot.agentId) {
-      throw new Error('Subagent runtime profile identity changed');
+    if (!isPermissionModeWithinCeiling(header.permissionMode, snapshot.permissionCeiling)) {
+      throw new Error('Subagent runtime permission mode exceeds its durable ceiling');
     }
     const snapshotDefinition = {
-      ...definition,
-      name: snapshot.agentName,
+      id: snapshot.agentId,
       permissionMode: header.permissionMode,
       tools: snapshot.toolNames,
+      categoryPolicy: snapshot.categoryPolicy,
     };
     const availableTools = this.deps.childTools ?? [];
-    assertAgentDefinitionRunnable({
-      parentPermissionMode: snapshot.permissionCeiling,
-      definition: snapshotDefinition,
-      tools: availableTools,
-    });
     const tools = buildToolsForAgentDefinition(availableTools, snapshotDefinition);
     if (tools.length !== snapshot.toolNames.length) {
       throw new Error('Subagent runtime tool snapshot is unavailable');
     }
-    return { systemPrompt: definition.systemPrompt, tools };
+    return { systemPrompt: snapshot.systemPrompt, tools };
   }
 
   private async ensureChildActive(

@@ -1252,6 +1252,12 @@ class ReadOnlyStore implements SessionStore {
 
   constructor(private readonly messages: StoredMessage[]) {}
 
+  async createSubagent(
+    _input: CreateSessionInput,
+  ): Promise<{ header: SessionHeader; created: boolean }> {
+    throw new Error('not implemented');
+  }
+
   async create(_input: CreateSessionInput): Promise<SessionHeader> {
     throw new Error('not implemented');
   }

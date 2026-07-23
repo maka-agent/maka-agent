@@ -29,8 +29,10 @@ import {
   isSessionBlockedReason,
   isSubagentSessionParent,
   isSubagentSessionRuntime,
+  isSubagentSessionSpawn,
   isSessionStatus,
   normalizeUserSessionName,
+  subagentSessionRuntimeSummary,
 } from '@maka/core';
 import type {
   CreateSessionInput,
@@ -47,6 +49,7 @@ export const SQLITE_SESSION_METADATA_DATABASE_NAME = 'sessions.sqlite';
 
 export interface SessionStore {
   create(input: CreateSessionInput): Promise<SessionHeader>;
+  createSubagent(input: CreateSessionInput): Promise<{ header: SessionHeader; created: boolean }>;
   list(filter?: SessionListFilter): Promise<SessionSummary[]>;
   listForRecovery(): Promise<SessionHeader[]>;
   /** Read only the durable header without triggering connection-lock self-healing. */
@@ -100,9 +103,27 @@ class SqliteSessionStore implements SessionStore {
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     await this.ensureReady();
+    if (input.subagentSpawn) {
+      throw new Error('Subagent spawn metadata requires createSubagent()');
+    }
     const staged = await this.files.createTranscript(input);
     try {
       return (await this.metadata.create(staged)).header;
+    } catch (error) {
+      await this.files.remove(staged.id).catch(() => {});
+      throw error;
+    }
+  }
+
+  async createSubagent(
+    input: CreateSessionInput,
+  ): Promise<{ header: SessionHeader; created: boolean }> {
+    await this.ensureReady();
+    const staged = await this.files.createTranscript(input);
+    try {
+      const result = await this.metadata.createSubagent(staged);
+      if (!result.created) await this.files.remove(staged.id);
+      return { header: result.record.header, created: result.created };
     } catch (error) {
       await this.files.remove(staged.id).catch(() => {});
       throw error;
@@ -313,7 +334,16 @@ class FileSessionStore implements SessionStore {
   }
 
   async create(input: CreateSessionInput): Promise<SessionHeader> {
+    if (input.subagentSpawn) {
+      throw new Error('Child-session idempotency requires the SQLite metadata control plane');
+    }
     return this.createWithInitialRecord(input, 'legacy-header');
+  }
+
+  async createSubagent(
+    _input: CreateSessionInput,
+  ): Promise<{ header: SessionHeader; created: boolean }> {
+    throw new Error('Child-session idempotency requires the SQLite metadata control plane');
   }
 
   async createTranscript(input: CreateSessionInput): Promise<SessionHeader> {
@@ -362,6 +392,7 @@ class FileSessionStore implements SessionStore {
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
       ...(input.subagentParent ? { subagentParent: input.subagentParent } : {}),
       ...(input.subagentRuntime ? { subagentRuntime: input.subagentRuntime } : {}),
+      ...(input.subagentSpawn ? { subagentSpawn: input.subagentSpawn } : {}),
       ...(input.revisionRootSessionId
         ? { revisionRootSessionId: input.revisionRootSessionId }
         : {}),
@@ -564,6 +595,9 @@ class FileSessionStore implements SessionStore {
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentRuntime')) {
       throw new Error('Subagent session runtime snapshot is immutable');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentSpawn')) {
+      throw new Error('Subagent session spawn identity is immutable');
     }
     let nextHeader: SessionHeader | undefined;
     await this.withQueue(sessionId, async () => {
@@ -1136,7 +1170,9 @@ function assertValidSessionLineage(header: SessionHeader): void {
 }
 
 function isValidSubagentSessionLineage(header: SessionHeader): boolean {
-  if (header.subagentParent === undefined) return header.subagentRuntime === undefined;
+  if (header.subagentParent === undefined) {
+    return header.subagentRuntime === undefined && header.subagentSpawn === undefined;
+  }
   if (
     !isSubagentSessionParent(header.subagentParent) ||
     !isSafeSessionId(header.subagentParent.parentSessionId) ||
@@ -1151,8 +1187,9 @@ function isValidSubagentSessionLineage(header: SessionHeader): boolean {
     return false;
   }
   return (
-    header.subagentRuntime === undefined ||
+    (header.subagentRuntime === undefined && header.subagentSpawn === undefined) ||
     (isSubagentSessionRuntime(header.subagentRuntime) &&
+      isSubagentSessionSpawn(header.subagentSpawn) &&
       isPermissionModeWithinCeiling(
         header.permissionMode,
         header.subagentRuntime.permissionCeiling,
@@ -1188,7 +1225,9 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     ...(header.parentSessionId ? { parentSessionId: header.parentSessionId } : {}),
     ...(header.branchOfTurnId ? { branchOfTurnId: header.branchOfTurnId } : {}),
     ...(header.subagentParent ? { subagentParent: header.subagentParent } : {}),
-    ...(header.subagentRuntime ? { subagentRuntime: header.subagentRuntime } : {}),
+    ...(header.subagentRuntime
+      ? { subagentRuntime: subagentSessionRuntimeSummary(header.subagentRuntime) }
+      : {}),
     ...(header.revisionRootSessionId
       ? { revisionRootSessionId: header.revisionRootSessionId }
       : {}),

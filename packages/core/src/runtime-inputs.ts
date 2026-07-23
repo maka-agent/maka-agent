@@ -9,6 +9,7 @@ import type {
   SessionStatus,
   SubagentSessionParent,
   SubagentSessionRuntime,
+  SubagentSessionSpawn,
 } from './session.js';
 import type { PermissionMode } from './permission.js';
 import type { ThinkingLevel } from './model-thinking.js';
@@ -39,6 +40,7 @@ export interface CreateSessionInput {
   branchOfTurnId?: string;
   subagentParent?: SubagentSessionParent;
   subagentRuntime?: SubagentSessionRuntime;
+  subagentSpawn?: SubagentSessionSpawn;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;

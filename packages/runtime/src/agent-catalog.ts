@@ -71,6 +71,7 @@ export type AgentDefinitionAvailability =
     };
 
 export interface AgentDefinition {
+  definitionVersion: number;
   id: string;
   profile: AgentProfile;
   name: string;
@@ -81,6 +82,11 @@ export interface AgentDefinition {
   categoryPolicy: Readonly<Partial<Record<ToolCategory, PolicyDecision>>>;
   systemPrompt: string;
 }
+
+export type AgentRuntimeDefinition = Pick<
+  AgentDefinition,
+  'id' | 'permissionMode' | 'tools' | 'categoryPolicy'
+>;
 
 export interface AgentDefinitionListItem {
   id: string;
@@ -99,6 +105,7 @@ export interface AgentDefinitionListOptions {
 }
 
 export const LOCAL_READ_AGENT_DEFINITION: AgentDefinition = {
+  definitionVersion: 1,
   id: LOCAL_READ_AGENT_ID,
   profile: LOCAL_READ_AGENT_PROFILE,
   name: 'Local Read',
@@ -125,6 +132,7 @@ export const LOCAL_READ_AGENT_DEFINITION: AgentDefinition = {
 };
 
 export const WEB_RESEARCH_AGENT_DEFINITION: AgentDefinition = {
+  definitionVersion: 1,
   id: WEB_RESEARCH_AGENT_ID,
   profile: WEB_RESEARCH_AGENT_PROFILE,
   name: 'Web Research',
@@ -152,6 +160,7 @@ export const WEB_RESEARCH_AGENT_DEFINITION: AgentDefinition = {
 };
 
 export const IMPLEMENTATION_AGENT_DEFINITION: AgentDefinition = {
+  definitionVersion: 1,
   id: IMPLEMENTATION_AGENT_ID,
   profile: IMPLEMENTATION_AGENT_PROFILE,
   name: 'Implementation',
@@ -242,7 +251,7 @@ export function requireBuiltinAgentDefinitionByProfile(profile: string): AgentDe
 }
 
 export function evaluateAgentDefinitionToolAccess(
-  definition: AgentDefinition,
+  definition: AgentRuntimeDefinition,
   tool: Pick<MakaTool, 'name' | 'categoryHint'>,
 ): { category: ToolCategory; decision: PolicyDecision } {
   const category = categoryForTool(tool);
@@ -301,7 +310,7 @@ export function evaluateAgentDefinitionAvailability(input: {
 
 export function buildToolsForAgentDefinition(
   tools: readonly MakaTool[],
-  definition: AgentDefinition = LOCAL_READ_AGENT_DEFINITION,
+  definition: AgentRuntimeDefinition = LOCAL_READ_AGENT_DEFINITION,
 ): MakaTool[] {
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
   const out: MakaTool[] = [];

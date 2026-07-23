@@ -1,5 +1,6 @@
 import { describe, test } from 'node:test';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import {
   DEEP_RESEARCH_SESSION_LABEL,
   deriveTurnRecords,
@@ -179,12 +180,20 @@ describe('SessionManager child-session runtime primitive', () => {
       lifecycle: 'foreground',
     });
     expect(childHeader.subagentRuntime).toEqual({
+      schemaVersion: 1,
+      definitionVersion: 1,
       agentId: LOCAL_READ_AGENT_ID,
       agentName: 'Local Read',
       profile: LOCAL_READ_AGENT_PROFILE,
+      systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
       toolNames: ['Read', 'Glob', 'Grep'],
+      categoryPolicy: { read: 'allow' },
       permissionCeiling: 'ask',
     });
+    expect(childHeader.subagentSpawn?.schemaVersion).toBe(1);
+    expect(childHeader.subagentSpawn?.requestFingerprint).toMatch(/^[a-f0-9]{64}$/);
+    expect(childHeader.subagentSpawn?.initialTurnId).toBe(result.turnId);
+    expect(childHeader.subagentSpawn?.initialRunId).toBe(result.runId);
 
     const [childRun] = await runStore.listSessionRuns(result.childSessionId);
     if (!childRun) throw new Error('child run was not recorded');
@@ -228,6 +237,273 @@ describe('SessionManager child-session runtime primitive', () => {
       manager.setPermissionMode(result.childSessionId, 'execute'),
       /exceeds its "ask" ceiling/,
     );
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
+  test('deduplicates concurrent and durable retries while rejecting request drift', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const childGate = makeGate();
+    const backendsBySession = new Map<string, TestBackend>();
+    backends.register('fake', (ctx) => {
+      const backend = new TestBackend(ctx, ctx.header.subagentRuntime ? childGate : parentGate);
+      backendsBySession.set(ctx.sessionId, backend);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(150),
+    });
+    const parent = await manager.createSession(makeInput());
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const spawnInput = {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'same-tool-call',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'one durable task',
+    } as const;
+    const ready = makeGate();
+    const first = manager.spawnChildSession(parent.id, {
+      ...spawnInput,
+      onReady: () => ready.release(),
+    });
+    await ready.promise;
+    const joined = manager.spawnChildSession(parent.id, spawnInput);
+    await expectRejects(
+      manager.spawnChildSession(parent.id, { ...spawnInput, prompt: 'different work' }),
+      /reused for different work/,
+    );
+    expect((await manager.listChildSessions(parent.id)).length).toBe(1);
+
+    childGate.release();
+    const [firstResult, joinedResult] = await Promise.all([first, joined]);
+    expect(joinedResult.childSessionId).toBe(firstResult.childSessionId);
+    expect(joinedResult.runId).toBe(firstResult.runId);
+    expect((await runStore.listSessionRuns(firstResult.childSessionId)).length).toBe(1);
+
+    const durableRetry = await manager.spawnChildSession(parent.id, spawnInput);
+    expect(durableRetry.childSessionId).toBe(firstResult.childSessionId);
+    expect(durableRetry.runId).toBe(firstResult.runId);
+    expect(durableRetry.summary).toBe('ok');
+    expect((await manager.listChildSessions(parent.id)).length).toBe(1);
+    expect(backendsBySession.get(firstResult.childSessionId)?.sendInputs.length).toBe(1);
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
+  test('reopens a child from its exact runtime snapshot after the builtin profile changes', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    const contexts: BackendFactoryContext[] = [];
+    backends.register('fake', (ctx) => {
+      contexts.push(ctx);
+      return new TestBackend(ctx, ctx.header.subagentRuntime ? undefined : parentGate);
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(175),
+    });
+    const parent = await manager.createSession(makeInput());
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const child = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId: 'snapshot-tool-call',
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt: 'first child turn',
+    });
+    const durablePrompt = (await store.readHeader(child.childSessionId)).subagentRuntime
+      ?.systemPrompt;
+    if (!durablePrompt) throw new Error('child runtime snapshot was not persisted');
+
+    const originalPrompt = LOCAL_READ_AGENT_DEFINITION.systemPrompt;
+    const originalPolicy = LOCAL_READ_AGENT_DEFINITION.categoryPolicy;
+    try {
+      LOCAL_READ_AGENT_DEFINITION.systemPrompt = 'Changed catalog prompt that must not leak.';
+      LOCAL_READ_AGENT_DEFINITION.categoryPolicy = { read: 'block' };
+      await manager.refreshIdleBackends();
+      await drain(
+        manager.sendMessage(child.childSessionId, {
+          turnId: 'child-follow-up',
+          text: 'use the durable profile',
+        }),
+      );
+    } finally {
+      LOCAL_READ_AGENT_DEFINITION.systemPrompt = originalPrompt;
+      LOCAL_READ_AGENT_DEFINITION.categoryPolicy = originalPolicy;
+    }
+
+    const childContexts = contexts.filter((ctx) => ctx.sessionId === child.childSessionId);
+    expect(childContexts.length).toBe(2);
+    expect(childContexts[1]?.systemPrompt).toBe(durablePrompt);
+    expect(childContexts[1]?.tools?.map((tool) => tool.name)).toEqual(['Read', 'Glob', 'Grep']);
+
+    const missingToolManager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob')],
+      newId: nextId(),
+      now: nextNow(185),
+    });
+    await expectRejects(
+      drain(
+        missingToolManager.sendMessage(child.childSessionId, {
+          turnId: 'missing-tool-follow-up',
+          text: 'must fail closed',
+        }),
+      ),
+      /runtime tool snapshot is unavailable/,
+    );
+
+    parentGate.release();
+    while (!(await parentTurn.next()).done) {}
+  });
+
+  test('recovers an idempotent retry whose persisted initial run is no longer active', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const parentGate = makeGate();
+    backends.register('fake', (ctx) => new TestBackend(ctx, parentGate));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(190),
+    });
+    const parent = await manager.createSession(makeInput());
+    const parentTurn = manager
+      .sendMessage(parent.id, { turnId: 'parent-turn', text: 'keep parent active' })
+      [Symbol.asyncIterator]();
+    await parentTurn.next();
+    const [parentRun] = await runStore.listSessionRuns(parent.id);
+    if (!parentRun) throw new Error('parent run was not recorded');
+    const toolCallId = 'recovery-tool-call';
+    const prompt = 'recover this exact request';
+    const requestFingerprint = createHash('sha256')
+      .update(
+        JSON.stringify([
+          1,
+          parent.id,
+          parentRun.runId,
+          parentRun.turnId,
+          toolCallId,
+          LOCAL_READ_AGENT_PROFILE,
+          prompt,
+          null,
+          null,
+        ]),
+      )
+      .digest('hex');
+    const { header: child } = await store.createSubagent(
+      makeInput({
+        name: 'Stale child',
+        permissionMode: 'explore',
+        collaborationMode: 'agent',
+        orchestrationMode: 'default',
+        subagentParent: {
+          kind: 'subagent',
+          parentSessionId: parent.id,
+          spawnedBy: {
+            parentRunId: parentRun.runId,
+            parentTurnId: parentRun.turnId,
+            toolCallId,
+          },
+          lifecycle: 'foreground',
+        },
+        subagentRuntime: {
+          schemaVersion: 1,
+          definitionVersion: LOCAL_READ_AGENT_DEFINITION.definitionVersion,
+          agentId: LOCAL_READ_AGENT_ID,
+          agentName: LOCAL_READ_AGENT_DEFINITION.name,
+          profile: LOCAL_READ_AGENT_PROFILE,
+          systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
+          toolNames: [...LOCAL_READ_AGENT_DEFINITION.tools],
+          categoryPolicy: { ...LOCAL_READ_AGENT_DEFINITION.categoryPolicy },
+          permissionCeiling: 'ask',
+        },
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint,
+          initialTurnId: 'stale-child-turn',
+          initialRunId: 'stale-child-run',
+        },
+      }),
+    );
+    await seedRunningTurn(store, child.id, 'stale-child-turn');
+    await seedRun(
+      runStore,
+      makeRunHeader({
+        sessionId: child.id,
+        runId: 'stale-child-run',
+        turnId: 'stale-child-turn',
+        status: 'running',
+        permissionMode: 'explore',
+        agentId: LOCAL_READ_AGENT_ID,
+        agentName: LOCAL_READ_AGENT_DEFINITION.name,
+      }),
+      [
+        makeRunEvent({
+          sessionId: child.id,
+          runId: 'stale-child-run',
+          turnId: 'stale-child-turn',
+          type: 'run_started',
+          ts: 191,
+        }),
+      ],
+    );
+
+    const recovered = await manager.spawnChildSession(parent.id, {
+      spawnedBy: {
+        parentRunId: parentRun.runId,
+        parentTurnId: parentRun.turnId,
+        toolCallId,
+      },
+      agentProfile: LOCAL_READ_AGENT_PROFILE,
+      prompt,
+    });
+    expect(recovered.childSessionId).toBe(child.id);
+    expect(recovered.runId).toBe('stale-child-run');
+    expect(recovered.status).toBe('failed');
+    expect(recovered.failureClass).toBe('app_restarted');
+    expect((await manager.listChildSessions(parent.id)).length).toBe(1);
 
     parentGate.release();
     while (!(await parentTurn.next()).done) {}
@@ -396,11 +672,21 @@ describe('SessionManager child-session runtime primitive', () => {
           lifecycle: 'foreground',
         },
         subagentRuntime: {
+          schemaVersion: 1,
+          definitionVersion: 1,
           agentId: LOCAL_READ_AGENT_ID,
           agentName: 'Local Read',
           profile: LOCAL_READ_AGENT_PROFILE,
+          systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
           toolNames: ['Read', 'Glob', 'Grep'],
+          categoryPolicy: { read: 'allow' },
           permissionCeiling: 'ask',
+        },
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint: 'a'.repeat(64),
+          initialTurnId: 'child-turn',
+          initialRunId: 'child-run',
         },
       }),
     );
@@ -13393,6 +13679,36 @@ class MemorySessionStore implements SessionStore {
   nextReadHeaderGate: { started: Gate; release: Gate } | undefined;
   generatedTitleAttempted: Gate | undefined;
 
+  async createSubagent(
+    input: CreateSessionInput,
+  ): Promise<{ header: SessionHeader; created: boolean }> {
+    const parent = input.subagentParent;
+    const spawn = input.subagentSpawn;
+    if (!parent || !input.subagentRuntime || !spawn) {
+      throw new Error('Missing child-session metadata');
+    }
+    const existing = Array.from(this.headers.values()).find((header) => {
+      const candidate = header.subagentParent;
+      return (
+        candidate?.parentSessionId === parent.parentSessionId &&
+        candidate.spawnedBy.parentRunId === parent.spawnedBy.parentRunId &&
+        candidate.spawnedBy.toolCallId === parent.spawnedBy.toolCallId &&
+        candidate.swarm?.swarmId === parent.swarm?.swarmId &&
+        candidate.swarm?.itemId === parent.swarm?.itemId
+      );
+    });
+    if (existing) {
+      if (
+        existing.subagentSpawn?.requestFingerprint !== spawn.requestFingerprint ||
+        existing.subagentParent?.spawnedBy.parentTurnId !== parent.spawnedBy.parentTurnId
+      ) {
+        throw new Error('Child-session spawn identity was reused for different work');
+      }
+      return { header: existing, created: false };
+    }
+    return { header: await this.create(input), created: true };
+  }
+
   async create(input: CreateSessionInput): Promise<SessionHeader> {
     const header: SessionHeader = {
       id: `session-${this.headers.size + 1}`,
@@ -13412,6 +13728,7 @@ class MemorySessionStore implements SessionStore {
       ...(input.branchOfTurnId ? { branchOfTurnId: input.branchOfTurnId } : {}),
       ...(input.subagentParent ? { subagentParent: input.subagentParent } : {}),
       ...(input.subagentRuntime ? { subagentRuntime: input.subagentRuntime } : {}),
+      ...(input.subagentSpawn ? { subagentSpawn: input.subagentSpawn } : {}),
       ...(input.revisionRootSessionId
         ? { revisionRootSessionId: input.revisionRootSessionId }
         : {}),

@@ -3,7 +3,14 @@ import { dirname, resolve } from 'node:path';
 import { existsSync, mkdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
-import type { SessionHeader, SessionListFilter } from '@maka/core';
+import {
+  isSubagentSessionParent,
+  isSubagentSessionRuntime,
+  isSubagentSessionSpawn,
+  type SessionHeader,
+  type SessionListFilter,
+  type SubagentSessionParent,
+} from '@maka/core';
 import { assertSafeSessionId, normalizeSessionHeader } from './session-store.js';
 import {
   configureSqliteSessionMetadataDatabase,
@@ -48,6 +55,11 @@ export interface SessionMetadataRecord {
   header: SessionHeader;
   metadataVersion: number;
   committedAt: number;
+}
+
+export interface IdempotentSubagentSessionMetadataResult {
+  record: SessionMetadataRecord;
+  created: boolean;
 }
 
 export interface SessionMetadataImportEntry {
@@ -128,6 +140,9 @@ export class SqliteSessionMetadataStore {
     this.assertOpen();
     const normalized = normalizeSessionHeader(header);
     assertSafeSessionId(normalized.id);
+    if (normalized.subagentSpawn) {
+      throw new Error('Subagent spawn metadata requires idempotent child-session creation');
+    }
     return this.transaction(() => {
       if (this.hasTombstone(normalized.id)) {
         throw new SessionMetadataConflictError(
@@ -138,6 +153,41 @@ export class SqliteSessionMetadataStore {
         throw new SessionMetadataConflictError(`Session metadata already exists: ${normalized.id}`);
       }
       return this.insertHeader(normalized, 1, this.now());
+    });
+  }
+
+  async createSubagent(header: SessionHeader): Promise<IdempotentSubagentSessionMetadataResult> {
+    this.assertOpen();
+    const normalized = normalizeSessionHeader(header);
+    assertSafeSessionId(normalized.id);
+    const identity = requireSubagentSpawnIdentity(normalized);
+    return this.transaction(() => {
+      if (this.hasTombstone(normalized.id)) {
+        throw new SessionMetadataConflictError(
+          `Session metadata id is tombstoned: ${normalized.id}`,
+        );
+      }
+      if (this.readRecordSync(normalized.id)) {
+        throw new SessionMetadataConflictError(`Session metadata already exists: ${normalized.id}`);
+      }
+      const inserted = this.tryInsertHeader(normalized, 1, this.now(), true);
+      if (inserted) return { record: inserted, created: true };
+
+      const existing = this.readSubagentBySpawnIdentitySync(identity.parent);
+      if (!existing) {
+        throw new SessionMetadataConflictError(
+          'Child-session metadata insert conflicted outside its spawn identity',
+        );
+      }
+      if (
+        !isDeepStrictEqual(existing.header.subagentParent, identity.parent) ||
+        existing.header.subagentSpawn?.requestFingerprint !== identity.spawn.requestFingerprint
+      ) {
+        throw new SessionMetadataConflictError(
+          'Child-session spawn identity was reused for different work',
+        );
+      }
+      return { record: existing, created: false };
     });
   }
 
@@ -214,6 +264,9 @@ export class SqliteSessionMetadataStore {
     }
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentRuntime')) {
       throw new Error('Subagent session runtime snapshot is immutable');
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'subagentSpawn')) {
+      throw new Error('Subagent session spawn identity is immutable');
     }
     return this.transaction(() => {
       const current = this.readRecordSync(sessionId);
@@ -387,9 +440,22 @@ export class SqliteSessionMetadataStore {
     metadataVersion: number,
     committedAt: number,
   ): SessionMetadataRecord {
-    this.db
+    const inserted = this.tryInsertHeader(header, metadataVersion, committedAt, false);
+    if (!inserted) {
+      throw new SessionMetadataConflictError(`Session metadata already exists: ${header.id}`);
+    }
+    return inserted;
+  }
+
+  private tryInsertHeader(
+    header: SessionHeader,
+    metadataVersion: number,
+    committedAt: number,
+    ignoreConflicts: boolean,
+  ): SessionMetadataRecord | undefined {
+    const result = this.db
       .prepare(`
-        INSERT INTO session_metadata(
+        INSERT ${ignoreConflicts ? 'OR IGNORE' : ''} INTO session_metadata(
           session_id,
           payload_json,
           created_at,
@@ -402,6 +468,13 @@ export class SqliteSessionMetadataStore {
           status_updated_at,
           parent_session_id,
           subagent_parent_session_id,
+          subagent_parent_run_id,
+          subagent_tool_call_id,
+          subagent_swarm_id,
+          subagent_item_id,
+          subagent_request_fingerprint,
+          subagent_initial_turn_id,
+          subagent_initial_run_id,
           revision_root_session_id,
           revision_index,
           has_unread,
@@ -410,7 +483,7 @@ export class SqliteSessionMetadataStore {
           model,
           metadata_version,
           committed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `)
       .run(
         header.id,
@@ -425,6 +498,13 @@ export class SqliteSessionMetadataStore {
         header.statusUpdatedAt ?? null,
         header.parentSessionId ?? null,
         header.subagentParent?.parentSessionId ?? null,
+        header.subagentParent?.spawnedBy.parentRunId ?? null,
+        header.subagentParent?.spawnedBy.toolCallId ?? null,
+        header.subagentParent?.swarm?.swarmId ?? null,
+        header.subagentParent?.swarm?.itemId ?? null,
+        header.subagentSpawn?.requestFingerprint ?? null,
+        header.subagentSpawn?.initialTurnId ?? null,
+        header.subagentSpawn?.initialRunId ?? null,
         header.revisionRootSessionId ?? null,
         header.revisionIndex ?? null,
         booleanInteger(header.hasUnread),
@@ -434,6 +514,7 @@ export class SqliteSessionMetadataStore {
         metadataVersion,
         committedAt,
       );
+    if (result.changes !== 1) return undefined;
     this.options.failpoint?.('after_session_row_write');
     this.replaceLabels(header);
     this.options.failpoint?.('after_session_labels_write');
@@ -459,6 +540,30 @@ export class SqliteSessionMetadataStore {
         WHERE session_id = ?
       `)
       .get(sessionId) as SessionMetadataRow | undefined;
+    return row ? decodeRecord(row) : undefined;
+  }
+
+  private readSubagentBySpawnIdentitySync(
+    parent: SubagentSessionParent,
+  ): SessionMetadataRecord | undefined {
+    const row = this.db
+      .prepare(`
+        SELECT session_id, payload_json, metadata_version, committed_at
+        FROM session_metadata
+        WHERE subagent_parent_session_id = ?
+          AND subagent_parent_run_id = ?
+          AND subagent_tool_call_id = ?
+          AND subagent_swarm_id IS ?
+          AND subagent_item_id IS ?
+          AND subagent_request_fingerprint IS NOT NULL
+      `)
+      .get(
+        parent.parentSessionId,
+        parent.spawnedBy.parentRunId,
+        parent.spawnedBy.toolCallId,
+        parent.swarm?.swarmId ?? null,
+        parent.swarm?.itemId ?? null,
+      ) as SessionMetadataRow | undefined;
     return row ? decodeRecord(row) : undefined;
   }
 
@@ -489,6 +594,22 @@ export class SqliteSessionMetadataStore {
   private assertOpen(): void {
     if (this.closed) throw new Error('SQLite session metadata store is closed');
   }
+}
+
+function requireSubagentSpawnIdentity(header: SessionHeader): {
+  parent: SubagentSessionParent;
+  spawn: NonNullable<SessionHeader['subagentSpawn']>;
+} {
+  if (
+    !isSubagentSessionParent(header.subagentParent) ||
+    !isSubagentSessionRuntime(header.subagentRuntime) ||
+    !isSubagentSessionSpawn(header.subagentSpawn)
+  ) {
+    throw new Error(
+      'Idempotent child-session creation requires parent, runtime, and spawn metadata',
+    );
+  }
+  return { parent: header.subagentParent, spawn: header.subagentSpawn };
 }
 
 interface SessionMetadataRow {

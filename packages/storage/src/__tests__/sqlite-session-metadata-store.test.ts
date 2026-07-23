@@ -19,7 +19,7 @@ describe('SqliteSessionMetadataStore', () => {
     try {
       const store = createSqliteSessionMetadataStore(path, { now: () => 100 });
       const header = fullHeader();
-      assert.equal(store.schemaVersion(), 3);
+      assert.equal(store.schemaVersion(), 4);
       assert.equal(store.journalMode(), 'wal');
       assert.deepEqual(await store.create(header), {
         header,
@@ -30,7 +30,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const reopened = createSqliteSessionMetadataStore(path, { now: () => 200 });
       try {
-        assert.equal(reopened.schemaVersion(), 3);
+        assert.equal(reopened.schemaVersion(), 4);
         assert.deepEqual(await reopened.read(header.id), {
           header,
           metadataVersion: 1,
@@ -51,7 +51,7 @@ describe('SqliteSessionMetadataStore', () => {
     const metadata = createSqliteSessionMetadataStore(path);
     try {
       assert.equal(runtime.schemaVersion(), 4);
-      assert.equal(metadata.schemaVersion(), 3);
+      assert.equal(metadata.schemaVersion(), 4);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {
         id: 'event-1',
@@ -159,7 +159,7 @@ describe('SqliteSessionMetadataStore', () => {
 
     const store = createSqliteSessionMetadataStore(path);
     try {
-      assert.equal(store.schemaVersion(), 3);
+      assert.equal(store.schemaVersion(), 4);
       assert.deepEqual(
         (
           await store.list({
@@ -242,14 +242,24 @@ describe('SqliteSessionMetadataStore', () => {
       lifecycle: 'foreground' as const,
     };
     const subagentRuntime = {
+      schemaVersion: 1 as const,
+      definitionVersion: 1,
       agentId: 'local-read',
       agentName: 'Local Read',
       profile: 'local_read',
+      systemPrompt: 'Read the assigned workspace task.',
       toolNames: ['Read', 'Glob', 'Grep'],
+      categoryPolicy: { read: 'allow' as const },
       permissionCeiling: 'ask' as const,
     };
+    const subagentSpawn = {
+      schemaVersion: 1 as const,
+      requestFingerprint: 'a'.repeat(64),
+      initialTurnId: 'child-turn',
+      initialRunId: 'child-run',
+    };
     try {
-      await store.create(
+      const created = await store.createSubagent(
         fullHeader({
           id: 'child-session',
           parentSessionId: undefined,
@@ -261,8 +271,10 @@ describe('SqliteSessionMetadataStore', () => {
           revisionState: undefined,
           subagentParent,
           subagentRuntime,
+          subagentSpawn,
         }),
       );
+      assert.equal(created.created, true);
       await store.create(
         fullHeader({
           id: 'ordinary-branch',
@@ -298,6 +310,7 @@ describe('SqliteSessionMetadataStore', () => {
       );
       assert.deepEqual(children[0]?.header.subagentParent, subagentParent);
       assert.deepEqual(children[0]?.header.subagentRuntime, subagentRuntime);
+      assert.deepEqual(children[0]?.header.subagentSpawn, subagentSpawn);
       await assert.rejects(
         () => store.update('child-session', { subagentParent: undefined }),
         /parent relation is immutable/,
@@ -306,6 +319,110 @@ describe('SqliteSessionMetadataStore', () => {
         () => store.update('child-session', { subagentRuntime: undefined }),
         /runtime snapshot is immutable/,
       );
+      await assert.rejects(
+        () => store.update('child-session', { subagentSpawn: undefined }),
+        /spawn identity is immutable/,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test('atomically reuses one child per durable spawn identity and rejects request drift', async () => {
+    const store = createSqliteSessionMetadataStore(':memory:');
+    const parent = {
+      kind: 'subagent' as const,
+      parentSessionId: 'parent-session',
+      spawnedBy: {
+        parentRunId: 'parent-run',
+        parentTurnId: 'parent-turn',
+        toolCallId: 'tool-call',
+      },
+      lifecycle: 'foreground' as const,
+    };
+    const runtime = {
+      schemaVersion: 1 as const,
+      definitionVersion: 1,
+      agentId: 'local-read',
+      agentName: 'Local Read',
+      profile: 'local_read',
+      systemPrompt: 'Original durable prompt.',
+      toolNames: ['Read'],
+      categoryPolicy: { read: 'allow' as const },
+      permissionCeiling: 'ask' as const,
+    };
+    const childHeader = (overrides: Partial<SessionHeader>): SessionHeader =>
+      fullHeader({
+        parentSessionId: undefined,
+        branchOfTurnId: undefined,
+        revisionRootSessionId: undefined,
+        revisionParentSessionId: undefined,
+        revisionOfTurnId: undefined,
+        revisionIndex: undefined,
+        revisionState: undefined,
+        subagentParent: parent,
+        subagentRuntime: runtime,
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint: 'a'.repeat(64),
+          initialTurnId: 'child-turn',
+          initialRunId: 'child-run',
+        },
+        ...overrides,
+      });
+    try {
+      const first = await store.createSubagent(childHeader({ id: 'child-original' }));
+      assert.equal(first.created, true);
+
+      const retry = await store.createSubagent(
+        childHeader({
+          id: 'child-retry-candidate',
+          subagentRuntime: { ...runtime, systemPrompt: 'A changed catalog prompt.' },
+          subagentSpawn: {
+            schemaVersion: 1,
+            requestFingerprint: 'a'.repeat(64),
+            initialTurnId: 'different-proposed-turn',
+            initialRunId: 'different-proposed-run',
+          },
+        }),
+      );
+      assert.equal(retry.created, false);
+      assert.equal(retry.record.header.id, 'child-original');
+      assert.equal(retry.record.header.subagentRuntime?.systemPrompt, 'Original durable prompt.');
+      assert.equal(retry.record.header.subagentSpawn?.initialRunId, 'child-run');
+
+      await assert.rejects(
+        () =>
+          store.createSubagent(
+            childHeader({
+              id: 'drifted-child',
+              subagentSpawn: {
+                schemaVersion: 1,
+                requestFingerprint: 'b'.repeat(64),
+                initialTurnId: 'drifted-turn',
+                initialRunId: 'drifted-run',
+              },
+            }),
+          ),
+        /reused for different work/,
+      );
+
+      const swarmItem = await store.createSubagent(
+        childHeader({
+          id: 'swarm-child',
+          subagentParent: {
+            ...parent,
+            swarm: { swarmId: 'swarm-1', itemId: 'item-1' },
+          },
+          subagentSpawn: {
+            schemaVersion: 1,
+            requestFingerprint: 'c'.repeat(64),
+            initialTurnId: 'swarm-turn',
+            initialRunId: 'swarm-run',
+          },
+        }),
+      );
+      assert.equal(swarmItem.created, true);
     } finally {
       store.close();
     }

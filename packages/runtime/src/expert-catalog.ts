@@ -144,6 +144,7 @@ export function materializeExpertAgentDefinition(
     );
   }
   return {
+    definitionVersion: archetype.definitionVersion,
     id: buildExpertAgentId(team.id, expert.id),
     profile: archetype.profile,
     name: expert.name,

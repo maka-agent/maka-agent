@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 3;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 4;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
@@ -84,6 +84,50 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
 
     CREATE INDEX session_metadata_by_subagent_parent
       ON session_metadata(subagent_parent_session_id, session_id);
+  `,
+  ],
+  [
+    4,
+    `
+    ALTER TABLE session_metadata ADD COLUMN subagent_parent_run_id TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_tool_call_id TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_swarm_id TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_item_id TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_request_fingerprint TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_initial_turn_id TEXT;
+    ALTER TABLE session_metadata ADD COLUMN subagent_initial_run_id TEXT;
+
+    UPDATE session_metadata
+    SET
+      subagent_parent_run_id =
+        json_extract(payload_json, '$.subagentParent.spawnedBy.parentRunId'),
+      subagent_tool_call_id =
+        json_extract(payload_json, '$.subagentParent.spawnedBy.toolCallId'),
+      subagent_swarm_id =
+        json_extract(payload_json, '$.subagentParent.swarm.swarmId'),
+      subagent_item_id =
+        json_extract(payload_json, '$.subagentParent.swarm.itemId'),
+      subagent_request_fingerprint =
+        json_extract(payload_json, '$.subagentSpawn.requestFingerprint'),
+      subagent_initial_turn_id =
+        json_extract(payload_json, '$.subagentSpawn.initialTurnId'),
+      subagent_initial_run_id =
+        json_extract(payload_json, '$.subagentSpawn.initialRunId')
+    WHERE subagent_parent_session_id IS NOT NULL;
+
+    CREATE UNIQUE INDEX session_metadata_by_subagent_spawn
+      ON session_metadata(
+        subagent_parent_session_id,
+        subagent_parent_run_id,
+        subagent_tool_call_id,
+        COALESCE(subagent_swarm_id, ''),
+        COALESCE(subagent_item_id, '')
+      )
+      WHERE
+        subagent_parent_session_id IS NOT NULL
+        AND subagent_parent_run_id IS NOT NULL
+        AND subagent_tool_call_id IS NOT NULL
+        AND subagent_request_fingerprint IS NOT NULL;
   `,
   ],
 ]);
