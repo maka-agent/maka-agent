@@ -191,6 +191,88 @@ describe('stream graph trace topology', () => {
     assert.equal(snapshot.operators.target?.runtimeState, undefined);
   });
 
+  test('materializes reserved JavaScript property names as own snapshot keys', () => {
+    const source = {
+      ...runHeader('reserved-source', baseTs),
+      runId: 'constructor',
+      invocationId: 'reserved-invocation',
+    };
+    const target = runHeader('reserved-target', baseTs + 1);
+    const projection = projectAgentGraphRecords({
+      graphId: 'graph-reserved-keys',
+      streams: [
+        stream(source, '__proto__', [
+          runtimeEvent(source, 'reserved-record', baseTs + 1, 'reserved'),
+        ]),
+      ],
+    });
+
+    const snapshot = buildAgentGraphTraceSnapshot({
+      topology: {
+        graphId: 'graph-reserved-keys',
+        operators: [binding(source, '__proto__'), binding(target, 'toString')],
+        edges: [
+          {
+            edgeId: '__proto__',
+            fromOperatorId: '__proto__',
+            toOperatorId: 'toString',
+          },
+        ],
+      },
+      records: projection.records,
+    });
+
+    assert.equal(Object.hasOwn(snapshot.operators, '__proto__'), true);
+    assert.equal(Object.hasOwn(snapshot.operators, 'toString'), true);
+    assert.equal(Object.hasOwn(snapshot.edges, '__proto__'), true);
+    assert.equal(snapshot.edges['__proto__']?.routeIds.length, 1);
+    assert.equal(
+      Object.hasOwn(
+        snapshot.operators['__proto__']?.runtimeState?.activations ?? {},
+        'constructor',
+      ),
+      true,
+    );
+  });
+
+  test('binds route identity to immutable edge endpoints', () => {
+    const source = runHeader('route-source', baseTs);
+    const targetA = runHeader('route-target-a', baseTs + 1);
+    const targetB = runHeader('route-target-b', baseTs + 2);
+    const projection = projectAgentGraphRecords({
+      graphId: 'graph-edge-rebinding',
+      streams: [
+        stream(source, 'source', [runtimeEvent(source, 'source-record', baseTs + 1, 'source')]),
+      ],
+    });
+    const operators = [
+      binding(source, 'source'),
+      binding(targetA, 'target-a'),
+      binding(targetB, 'target-b'),
+    ];
+
+    const first = buildAgentGraphTraceSnapshot({
+      topology: {
+        graphId: 'graph-edge-rebinding',
+        operators,
+        edges: [{ edgeId: 'edge', fromOperatorId: 'source', toOperatorId: 'target-a' }],
+      },
+      records: projection.records,
+    });
+    const rebound = buildAgentGraphTraceSnapshot({
+      topology: {
+        graphId: 'graph-edge-rebinding',
+        operators,
+        edges: [{ edgeId: 'edge', fromOperatorId: 'source', toOperatorId: 'target-b' }],
+      },
+      records: projection.records,
+    });
+
+    assert.notEqual(first.routes[0]?.routeId, rebound.routes[0]?.routeId);
+    assert.equal(first.routes[0]?.targetOperatorId, 'target-a');
+    assert.equal(rebound.routes[0]?.targetOperatorId, 'target-b');
+  });
+
   test('fails closed on invalid topology and record ownership', () => {
     const one = runHeader('one', baseTs);
     const two = runHeader('two', baseTs + 1);

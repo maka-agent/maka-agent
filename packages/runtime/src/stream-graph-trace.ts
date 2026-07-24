@@ -137,10 +137,12 @@ export function buildAgentGraphTraceSnapshot(
   const compareOperators = (a: string, b: string): number =>
     topologicalIndex.get(a)! - topologicalIndex.get(b)! || a.localeCompare(b);
 
-  const operators: Record<string, AgentGraphTraceOperatorState> = {};
+  const replayOperators = new Map(Object.entries(replay.operators));
+  const operators = new Map<string, AgentGraphTraceOperatorState>();
   for (const operatorId of validated.topologicalOrder) {
     const binding = validated.operatorsById.get(operatorId)!;
-    operators[operatorId] = {
+    const runtimeState = replayOperators.get(operatorId);
+    operators.set(operatorId, {
       operatorId,
       sessionId: binding.sessionId,
       topologicalIndex: topologicalIndex.get(operatorId)!,
@@ -154,24 +156,22 @@ export function buildAgentGraphTraceSnapshot(
       ),
       emittedRecordIds: [],
       receivedRouteIds: [],
-      ...(replay.operators[operatorId]
-        ? { runtimeState: cloneOperatorState(replay.operators[operatorId]) }
-        : {}),
-    };
+      ...(runtimeState ? { runtimeState: cloneOperatorState(runtimeState) } : {}),
+    });
   }
 
-  const edges: Record<string, AgentGraphTraceEdgeState> = {};
+  const edges = new Map<string, AgentGraphTraceEdgeState>();
   for (const edge of validated.edges) {
-    edges[edge.edgeId] = {
+    edges.set(edge.edgeId, {
       ...edge,
       routeIds: [],
       sourceRecordIds: [],
-    };
+    });
   }
 
   const routes: AgentGraphTraceRoute[] = [];
   for (const record of orderedRecords) {
-    operators[record.operatorId]!.emittedRecordIds.push(record.recordId);
+    operators.get(record.operatorId)!.emittedRecordIds.push(record.recordId);
     const outgoing = [...(validated.outgoing.get(record.operatorId) ?? [])].sort(
       (a, b) =>
         compareOperators(a.toOperatorId, b.toOperatorId) || a.edgeId.localeCompare(b.edgeId),
@@ -179,7 +179,7 @@ export function buildAgentGraphTraceSnapshot(
     for (const edge of outgoing) {
       const route: AgentGraphTraceRoute = {
         schemaVersion: AGENT_GRAPH_TRACE_SCHEMA_VERSION,
-        routeId: traceRouteId(input.topology.graphId, edge.edgeId, record.recordId),
+        routeId: traceRouteId(input.topology.graphId, edge, record.recordId),
         graphId: input.topology.graphId,
         edgeId: edge.edgeId,
         sourceOperatorId: edge.fromOperatorId,
@@ -189,9 +189,9 @@ export function buildAgentGraphTraceSnapshot(
         eventTime: record.eventTime,
       };
       routes.push(route);
-      edges[edge.edgeId]!.routeIds.push(route.routeId);
-      edges[edge.edgeId]!.sourceRecordIds.push(record.recordId);
-      operators[edge.toOperatorId]!.receivedRouteIds.push(route.routeId);
+      edges.get(edge.edgeId)!.routeIds.push(route.routeId);
+      edges.get(edge.edgeId)!.sourceRecordIds.push(record.recordId);
+      operators.get(edge.toOperatorId)!.receivedRouteIds.push(route.routeId);
     }
   }
 
@@ -206,8 +206,8 @@ export function buildAgentGraphTraceSnapshot(
       (operatorId) => (validated.outgoing.get(operatorId) ?? []).length === 0,
     ),
     recordIds: replay.appliedRecordIds,
-    operators,
-    edges,
+    operators: Object.fromEntries(operators),
+    edges: Object.fromEntries(edges),
     routes,
   };
 }
@@ -337,8 +337,15 @@ function insertSorted(values: string[], value: string): void {
   else values.splice(index, 0, value);
 }
 
-function traceRouteId(graphId: string, edgeId: string, sourceRecordId: string): string {
-  const hash = stableHash({ graphId, edgeId, sourceRecordId });
+function traceRouteId(graphId: string, edge: AgentGraphTraceEdge, sourceRecordId: string): string {
+  const hash = stableHash({
+    schemaVersion: AGENT_GRAPH_TRACE_SCHEMA_VERSION,
+    graphId,
+    edgeId: edge.edgeId,
+    fromOperatorId: edge.fromOperatorId,
+    toOperatorId: edge.toOperatorId,
+    sourceRecordId,
+  });
   return `graph_route_${hash.slice('sha256:'.length, 'sha256:'.length + 32)}`;
 }
 

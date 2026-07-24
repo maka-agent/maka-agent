@@ -191,6 +191,10 @@ interface OrderedRuntimeEvent {
   committedEventOrdinal: number;
 }
 
+interface MutableAgentGraphOperatorState extends Omit<AgentGraphOperatorState, 'activations'> {
+  activations: Map<string, AgentGraphActivationState>;
+}
+
 export async function readCommittedAgentGraphProjection(
   input: ReadCommittedAgentGraphProjectionInput,
 ): Promise<AgentGraphProjection> {
@@ -376,7 +380,7 @@ export function replayAgentGraphRecords(
 
   const ordered = [...uniqueRecords.values()].sort(compareAgentGraphRecords);
   const graphId = ordered[0]!.graphId;
-  const operators: Record<string, AgentGraphOperatorState> = {};
+  const operatorsById = new Map<string, MutableAgentGraphOperatorState>();
   const operatorBySession = new Map<string, string>();
 
   for (const record of ordered) {
@@ -389,23 +393,23 @@ export function replayAgentGraphRecords(
     }
     operatorBySession.set(record.sessionId, record.operatorId);
 
-    let operator = operators[record.operatorId];
+    let operator = operatorsById.get(record.operatorId);
     if (!operator) {
       operator = {
         operatorId: record.operatorId,
         sessionId: record.sessionId,
         status: 'running',
         currentActivationId: record.activationId,
-        activations: {},
+        activations: new Map(),
       };
-      operators[record.operatorId] = operator;
+      operatorsById.set(record.operatorId, operator);
     } else if (operator.sessionId !== record.sessionId) {
       throw new Error(
         `Operator ${record.operatorId} is bound to both ${operator.sessionId} and ${record.sessionId}`,
       );
     }
 
-    let activation = operator.activations[record.activationId];
+    let activation = operator.activations.get(record.activationId);
     if (!activation) {
       activation = {
         activationId: record.activationId,
@@ -416,7 +420,7 @@ export function replayAgentGraphRecords(
         lastEventTime: record.eventTime,
         lastRecordId: record.recordId,
       };
-      operator.activations[record.activationId] = activation;
+      operator.activations.set(record.activationId, activation);
     } else {
       if (activation.agentRunId !== record.agentRunId) {
         throw new Error(`Activation ${record.activationId} references multiple AgentRuns`);
@@ -440,6 +444,19 @@ export function replayAgentGraphRecords(
     operator.currentActivationId = activation.activationId;
     operator.status = activation.status;
   }
+
+  const operators: Record<string, AgentGraphOperatorState> = Object.fromEntries(
+    [...operatorsById].map(([operatorId, operator]) => {
+      const { activations, ...operatorState } = operator;
+      return [
+        operatorId,
+        {
+          ...operatorState,
+          activations: Object.fromEntries(activations),
+        },
+      ];
+    }),
+  );
 
   return {
     graphId,

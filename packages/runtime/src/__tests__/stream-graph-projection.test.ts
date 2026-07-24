@@ -232,6 +232,38 @@ describe('committed stream graph projection', () => {
     assert.deepEqual(reorderedWithDuplicates, canonical);
   });
 
+  test('replays reserved JavaScript property names as ordinary graph identities', () => {
+    const run = runHeader({
+      sessionId: 'reserved-session',
+      runId: 'constructor',
+      turnId: 'reserved-turn',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-reserved-identities',
+      streams: [
+        {
+          operator: { operatorId: '__proto__', sessionId: run.sessionId },
+          run,
+          events: [runtimeEvent(run, { id: 'toString', ts: baseTs + 1 })],
+        },
+      ],
+    });
+
+    const state = replayAgentGraphRecords(records);
+    assert.equal(Object.hasOwn(state.operators, '__proto__'), true);
+    assert.equal(state.operators['__proto__']?.operatorId, '__proto__');
+    assert.equal(
+      Object.hasOwn(state.operators['__proto__']?.activations ?? {}, 'constructor'),
+      true,
+    );
+    const reservedActivation = Object.entries(state.operators['__proto__']?.activations ?? {}).find(
+      ([activationId]) => activationId === 'constructor',
+    )?.[1];
+    assert.equal(reservedActivation?.agentRunId, 'constructor');
+  });
+
   test('rejects one Session projected under different operators across observations', () => {
     const run = runHeader({
       sessionId: 'child-a',
