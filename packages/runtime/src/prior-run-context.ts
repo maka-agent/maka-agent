@@ -212,7 +212,12 @@ async function backfillMissingPriorRuntimeEvents(
   input: BuildPriorRuntimeContextInput,
   run: AgentRunHeader,
 ): Promise<RuntimeEvent[]> {
-  const messages = await input.readMessages().catch(() => []);
+  let messages: StoredMessage[];
+  try {
+    messages = await input.readMessages();
+  } catch {
+    return [];
+  }
   return backfillRuntimeEventsFromStoredMessages({ run, messages }).events;
 }
 
