@@ -52,6 +52,8 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *  - 'terminatedMidBody' → the response starts, then its body errors while the
  *                 SDK iterator is being consumed
  *  - 'partialThenTerminated' → visible text arrives before the body errors
+ *  - 'partialThenOverflowPart' → visible text arrives before an in-stream
+ *                 context error
  */
 type CallKind =
   | 'tool'
@@ -69,7 +71,8 @@ type CallKind =
   | 'rateLimit'
   | 'terminated'
   | 'terminatedMidBody'
-  | 'partialThenTerminated';
+  | 'partialThenTerminated'
+  | 'partialThenOverflowPart';
 
 const RETRY_STEP_TEXT_SENTINEL = 'RETRY_STEP_TEXT_SENTINEL reasoning before the big read';
 const BIG_RESULT = 'BIG_RESULT_'.repeat(200);
@@ -220,6 +223,30 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
           controller.enqueue({ type: 'text-delta', id: 'partial-text', delta: 'partial' });
           setTimeout(() => controller.error(new TypeError('terminated')), 0);
         },
+      });
+    }
+    if (kind === 'partialThenOverflowPart') {
+      return simulateReadableStream({
+        chunks: [
+          { type: 'stream-start', warnings: [] },
+          { type: 'text-start', id: 'partial-overflow' },
+          { type: 'text-delta', id: 'partial-overflow', delta: 'partial' },
+          {
+            type: 'error',
+            error: {
+              message: 'Bad Request',
+              type: 'invalid_request_error',
+              code: 'context_length_exceeded',
+            },
+          },
+          {
+            type: 'finish',
+            finishReason: { unified: 'error', raw: undefined },
+            usage: usage(0, 0),
+          },
+        ],
+        initialDelayInMs: null,
+        chunkDelayInMs: null,
       });
     }
     if (
@@ -811,6 +838,37 @@ describe('reactive overflow recovery in the streaming backend', () => {
     assert.deepEqual(fixture.toolExecutions, ['one.md']);
     assert.equal(fixture.recorded.length, 0);
     assert.equal(fixture.summarizerCalls(), 0);
+  });
+
+  test('does not recover an overflow after the failed stream emitted visible text', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'partialThenOverflowPart', 'done'],
+      bigPriors: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'error');
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'text_delta' && event.text === 'partial'),
+      true,
+    );
+  });
+
+  test('a transport retry after overflow keeps the recovered request projection', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'overflow', 'terminated', 'done'],
+      bigPriors: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(fixture.model.doStreamCalls.length, 4);
+    assert.deepEqual(
+      fixture.model.doStreamCalls[3]?.prompt,
+      fixture.model.doStreamCalls[2]?.prompt,
+    );
   });
 
   test('the recovery baseline is the request the provider rejected, not the attempt-initial messages', async () => {

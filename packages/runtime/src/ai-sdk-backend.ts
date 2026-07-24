@@ -1465,6 +1465,11 @@ export class AiSdkBackend implements AgentBackend {
           const returnedToolCalls: ToolCallPart[] = [];
           const providerStepId = currentStepMessageId;
           let providerStepUsage: NormalizedUsage | undefined;
+          const attemptHasNoObservableOutput = () =>
+            returnedToolCalls.length === 0 &&
+            stepText.length === 0 &&
+            stepThinking.length === 0 &&
+            stepSignature === undefined;
           for (;;) {
             result = await this.modelAdapter.startStream({
               model,
@@ -1585,7 +1590,7 @@ export class AiSdkBackend implements AgentBackend {
               // nothing left to grant it, so the error is terminal.
               const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
               const recovered =
-                stepBudgetRemains && returnedToolCalls.length === 0
+                stepBudgetRemains && attemptHasNoObservableOutput()
                   ? await this.compaction.recoverFromOverflowError({
                       error: streamFailure,
                       retryAlreadyUsed: overflowRetryUsed,
@@ -1624,10 +1629,7 @@ export class AiSdkBackend implements AgentBackend {
                 failure.retryable &&
                 providerAttempt < MAX_PROVIDER_ATTEMPTS_PER_STEP &&
                 stepBudgetRemains &&
-                returnedToolCalls.length === 0 &&
-                stepText.length === 0 &&
-                stepThinking.length === 0 &&
-                stepSignature === undefined
+                attemptHasNoObservableOutput()
               ) {
                 // The failed request did not return authoritative usage. Keep
                 // effectiveness recoverable, but fail final metering closed.
