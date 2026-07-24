@@ -55,7 +55,8 @@
     "./ai-sdk-flow": "./dist/ai-sdk-flow.js",
     "./stream-graph-projection": "./dist/stream-graph-projection.js",
     "./stream-graph-trace": "./dist/stream-graph-trace.js",
-    "./stream-graph-readiness": "./dist/stream-graph-readiness.js"
+    "./stream-graph-readiness": "./dist/stream-graph-readiness.js",
+    "./stream-graph-admission": "./dist/stream-graph-admission.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",

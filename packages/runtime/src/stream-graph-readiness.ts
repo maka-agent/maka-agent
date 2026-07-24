@@ -73,6 +73,7 @@ export interface AgentGraphRunnableIntent {
   policyFingerprint: string;
   readinessId: string;
   operatorId: string;
+  targetSessionId: string;
   policyKind: AgentGraphReadinessPolicy['kind'];
   triggerRouteIds: string[];
   triggerRecordIds: string[];
@@ -427,6 +428,7 @@ function runnableIntent(
   readinessContextFingerprint: string,
   triggerRoutes: readonly AgentGraphTraceRoute[],
 ): AgentGraphRunnableIntent {
+  const targetSessionId = trace.operators[policy.operatorId]!.sessionId;
   const triggerRouteIds = triggerRoutes.map((route) => route.routeId);
   const triggerRecordIds = triggerRoutes.map((route) => route.sourceRecordId);
   const hash = stableHash({
@@ -436,6 +438,7 @@ function runnableIntent(
     policyFingerprint,
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
+    targetSessionId,
     policyKind: policy.kind,
     triggerRouteIds,
     triggerRecordIds,
@@ -448,6 +451,7 @@ function runnableIntent(
     policyFingerprint,
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
+    targetSessionId,
     policyKind: policy.kind,
     triggerRouteIds,
     triggerRecordIds,

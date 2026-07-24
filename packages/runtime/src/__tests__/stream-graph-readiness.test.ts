@@ -50,6 +50,10 @@ describe('operator-local stream graph readiness', () => {
     assert.equal(state?.status, 'runnable');
     assert.equal(state?.intents.length, 2);
     assert.deepEqual(
+      state?.intents.map((intent) => intent.targetSessionId),
+      [worker.sessionId, worker.sessionId],
+    );
+    assert.deepEqual(
       state?.intents.map((intent) => intent.triggerRouteIds),
       snapshot.trace.routes.map((route) => [route.routeId]),
     );

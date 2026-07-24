@@ -4,9 +4,14 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import {
+  assertAgentGraphIntentClaimRequest,
+  decodeAgentGraphIntentClaim,
   isSubagentSessionParent,
   isSubagentSessionRuntime,
   isSubagentSessionSpawn,
+  type AgentGraphIntentClaim,
+  type AgentGraphIntentClaimRequest,
+  type AgentGraphIntentClaimResult,
   type SessionHeader,
   type SessionListFilter,
   type SubagentSessionParent,
@@ -44,7 +49,8 @@ function loadSqliteModule(): typeof import('node:sqlite') {
 export type SqliteSessionMetadataStoreFailpoint =
   | 'after_session_row_write'
   | 'after_session_labels_write'
-  | 'after_session_import_marker_write';
+  | 'after_session_import_marker_write'
+  | 'after_agent_graph_intent_claim_write';
 
 export interface SqliteSessionMetadataStoreOptions {
   now?: () => number;
@@ -77,7 +83,11 @@ export interface SessionMetadataImportResult {
 }
 
 export class SessionMetadataConflictError extends Error {
-  readonly name = 'SessionMetadataConflictError';
+  readonly name: string = 'SessionMetadataConflictError';
+}
+
+export class AgentGraphIntentClaimConflictError extends SessionMetadataConflictError {
+  readonly name = 'AgentGraphIntentClaimConflictError';
 }
 
 export function createSqliteSessionMetadataStore(
@@ -255,6 +265,101 @@ export class SqliteSessionMetadataStore {
       `)
       .all(...parameters) as unknown as SessionMetadataRow[];
     return rows.map(decodeRecord);
+  }
+
+  async claimAgentGraphIntent(
+    request: AgentGraphIntentClaimRequest,
+  ): Promise<AgentGraphIntentClaimResult> {
+    this.assertOpen();
+    assertAgentGraphIntentClaimRequest(request);
+    return this.transaction(() => {
+      const claimedAt = this.now();
+      const inserted = this.db
+        .prepare(`
+          INSERT OR IGNORE INTO agent_graph_intent_claims(
+            claim_id,
+            schema_version,
+            graph_id,
+            intent_id,
+            intent_fingerprint,
+            readiness_context_fingerprint,
+            target_operator_id,
+            target_session_id,
+            target_turn_id,
+            target_run_id,
+            claimed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `)
+        .run(
+          request.claimId,
+          request.schemaVersion,
+          request.graphId,
+          request.intentId,
+          request.intentFingerprint,
+          request.readinessContextFingerprint,
+          request.targetOperatorId,
+          request.targetSessionId,
+          request.targetTurnId,
+          request.targetRunId,
+          claimedAt,
+        );
+      if (inserted.changes === 1) {
+        this.options.failpoint?.('after_agent_graph_intent_claim_write');
+      }
+      const claim = this.readAgentGraphIntentClaimSync(request.graphId, request.intentId);
+      if (!claim) {
+        throw new AgentGraphIntentClaimConflictError(
+          'Agent graph intent claim identity collides with another claim',
+        );
+      }
+      if (
+        claim.claimId !== request.claimId ||
+        claim.intentFingerprint !== request.intentFingerprint ||
+        claim.readinessContextFingerprint !== request.readinessContextFingerprint ||
+        claim.targetOperatorId !== request.targetOperatorId ||
+        claim.targetSessionId !== request.targetSessionId
+      ) {
+        throw new AgentGraphIntentClaimConflictError(
+          'Agent graph intent identity was reused for different work',
+        );
+      }
+      return { claim, created: inserted.changes === 1 };
+    });
+  }
+
+  async readAgentGraphIntentClaim(
+    graphId: string,
+    intentId: string,
+  ): Promise<AgentGraphIntentClaim | undefined> {
+    this.assertOpen();
+    assertGraphLookupIdentity(graphId, 'graph id');
+    assertGraphIntentId(intentId);
+    return this.readAgentGraphIntentClaimSync(graphId, intentId);
+  }
+
+  async listAgentGraphIntentClaims(graphId?: string): Promise<AgentGraphIntentClaim[]> {
+    this.assertOpen();
+    if (graphId !== undefined) assertGraphLookupIdentity(graphId, 'graph id');
+    const rows = this.db
+      .prepare(`
+        SELECT
+          schema_version AS schemaVersion,
+          claim_id AS claimId,
+          graph_id AS graphId,
+          intent_id AS intentId,
+          intent_fingerprint AS intentFingerprint,
+          readiness_context_fingerprint AS readinessContextFingerprint,
+          target_operator_id AS targetOperatorId,
+          target_session_id AS targetSessionId,
+          target_turn_id AS targetTurnId,
+          target_run_id AS targetRunId,
+          claimed_at AS claimedAt
+        FROM agent_graph_intent_claims
+        ${graphId === undefined ? '' : 'WHERE graph_id = ?'}
+        ORDER BY graph_id ASC, claimed_at ASC, intent_id ASC
+      `)
+      .all(...(graphId === undefined ? [] : [graphId])) as unknown as AgentGraphIntentClaim[];
+    return rows.map(decodeAgentGraphIntentClaim);
   }
 
   async update(
@@ -637,6 +742,31 @@ export class SqliteSessionMetadataStore {
       ) as SubagentSpawnClaim | undefined;
   }
 
+  private readAgentGraphIntentClaimSync(
+    graphId: string,
+    intentId: string,
+  ): AgentGraphIntentClaim | undefined {
+    const row = this.db
+      .prepare(`
+        SELECT
+          schema_version AS schemaVersion,
+          claim_id AS claimId,
+          graph_id AS graphId,
+          intent_id AS intentId,
+          intent_fingerprint AS intentFingerprint,
+          readiness_context_fingerprint AS readinessContextFingerprint,
+          target_operator_id AS targetOperatorId,
+          target_session_id AS targetSessionId,
+          target_turn_id AS targetTurnId,
+          target_run_id AS targetRunId,
+          claimed_at AS claimedAt
+        FROM agent_graph_intent_claims
+        WHERE graph_id = ? AND intent_id = ?
+      `)
+      .get(graphId, intentId) as AgentGraphIntentClaim | undefined;
+    return row ? decodeAgentGraphIntentClaim(row) : undefined;
+  }
+
   private hasTombstone(sessionId: string): boolean {
     return (
       this.db
@@ -714,4 +844,22 @@ function decodeRecord(row: SessionMetadataRow): SessionMetadataRecord {
 
 function booleanInteger(value: boolean): 0 | 1 {
   return value ? 1 : 0;
+}
+
+function assertGraphLookupIdentity(value: string, name: string): void {
+  if (
+    typeof value !== 'string' ||
+    value.length === 0 ||
+    value.length > 256 ||
+    value.trim() !== value ||
+    /[\u0000-\u001f\u007f]/.test(value)
+  ) {
+    throw new Error(`Invalid agent graph ${name}`);
+  }
+}
+
+function assertGraphIntentId(value: string): void {
+  if (!/^graph_intent_[a-f0-9]{32}$/.test(value)) {
+    throw new Error('Invalid agent graph intent id');
+  }
 }

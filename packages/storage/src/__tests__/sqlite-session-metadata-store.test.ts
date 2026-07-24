@@ -19,7 +19,7 @@ describe('SqliteSessionMetadataStore', () => {
     try {
       const store = createSqliteSessionMetadataStore(path, { now: () => 100 });
       const header = fullHeader();
-      assert.equal(store.schemaVersion(), 5);
+      assert.equal(store.schemaVersion(), 6);
       assert.equal(store.journalMode(), 'wal');
       assert.deepEqual(await store.create(header), {
         header,
@@ -30,7 +30,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const reopened = createSqliteSessionMetadataStore(path, { now: () => 200 });
       try {
-        assert.equal(reopened.schemaVersion(), 5);
+        assert.equal(reopened.schemaVersion(), 6);
         assert.deepEqual(await reopened.read(header.id), {
           header,
           metadataVersion: 1,
@@ -51,7 +51,7 @@ describe('SqliteSessionMetadataStore', () => {
     const metadata = createSqliteSessionMetadataStore(path);
     try {
       assert.equal(runtime.schemaVersion(), 4);
-      assert.equal(metadata.schemaVersion(), 5);
+      assert.equal(metadata.schemaVersion(), 6);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {
         id: 'event-1',
@@ -159,7 +159,7 @@ describe('SqliteSessionMetadataStore', () => {
 
     const store = createSqliteSessionMetadataStore(path);
     try {
-      assert.equal(store.schemaVersion(), 5);
+      assert.equal(store.schemaVersion(), 6);
       assert.deepEqual(
         (
           await store.list({
@@ -492,6 +492,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const v4 = new DatabaseSync(path);
       v4.exec(`
+        DROP TABLE agent_graph_intent_claims;
         DROP TABLE subagent_spawns;
         CREATE UNIQUE INDEX session_metadata_by_subagent_spawn
           ON session_metadata(
@@ -512,7 +513,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const migrated = createSqliteSessionMetadataStore(path);
       try {
-        assert.equal(migrated.schemaVersion(), 5);
+        assert.equal(migrated.schemaVersion(), 6);
         assert.equal(await migrated.remove(child.id), true);
         await assert.rejects(
           () => migrated.createSubagent({ ...child, id: 'retry-after-migration' }),

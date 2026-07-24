@@ -12,6 +12,7 @@ export * from './collaboration.js';
 export * from './orchestration.js';
 export * from './swarm-command.js';
 export * from './plan.js';
+export * from './agent-graph-control.js';
 
 // events.ts
 export type {

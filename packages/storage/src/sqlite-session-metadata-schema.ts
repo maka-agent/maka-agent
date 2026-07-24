@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 5;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 6;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
@@ -180,6 +180,29 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       AND subagent_initial_run_id IS NOT NULL;
 
     DROP INDEX session_metadata_by_subagent_spawn;
+  `,
+  ],
+  [
+    6,
+    `
+    CREATE TABLE agent_graph_intent_claims (
+      claim_id TEXT PRIMARY KEY,
+      schema_version INTEGER NOT NULL CHECK (schema_version = 1),
+      graph_id TEXT NOT NULL,
+      intent_id TEXT NOT NULL,
+      intent_fingerprint TEXT NOT NULL,
+      readiness_context_fingerprint TEXT NOT NULL,
+      target_operator_id TEXT NOT NULL,
+      target_session_id TEXT NOT NULL,
+      target_turn_id TEXT NOT NULL,
+      target_run_id TEXT NOT NULL,
+      claimed_at INTEGER NOT NULL,
+      UNIQUE(graph_id, intent_id),
+      UNIQUE(target_session_id, target_run_id)
+    );
+
+    CREATE INDEX agent_graph_intent_claims_by_graph
+      ON agent_graph_intent_claims(graph_id, claimed_at, intent_id);
   `,
   ],
 ]);

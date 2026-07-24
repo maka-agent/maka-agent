@@ -80,6 +80,8 @@ export {
   AGENT_GRAPH_READINESS_SCHEMA_VERSION,
   buildAgentGraphReadinessSnapshot,
 } from './stream-graph-readiness.js';
+export { claimAgentGraphRunnableIntent } from './stream-graph-admission.js';
+export type { ClaimAgentGraphRunnableIntentInput } from './stream-graph-admission.js';
 export type {
   AgentGraphAllSettledReadinessPolicy,
   AgentGraphMapReadinessPolicy,
