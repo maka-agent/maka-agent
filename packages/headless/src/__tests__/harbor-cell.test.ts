@@ -930,6 +930,31 @@ describe('runHarborCell', () => {
     });
   });
 
+  test('reports local bootstrap readiness before fake backend response delay', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      const startedAt = performance.now();
+      let bootstrapReadyAt: number | undefined;
+      const input = {
+        config,
+        instruction: 'measure local bootstrap',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        onBootstrapReady: () => {
+          bootstrapReadyAt ??= performance.now();
+        },
+      };
+      await runHarborCell(input);
+      const completedAt = performance.now();
+
+      assert.ok(bootstrapReadyAt !== undefined);
+      assert.ok(
+        completedAt - bootstrapReadyAt >= 100,
+        `ready=${bootstrapReadyAt - startedAt}ms completed=${completedAt - startedAt}ms`,
+      );
+    });
+  });
+
   test('settles the active session before its hard deadline and writes final usage', async () => {
     await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
       const deadline = { settleAfterMs: 1_000 };
