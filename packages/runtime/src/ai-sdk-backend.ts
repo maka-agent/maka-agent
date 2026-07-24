@@ -1629,6 +1629,11 @@ export class AiSdkBackend implements AgentBackend {
           await waitForDurableQueueBoundary();
 
           if (returnedToolCalls.length > 0) {
+            const continuationBudgetRemains =
+              this.maxSteps === undefined || runtimeSteps < this.maxSteps;
+            if (continuationBudgetRemains && !this.input.loadTurnRuntimeEvents) {
+              throw new Error('durable current-run reader is required for tool continuation');
+            }
             const toolsByName = new Map(providerTools.map((tool) => [tool.name, tool]));
             const settlementOutcomes = await Promise.allSettled(
               returnedToolCalls.map(async (toolCall) => {
@@ -1693,9 +1698,6 @@ export class AiSdkBackend implements AgentBackend {
             !this.loopStopRequested &&
             !this.aborted
           ) {
-            if (!this.input.loadTurnRuntimeEvents) {
-              throw new Error('durable current-run reader is required for tool continuation');
-            }
             currentStepMessageId = this.newId();
             continue agentLoop;
           }

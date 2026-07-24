@@ -4637,6 +4637,7 @@ describe('AiSdkBackend model history', () => {
 
   test('after-step stop preserves the current provider step usage and prevents another step', async () => {
     const loop = countingToolLoopModel();
+    const durable = durableTurnHarness('turn-1', 'hi');
     let backend!: AiSdkBackend;
     let stopRequested = false;
     const stoppingTool: MakaTool = {
@@ -4662,12 +4663,14 @@ describe('AiSdkBackend model history', () => {
       permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
       modelFactory: () => loop.model,
       tools: [stoppingTool],
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
     });
     const events: SessionEvent[] = [];
 
-    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+    for await (const event of backend.send(durable.input())) {
+      durable.record(event);
       events.push(event);
     }
 
@@ -5984,6 +5987,7 @@ describe('AiSdkBackend error surfaces', () => {
   });
 
   test('stops after a T1 rejection only after sibling tool calls settle', async () => {
+    const durable = durableTurnHarness('turn-1', 'read notes');
     const messages: StoredMessage[] = [];
     const events: SessionEvent[] = [];
     const executions: string[] = [];
@@ -6067,17 +6071,18 @@ describe('AiSdkBackend error surfaces', () => {
         },
         commitToolOutcome: async () => ({ created: true, runtimeEventSeq: 2 }),
       },
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
       newId: idGenerator(),
       now: monotonicClock(),
     });
 
-    for await (const event of backend.send({
-      turnId: 'turn-1',
-      runId: 'run-1',
-      invocationId: 'invocation-1',
-      text: 'read notes',
-      context: [],
-    })) {
+    for await (const event of backend.send(
+      durable.input({
+        runId: 'run-1',
+        invocationId: 'invocation-1',
+      }),
+    )) {
+      durable.record(event);
       events.push(event);
     }
 
@@ -6327,6 +6332,42 @@ describe('AiSdkBackend usage telemetry', () => {
 
     assert.equal(loop.callCount(), 52);
     assert.equal(events.at(-1)?.type, 'complete');
+  });
+
+  test('rejects continuation-capable tools before side effects without a durable reader', async () => {
+    const loop = countingToolLoopModel(1);
+    let executions = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [
+        {
+          ...testTool('Read', z.object({ path: z.string() })),
+          impl: async () => {
+            executions += 1;
+            return { ok: true };
+          },
+        },
+      ],
+      maxSteps: 2,
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    const events: SessionEvent[] = [];
+
+    for await (const event of backend.send({ turnId: 'turn-1', text: 'hi', context: [] })) {
+      events.push(event);
+    }
+
+    assert.equal(loop.callCount(), 1);
+    assert.equal(executions, 0);
+    assert.ok(events.some((event) => event.type === 'error'));
   });
 
   test('keeps an explicitly configured step limit', async () => {

@@ -11,6 +11,7 @@ import {
   getAIModel,
 } from '../packages/runtime/dist/index.js';
 import { createCuaDriverBackend } from '../packages/computer-use/dist/index.js';
+import { createDirectRuntimeTurnLedger } from './cu-direct-runtime-ledger.mjs';
 import { sanitizeCuDirectReport } from './cu-report-sanitize.mjs';
 
 const repoRoot = new URL('..', import.meta.url).pathname;
@@ -461,6 +462,41 @@ const connection = {
   createdAt: 1,
   updatedAt: 1,
 };
+const task =
+  scenario === 'observe-only'
+    ? 'Use Maka Computer to inspect "Codex CUA Lab". Start with list_apps, observe ' +
+      'the exact app/window, report that "CUA Lab Set Value Field" is visible, ' +
+      'do not mutate anything, then finish.'
+    : scenario === 'ax-click'
+      ? 'Use Maka Computer to click the element labeled "CUA Lab Primary Button" exactly ' +
+        'once in "Codex CUA Lab". Start with list_apps and observe, use click_element ' +
+        'with IDs from that observation, verify the fresh state, then finish. Never use coordinates.'
+      : scenario === 'ax-multi-step'
+        ? `Use Maka Computer in "Codex CUA Lab" to complete two semantic actions in order. ` +
+          `First set "CUA Lab Set Value Field" to "${targetValue}" with set_value. ` +
+          'Then use the fresh observation returned by that action to click ' +
+          '"CUA Lab Primary Button" exactly once with click_element. Verify both fresh ' +
+          'results, then finish. Never use coordinates, scroll, drag, type, or key actions.'
+        : scenario === 'ambiguity'
+          ? 'Use Maka Computer to click the observed element labeled "CUA Lab Stale Target" ' +
+            'exactly once in "Codex CUA Lab". Start with list_apps and observe, then use ' +
+            'click_element with the exact observation_id and element_id. If the tool rejects ' +
+            'the target, report the failure and stop rather than guessing or using coordinates.'
+          : `Use Maka Computer to set "CUA Lab Set Value Field" in "Codex CUA Lab" ` +
+            `to "${targetValue}". Start with list_apps, observe the exact app/window, ` +
+            'use set_value with the observation_id and element_id from that observation, ' +
+            'verify the fresh observation value, then finish. If user_intervened is returned, ' +
+            'observe again before retrying. If target_missing or stale_frame is returned, ' +
+            'list apps and observe the current process again before retrying. Never use ' +
+            'coordinate, click, scroll, drag, type, or key actions.';
+const turnId = 'turn-real-ax-model';
+const durableTurn = createDirectRuntimeTurnLedger({
+  sessionId: 'real-ax-model-e2e',
+  turnId,
+  text: task,
+  newId: () => `runtime-event-${++nextId}`,
+  now: () => ++now,
+});
 const runtime = new AiSdkBackend({
   sessionId: 'real-ax-model-e2e',
   header: {
@@ -496,6 +532,7 @@ const runtime = new AiSdkBackend({
   modelFactory: (input) => getAIModel(input),
   tools: [computerTool],
   maxSteps: 8,
+  loadTurnRuntimeEvents: durableTurn.loadTurnRuntimeEvents,
   newId: () => `id-${++nextId}`,
   now: () => ++now,
   recordToolInvocation: (record) => {
@@ -511,38 +548,13 @@ const runtime = new AiSdkBackend({
 const events = [];
 let terminalEvent;
 try {
-  const task =
-    scenario === 'observe-only'
-      ? 'Use Maka Computer to inspect "Codex CUA Lab". Start with list_apps, observe ' +
-        'the exact app/window, report that "CUA Lab Set Value Field" is visible, ' +
-        'do not mutate anything, then finish.'
-      : scenario === 'ax-click'
-        ? 'Use Maka Computer to click the element labeled "CUA Lab Primary Button" exactly ' +
-          'once in "Codex CUA Lab". Start with list_apps and observe, use click_element ' +
-          'with IDs from that observation, verify the fresh state, then finish. Never use coordinates.'
-        : scenario === 'ax-multi-step'
-          ? `Use Maka Computer in "Codex CUA Lab" to complete two semantic actions in order. ` +
-            `First set "CUA Lab Set Value Field" to "${targetValue}" with set_value. ` +
-            'Then use the fresh observation returned by that action to click ' +
-            '"CUA Lab Primary Button" exactly once with click_element. Verify both fresh ' +
-            'results, then finish. Never use coordinates, scroll, drag, type, or key actions.'
-          : scenario === 'ambiguity'
-            ? 'Use Maka Computer to click the observed element labeled "CUA Lab Stale Target" ' +
-              'exactly once in "Codex CUA Lab". Start with list_apps and observe, then use ' +
-              'click_element with the exact observation_id and element_id. If the tool rejects ' +
-              'the target, report the failure and stop rather than guessing or using coordinates.'
-            : `Use Maka Computer to set "CUA Lab Set Value Field" in "Codex CUA Lab" ` +
-              `to "${targetValue}". Start with list_apps, observe the exact app/window, ` +
-              'use set_value with the observation_id and element_id from that observation, ' +
-              'verify the fresh observation value, then finish. If user_intervened is returned, ' +
-              'observe again before retrying. If target_missing or stale_frame is returned, ' +
-              'list apps and observe the current process again before retrying. Never use ' +
-              'coordinate, click, scroll, drag, type, or key actions.';
   for await (const event of runtime.send({
-    turnId: 'turn-real-ax-model',
+    turnId,
     text: task,
     context: [],
+    headAnchorRuntimeEvent: durableTurn.anchor,
   })) {
+    durableTurn.record(event);
     events.push(event.type);
     if (event.type === 'complete' || event.type === 'abort' || event.type === 'error') {
       terminalEvent = {
