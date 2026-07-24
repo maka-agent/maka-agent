@@ -8762,36 +8762,20 @@ describe('AiSdkBackend RunTrace', () => {
     assert.equal(events.find((event) => event.type === 'complete')?.stopReason, 'error');
   });
 
-  test('disables hidden AI SDK retries and records the single failed attempt', async () => {
+  test('disables hidden AI SDK retries and traces the one explicit Runtime retry', async () => {
     const captures: ProviderRequestCaptureRecord[] = [];
     const attempts: ProviderRequestAttemptRecord[] = [];
     let calls = 0;
     const model = new MockLanguageModelV4({
       doStream: async () => {
         calls += 1;
-        if (calls === 1) {
-          throw new APICallError({
-            message: 'retry me',
-            url: 'https://provider.invalid/v1/messages',
-            requestBodyValues: {},
-            statusCode: 503,
-            responseHeaders: { 'retry-after-ms': '0' },
-          });
-        }
-        return {
-          stream: simulateReadableStream({
-            chunks: [
-              { type: 'stream-start', warnings: [] },
-              {
-                type: 'finish',
-                finishReason: { unified: 'stop', raw: 'stop' },
-                usage: emptyUsage(),
-              },
-            ],
-            initialDelayInMs: null,
-            chunkDelayInMs: null,
-          }),
-        };
+        throw new APICallError({
+          message: 'retry me',
+          url: 'https://provider.invalid/v1/messages',
+          requestBodyValues: {},
+          statusCode: 503,
+          responseHeaders: { 'retry-after-ms': '0' },
+        });
       },
     });
     const backend = new AiSdkBackend({
@@ -8817,11 +8801,14 @@ describe('AiSdkBackend RunTrace', () => {
 
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
 
-    assert.equal(calls, 1);
+    assert.equal(calls, 2);
     assert.equal(captures.length, 1);
     assert.deepEqual(
       attempts.map(({ attempt, status }) => ({ attempt, status })),
-      [{ attempt: 1, status: 'failed' }],
+      [
+        { attempt: 1, status: 'failed' },
+        { attempt: 2, status: 'failed' },
+      ],
     );
   });
 
