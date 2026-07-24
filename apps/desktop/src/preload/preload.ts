@@ -1058,8 +1058,16 @@ const makaBridge = {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
     },
-    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]> {
-      return ipcRenderer.invoke('skills:listInvocable', sessionId);
+    listInvocable(
+      sessionId?: string,
+      newSessionContext?: {
+        llmConnectionSlug?: string;
+        model?: string;
+        collaborationMode?: 'agent' | 'plan';
+        mode?: QuickChatMode;
+      },
+    ): Promise<import('@maka/runtime').InvocableSkillEntry[]> {
+      return ipcRenderer.invoke('skills:listInvocable', sessionId, newSessionContext);
     },
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]> {

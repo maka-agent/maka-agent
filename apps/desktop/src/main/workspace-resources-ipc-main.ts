@@ -1,7 +1,13 @@
 import { ipcMain, shell } from 'electron';
 import { copyFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { ArtifactSaveResult } from '@maka/core';
+import {
+  isCollaborationMode,
+  isQuickChatMode,
+  type ArtifactSaveResult,
+  type CollaborationMode,
+  type QuickChatMode,
+} from '@maka/core';
 import type {
   HostCapabilities,
   InvocableSkillEntry,
@@ -33,12 +39,22 @@ import {
 type ArtifactStore = ReturnType<typeof createArtifactStore>;
 type MainWindowController = ReturnType<typeof createMainWindowController>;
 
+export interface NewSessionSkillContext {
+  llmConnectionSlug?: string;
+  model?: string;
+  collaborationMode?: CollaborationMode;
+  mode?: QuickChatMode;
+}
+
 interface WorkspaceResourcesIpcDeps {
   workspaceRoot: string;
   artifactStore: ArtifactStore;
   mainWindowController: MainWindowController;
   sendToRenderer: MainWindowController['send'];
-  listInvocableSkills(sessionId?: string): Promise<InvocableSkillEntry[]>;
+  listInvocableSkills(
+    sessionId?: string,
+    newSessionContext?: NewSessionSkillContext,
+  ): Promise<InvocableSkillEntry[]>;
   skillHost?: HostCapabilities;
   getCurrentProjectRoot?: () => Promise<string>;
   getSkillSelectionReport?: (cwd: string) => SkillSelectionReport | undefined;
@@ -138,9 +154,15 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
       },
     );
   });
-  ipcMain.handle('skills:listInvocable', async (_event, sessionId?: unknown) => {
-    return deps.listInvocableSkills(typeof sessionId === 'string' ? sessionId : undefined);
-  });
+  ipcMain.handle(
+    'skills:listInvocable',
+    async (_event, sessionId?: unknown, newSessionContext?: unknown) => {
+      return deps.listInvocableSkills(
+        typeof sessionId === 'string' ? sessionId : undefined,
+        normalizeNewSessionSkillContext(newSessionContext),
+      );
+    },
+  );
   ipcMain.handle('skills:catalog:list', async () => {
     return listBundledSkillCatalog(deps.workspaceRoot);
   });
@@ -230,4 +252,28 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     if (error) return { ok: false, reason: 'open_failed' as const };
     return { ok: true as const, target: resolved.target };
   });
+}
+
+function normalizeNewSessionSkillContext(input: unknown): NewSessionSkillContext | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const record = input as Record<string, unknown>;
+  const llmConnectionSlug = boundedText(record.llmConnectionSlug, 128);
+  const model = boundedText(record.model, 512);
+  const collaborationMode = isCollaborationMode(record.collaborationMode)
+    ? record.collaborationMode
+    : undefined;
+  const mode = isQuickChatMode(record.mode) ? record.mode : undefined;
+  if (!llmConnectionSlug && !model && !collaborationMode && !mode) return undefined;
+  return {
+    ...(llmConnectionSlug ? { llmConnectionSlug } : {}),
+    ...(model ? { model } : {}),
+    ...(collaborationMode ? { collaborationMode } : {}),
+    ...(mode ? { mode } : {}),
+  };
+}
+
+function boundedText(input: unknown, maxLength: number): string | undefined {
+  if (typeof input !== 'string') return undefined;
+  const value = input.trim();
+  return value.length > 0 && value.length <= maxLength ? value : undefined;
 }

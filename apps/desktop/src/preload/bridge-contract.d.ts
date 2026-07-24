@@ -673,7 +673,15 @@ export interface MakaBridge {
   };
   skills: {
     list(): Promise<SkillEntry[]>;
-    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]>;
+    listInvocable(
+      sessionId?: string,
+      newSessionContext?: {
+        llmConnectionSlug?: string;
+        model?: string;
+        collaborationMode?: 'agent' | 'plan';
+        mode?: QuickChatMode;
+      },
+    ): Promise<import('@maka/runtime').InvocableSkillEntry[]>;
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]>;
       install(id: string): Promise<
