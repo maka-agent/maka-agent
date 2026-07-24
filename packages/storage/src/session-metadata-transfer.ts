@@ -44,11 +44,25 @@ export async function importLegacySessionMetadataTree(input: {
         transcriptMarkerSessionIds.push(directory);
       }
     } catch (error) {
-      if (!isNotFound(error)) throw error;
-      const canonicalStateExists =
-        (await input.destination.has(directory)) ||
-        (await input.destination.isTombstoned(directory));
-      if (canonicalStateExists) continue;
+      if (isNotFound(error)) {
+        const canonicalStateExists =
+          (await input.destination.has(directory)) ||
+          (await input.destination.isTombstoned(directory));
+        if (canonicalStateExists) continue;
+        throw error;
+      }
+      // Corrupt or malformed legacy session headers should not crash the
+      // entire import. Skip the session if it already exists in the SQLite
+      // metadata store; otherwise tombstone it so it is not retried on
+      // every subsequent launch.
+      if (isMalformedLegacySessionHeader(error)) {
+        const canonicalStateExists =
+          (await input.destination.has(directory)) ||
+          (await input.destination.isTombstoned(directory));
+        if (canonicalStateExists) continue;
+        await input.destination.remove(directory);
+        continue;
+      }
       throw error;
     }
   }
@@ -101,6 +115,27 @@ function isNotFound(error: unknown): boolean {
   let current = error;
   while (current && typeof current === 'object') {
     if ('code' in current && current.code === 'ENOENT') return true;
+    current = 'cause' in current ? current.cause : undefined;
+  }
+  return false;
+}
+
+/**
+ * Detects errors caused by a corrupt or malformed legacy session header.
+ *
+ * `readLegacySessionMetadataEntry` wraps any decode/parse failure as
+ * `"Invalid legacy session header at <path>"` with the original error as
+ * `cause`.  We walk the cause chain looking for the signature messages
+ * produced by `decodeSessionHeader` / `normalizeSessionHeader`.
+ */
+function isMalformedLegacySessionHeader(error: unknown): boolean {
+  let current = error;
+  while (current && typeof current === 'object') {
+    if (current instanceof Error) {
+      const msg = current.message;
+      if (msg.startsWith('Invalid legacy session header at ')) return true;
+      if (msg.startsWith('Invalid session header for session ')) return true;
+    }
     current = 'cause' in current ? current.cause : undefined;
   }
   return false;
