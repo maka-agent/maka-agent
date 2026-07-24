@@ -2649,68 +2649,24 @@ export class AiSdkBackend implements AgentBackend {
   }
 
   private async materializeRuntimeReplayItem(
-    item: RuntimeEventModelReplayItem,
+    item: Extract<RuntimeEventModelReplayItem, { kind: 'text' }>,
   ): Promise<ModelMessage> {
-    switch (item.kind) {
-      case 'text':
-        if (item.role === 'user') {
-          if (item.steering) {
-            // Already envelope-wrapped by the plan; carry the structured
-            // identity so injection dedupe recognizes the replayed message.
-            return {
-              role: 'user',
-              content: item.content,
-              providerOptions: steeringProviderOptions(item.steering.eventId),
-            };
-          }
-          return {
-            role: 'user',
-            content: await this.appendImageParts(item.content, item.attachments),
-          } as ModelMessage;
-        }
-        return { role: item.role, content: item.content };
-      case 'thinking':
+    if (item.role === 'user') {
+      if (item.steering) {
+        // Already envelope-wrapped by the plan; carry the structured identity
+        // so injection dedupe recognizes the replayed message.
         return {
-          role: 'assistant',
-          content: [
-            {
-              type: 'reasoning',
-              text: item.text,
-              providerOptions: {
-                anthropic: { signature: item.signature },
-              },
-            },
-          ],
+          role: 'user',
+          content: item.content,
+          providerOptions: steeringProviderOptions(item.steering.eventId),
         };
-      case 'tool_call':
-        return {
-          role: 'assistant',
-          content: [
-            {
-              type: 'tool-call',
-              toolCallId: item.toolCallId,
-              toolName: item.toolName,
-              input: item.input,
-            },
-          ],
-        };
-      case 'tool_result':
-        return {
-          role: 'tool',
-          content: [
-            {
-              type: 'tool-result',
-              toolCallId: item.toolCallId,
-              toolName: item.toolName,
-              output: await this.materializeToolResultOutput(
-                item.output,
-                item.isError,
-                item.toolCallId,
-              ),
-            },
-          ],
-        };
+      }
+      return {
+        role: 'user',
+        content: await this.appendImageParts(item.content, item.attachments),
+      } as ModelMessage;
     }
+    return { role: item.role, content: item.content };
   }
 
   private async materializePriorMessages(
