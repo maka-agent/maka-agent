@@ -78,6 +78,7 @@ export interface PreparedProviderRequestInput {
 export interface PreparedProviderRequestCapture {
   schemaVersion: 1;
   requestHash: string;
+  requestPayloadWithoutProviderOptionsHash: string;
   requestBytes: number;
   serializedRequest: string;
   segments: PreparedRequestSegment[];
@@ -223,10 +224,17 @@ export function capturePreparedProviderRequest(
       modelId: input.modelId,
       payload,
     }),
+    requestPayloadWithoutProviderOptionsHash: stableHash(withoutTopLevelProviderOptions(payload)),
     requestBytes: Buffer.byteLength(serializedRequest, 'utf8'),
     serializedRequest,
     segments,
   };
+}
+
+function withoutTopLevelProviderOptions(payload: unknown): unknown {
+  if (!isObjectLike(payload)) return payload;
+  const { providerOptions: _providerOptions, ...shared } = payload;
+  return shared;
 }
 
 export function findFirstChangedCacheableSegment(

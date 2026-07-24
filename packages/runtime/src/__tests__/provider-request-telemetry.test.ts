@@ -207,6 +207,7 @@ describe('provider request capture commit', () => {
       providerId: 'openai',
       modelId: 'gpt-test',
       requestHash: 'sha256:request',
+      requestPayloadWithoutProviderOptionsHash: 'sha256:shared-request',
       requestBytes: 2,
       segments: [],
       serializedRequest: '{}',

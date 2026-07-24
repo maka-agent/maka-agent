@@ -2973,6 +2973,7 @@ describe('runHarborCell', () => {
         providerId: 'openai',
         modelId: 'gpt-4o-mini',
         requestHash: 'sha256:request',
+        requestPayloadWithoutProviderOptionsHash: 'sha256:shared-request',
         requestBytes: 18,
         segments: [],
         serializedRequest: '{"prompt":"hello"}',
@@ -4461,6 +4462,21 @@ setTimeout(() => {
         }),
       /account-discovered model protocol/,
     );
+  });
+
+  test('preserves an explicit Kimi Coding Plan protocol without duplicating the provider', () => {
+    const resolved = resolveHarborCellAiSdkEnv({
+      provider: 'kimi-coding-plan',
+      model: 'k3',
+      env: {
+        ANTHROPIC_API_KEY: 'kimi-plan-key',
+        MAKA_MODEL_API_PROTOCOL: 'openai-chat',
+      },
+      ts: 123,
+    });
+
+    assert.equal(resolved.connection.providerType, 'kimi-coding-plan');
+    assert.deepEqual(resolved.connection.models, [{ id: 'k3', apiProtocol: 'openai-chat' }]);
   });
 
   test('resolves LM Studio headless configuration without credentials', () => {

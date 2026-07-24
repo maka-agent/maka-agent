@@ -585,11 +585,16 @@ function resolveHarborTimeoutMs(options: HarborTaskRunnerOptions, input: TaskRun
 }
 
 function resolveNativeHarborTimeoutMs(
-  options: Pick<HarborTaskRunnerOptions, 'timeoutMultiplier'>,
+  options: Pick<HarborTaskRunnerOptions, 'timeoutMultiplier' | 'agentEnv'>,
   task: TaskRunInput['task'],
 ): number {
+  const configuredCellTimeoutSec = lenientPositiveIntEnv(options.agentEnv?.MAKA_CELL_TIMEOUT_SEC);
+  const agentTimeoutSec = Math.max(
+    task.metadata?.agentTimeoutSec ?? 0,
+    configuredCellTimeoutSec ?? 0,
+  );
   return resolveNativeTrialTimeoutMs({
-    nativePhasesSec: (task.metadata?.agentTimeoutSec ?? 0) + verifierPolicy(task).outerTimeoutSec,
+    nativePhasesSec: agentTimeoutSec + verifierPolicy(task).outerTimeoutSec,
     timeoutMultiplier: options.timeoutMultiplier ?? 1,
   });
 }

@@ -2337,7 +2337,6 @@ export class AiSdkBackend implements AgentBackend {
     for (const item of plan.items) {
       if (item.kind === 'tool_call' && !support.toolCalls) return false;
       if (item.kind === 'tool_result' && !support.toolResults) return false;
-      if (item.kind === 'thinking' && (!support.signedThinking || !item.signature)) return false;
     }
     return true;
   }
@@ -2370,11 +2369,21 @@ export class AiSdkBackend implements AgentBackend {
     const reasoningByStep = new Map<string, ThinkingItem>();
     const textByStep = new Map<string, string>();
 
-    const reasoningPart = (item: ThinkingItem) => ({
-      type: 'reasoning' as const,
-      text: item.text,
-      providerOptions: { anthropic: { signature: item.signature } },
-    });
+    const replaySupport = this.modelAdapter.runtimeEventReplaySupport();
+    const reasoningPart = (item: ThinkingItem) => {
+      if (item.signature) {
+        return replaySupport.signedThinking
+          ? {
+              type: 'reasoning' as const,
+              text: item.text,
+              providerOptions: { anthropic: { signature: item.signature } },
+            }
+          : undefined;
+      }
+      return replaySupport.unsignedThinking
+        ? { type: 'reasoning' as const, text: item.text }
+        : undefined;
+    };
     // Tool results are emitted only when their tool_call claims them here. A
     // result whose call never appears in the plan (sliced-away call, corrupt
     // ledger) is INTENTIONALLY dropped at the end: a standalone tool message
@@ -2415,7 +2424,8 @@ export class AiSdkBackend implements AgentBackend {
       calls: readonly ToolCallItem[],
     ) => {
       const content: unknown[] = [];
-      if (reasoning) content.push(reasoningPart(reasoning));
+      const replayReasoning = reasoning ? reasoningPart(reasoning) : undefined;
+      if (replayReasoning) content.push(replayReasoning);
       if (text.length > 0) content.push({ type: 'text', text });
       for (const call of calls) {
         content.push({
@@ -2477,7 +2487,10 @@ export class AiSdkBackend implements AgentBackend {
           } else {
             // Legacy standalone reasoning (pure-reasoning turn): emit on its own.
             await flushLooseCalls();
-            out.push({ role: 'assistant', content: [reasoningPart(item)] } as ModelMessage);
+            const replayReasoning = reasoningPart(item);
+            if (replayReasoning) {
+              out.push({ role: 'assistant', content: [replayReasoning] } as ModelMessage);
+            }
           }
           break;
         case 'text':
@@ -2518,7 +2531,10 @@ export class AiSdkBackend implements AgentBackend {
     }
     // Any reasoning whose closing text never arrived (defensive): emit standalone.
     for (const reasoning of reasoningByStep.values()) {
-      out.push({ role: 'assistant', content: [reasoningPart(reasoning)] } as ModelMessage);
+      const replayReasoning = reasoningPart(reasoning);
+      if (replayReasoning) {
+        out.push({ role: 'assistant', content: [replayReasoning] } as ModelMessage);
+      }
     }
     return out;
   }

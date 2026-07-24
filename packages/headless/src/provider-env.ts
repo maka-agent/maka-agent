@@ -209,11 +209,13 @@ function connectionFromEnv(
   authority: ResolvedHostProviderAuthority,
 ): LlmConnection {
   const defaults = PROVIDER_DEFAULTS[provider];
-  const githubApiProtocol =
+  const modelApiProtocol =
     authority.apiProtocol ?? modelApiProtocolFromEnv(values.MAKA_MODEL_API_PROTOCOL);
-  if (provider === 'github-copilot' && !githubApiProtocol) {
+  if (provider === 'github-copilot' && !modelApiProtocol) {
     throw new Error('GitHub Copilot requires an account-discovered model protocol');
   }
+  const selectedApiProtocol =
+    provider === 'github-copilot' || provider === 'kimi-coding-plan' ? modelApiProtocol : undefined;
   return {
     slug: values.MAKA_LLM_CONNECTION_SLUG ?? provider,
     name: defaults.label,
@@ -224,9 +226,7 @@ function connectionFromEnv(
       providerBaseUrlFromEnv(provider, values) ??
       defaults.baseUrl,
     defaultModel: model,
-    ...(provider === 'github-copilot'
-      ? { models: [{ id: model, apiProtocol: githubApiProtocol }] }
-      : {}),
+    ...(selectedApiProtocol ? { models: [{ id: model, apiProtocol: selectedApiProtocol }] } : {}),
     enabled: true,
     createdAt: ts,
     updatedAt: ts,
