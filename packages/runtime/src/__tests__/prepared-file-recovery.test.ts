@@ -49,8 +49,9 @@ describe('prepared Write/Edit recovery contracts', () => {
       },
     });
 
-    const result =
-      await createPreparedWriteEditRecoveryContracts(carrier).Write.reconcile(writeOperation());
+    const result = await createPreparedWriteEditRecoveryContracts(carrier).Write.reconcile(
+      writeOperation(),
+    );
 
     assert.equal(result.decision.nextAction, 'synthesize_response');
     assert.deepEqual(local.finalizeContexts, []);

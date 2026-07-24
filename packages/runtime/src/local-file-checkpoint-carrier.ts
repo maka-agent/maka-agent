@@ -313,10 +313,7 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
         'prepared_file_backup_cleanup_conflict',
       );
     } else {
-      await assertAuxiliaryMissing(
-        beforeBackupPath,
-        'prepared_file_unexpected_backup_conflict',
-      );
+      await assertAuxiliaryMissing(beforeBackupPath, 'prepared_file_unexpected_backup_conflict');
     }
     await (this.options.syncDirectory ?? fsyncDirectory)(dirname(fact.canonicalPath));
   }
@@ -522,16 +519,13 @@ async function readBoundedFile(
   const pathInfoBefore = await lstat(path);
   assertRegularNonSymlink(pathInfoBefore);
   const openFlags =
-    fsConstants.O_RDONLY |
-    (process.platform === 'win32' ? 0 : (fsConstants.O_NOFOLLOW ?? 0));
+    fsConstants.O_RDONLY | (process.platform === 'win32' ? 0 : (fsConstants.O_NOFOLLOW ?? 0));
   const file = await open(path, openFlags);
   try {
     const info = await file.stat();
     assertRegularNonSymlink(info);
     if (!sameFileIdentity(pathInfoBefore, info)) {
-      throw new LocalFileMutationConflictError(
-        'prepared_file_identity_changed_during_observation',
-      );
+      throw new LocalFileMutationConflictError('prepared_file_identity_changed_during_observation');
     }
     if (info.size > maxFileBytes) {
       throw new PreparedFileCheckpointLimitError(side, info.size, maxFileBytes);
@@ -572,9 +566,7 @@ async function readBoundedFile(
       info.mtimeMs !== handleInfoAfter.mtimeMs ||
       info.ctimeMs !== handleInfoAfter.ctimeMs
     ) {
-      throw new LocalFileMutationConflictError(
-        'prepared_file_identity_changed_during_observation',
-      );
+      throw new LocalFileMutationConflictError('prepared_file_identity_changed_during_observation');
     }
     return {
       content: Buffer.concat(chunks, byteLength),

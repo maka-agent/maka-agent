@@ -369,7 +369,11 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
     const finalizeTransform = transforms[1];
     assert.ok(finalizeTransform);
     assert.equal(
-      canWritePath(finalizeTransform.command.profile, sibling, finalizeTransform.command.pathContext),
+      canWritePath(
+        finalizeTransform.command.profile,
+        sibling,
+        finalizeTransform.command.pathContext,
+      ),
       false,
     );
     assert.deepEqual(
