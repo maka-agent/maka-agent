@@ -98,6 +98,7 @@ describe('ModelAdapter stream and error normalization', () => {
       kind: 'rate_limit',
       code: '429',
       message: 'Rate limit exceeded',
+      retryable: true,
     });
     // The backend consumes the typed failure without recovering the raw
     // provider error shape.

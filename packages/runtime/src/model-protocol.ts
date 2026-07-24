@@ -371,6 +371,10 @@ export interface ModelFailure {
   type: 'model_failure';
   kind: ModelFailureKind;
   message: string;
+  /** Adapter-owned transport fact consumed by Runtime retry policy. */
+  retryable: boolean;
+  /** Provider-requested delay for the next physical attempt, in milliseconds. */
+  retryAfterMs?: number;
   code?: string;
 }
 

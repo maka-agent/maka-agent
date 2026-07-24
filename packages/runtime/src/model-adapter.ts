@@ -29,7 +29,11 @@ export type {
 } from './model-protocol.js';
 
 import { resolveModelRuntime } from './model-runtime.js';
-import { classifyError, errorPresentationFromClass } from './provider-error-classification.js';
+import {
+  classifyError,
+  errorPresentationFromClass,
+  providerRetryMetadata,
+} from './provider-error-classification.js';
 import type { ProviderRequestTracker } from './provider-request-telemetry.js';
 
 /**
@@ -482,6 +486,7 @@ function normalizeModelFailure(error: unknown): ModelFailure {
   if (isModelFailure(error)) return error;
   const errorClass = classifyError(error);
   const presentation = errorPresentationFromClass(errorClass);
+  const retry = providerRetryMetadata(error);
   const code =
     error instanceof Error && 'code' in error
       ? String((error as { code?: unknown }).code)
@@ -489,6 +494,8 @@ function normalizeModelFailure(error: unknown): ModelFailure {
   return {
     type: 'model_failure',
     kind: modelFailureKind(errorClass),
+    retryable: retry.retryable,
+    ...(retry.retryAfterMs !== undefined ? { retryAfterMs: retry.retryAfterMs } : {}),
     ...(code !== undefined ? { code } : {}),
     message: presentation.message ?? generalizedErrorMessage(error),
   };
