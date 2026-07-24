@@ -5,13 +5,17 @@ import { join } from 'node:path';
 import { describe, test } from 'node:test';
 import type { CreateSessionInput } from '@maka/core';
 import { importLegacySessionMetadataTree } from '../session-metadata-transfer.js';
-import { createLegacyFileSessionStore as createSessionStore } from '../session-store.js';
+import {
+  createLegacyFileSessionStore as createLegacyStore,
+  createSessionStore,
+  SQLITE_SESSION_METADATA_DATABASE_NAME,
+} from '../session-store.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 describe('legacy session metadata transfer', () => {
   test('imports every legacy line-1 header without reading transcript payloads as metadata', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-'));
-    const legacy = createSessionStore(root);
+    const legacy = createLegacyStore(root);
     const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
     try {
       const first = await legacy.create(makeInput({ name: 'First', labels: ['alpha'] }));
@@ -130,7 +134,7 @@ describe('legacy session metadata transfer', () => {
 
   test('skips a malformed header without tombstoning it while importing valid sessions', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-invalid-'));
-    const legacy = createSessionStore(root);
+    const legacy = createLegacyStore(root);
     const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
     try {
       const valid = await legacy.create(makeInput({ name: 'Valid' }));
@@ -178,7 +182,7 @@ describe('legacy session metadata transfer', () => {
 
   test('does not tombstone a session when a non-ENOENT filesystem error occurs', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-fs-error-'));
-    const legacy = createSessionStore(root);
+    const legacy = createLegacyStore(root);
     const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
     try {
       const valid = await legacy.create(makeInput({ name: 'Valid' }));
@@ -191,9 +195,11 @@ describe('legacy session metadata transfer', () => {
 
       await assert.rejects(
         importLegacySessionMetadataTree({ workspaceRoot: root, destination: sqlite }),
+        (error: NodeJS.ErrnoException) => error.code === 'EISDIR',
       );
       // The session must NOT be tombstoned — a filesystem error is not corrupt data.
       assert.equal(await sqlite.isTombstoned(unreadable.id), false);
+      assert.equal(await sqlite.has(unreadable.id), false);
       // The valid session was not imported because the scan aborted.
       assert.equal(await sqlite.has(valid.id), false);
     } finally {
@@ -204,7 +210,7 @@ describe('legacy session metadata transfer', () => {
 
   test('skips a malformed header without tombstoning when a later scan step fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-rollback-'));
-    const legacy = createSessionStore(root);
+    const legacy = createLegacyStore(root);
     const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
     try {
       const valid = await legacy.create(makeInput({ name: 'Valid' }));
@@ -253,7 +259,7 @@ describe('legacy session metadata transfer', () => {
 
   test('keeps canonical metadata readable when its optional transcript is missing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-transfer-missing-transcript-'));
-    const legacy = createSessionStore(root);
+    const legacy = createLegacyStore(root);
     const sqlite = createSqliteSessionMetadataStore(join(root, 'state.sqlite'));
     try {
       const created = await legacy.create(makeInput({ name: 'Canonical metadata' }));
@@ -276,6 +282,214 @@ describe('legacy session metadata transfer', () => {
       assert.equal((await sqlite.read(created.id)).header.name, 'Canonical metadata');
     } finally {
       sqlite.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('malformed legacy headers at the public SessionStore boundary', () => {
+  // Helper: create a workspace root with one valid legacy session and one
+  // corrupt legacy session whose session.jsonl is replaced by `corruptContent`.
+  async function setupWorkspaceWithCorruptSession(
+    corruptContent: string | ((sessionId: string, headerLine: string) => string),
+  ): Promise<{
+    root: string;
+    validId: string;
+    corruptId: string;
+    corruptPath: string;
+    validHeaderLine: string;
+  }> {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-boundary-'));
+    const legacy = createLegacyStore(root);
+    const valid = await legacy.create(makeInput({ name: 'Valid' }));
+    const corrupt = await legacy.create(makeInput({ name: 'Corrupt' }));
+    await legacy.close?.();
+    const corruptPath = join(root, 'sessions', corrupt.id, 'session.jsonl');
+    const lines = (await readFile(corruptPath, 'utf8')).split('\n');
+    const validHeaderLine = (await readFile(join(root, 'sessions', valid.id, 'session.jsonl'), 'utf8')).split('\n')[0]!;
+    const newContent =
+      typeof corruptContent === 'function'
+        ? corruptContent(corrupt.id, lines[0]!)
+        : corruptContent;
+    await writeFile(corruptPath, newContent, 'utf8');
+    return { root, validId: valid.id, corruptId: corrupt.id, corruptPath, validHeaderLine };
+  }
+
+  // Helper: repair a corrupt session file by writing a valid header line
+  // derived from the valid session's header, with the id swapped to the
+  // corrupt session's id.
+  async function repairSession(path: string, validHeaderLine: string, targetId: string): Promise<void> {
+    const header = JSON.parse(validHeaderLine) as Record<string, unknown>;
+    header.id = targetId;
+    await writeFile(path, `${JSON.stringify(header)}\n`, 'utf8');
+  }
+
+  // Helper: open the metadata store used by createSessionStore to check
+  // tombstone and has state.
+  function openMetadata(root: string) {
+    return createSqliteSessionMetadataStore(join(root, SQLITE_SESSION_METADATA_DATABASE_NAME));
+  }
+
+  test('empty session.jsonl: store.list() resolves, valid session visible, corrupt absent, no tombstone', async () => {
+    const { root, validId, corruptId, corruptPath, validHeaderLine } =
+      await setupWorkspaceWithCorruptSession('');
+    try {
+      const store = createSessionStore(root);
+      const sessions = await store.list();
+      assert.equal(sessions.length, 1, 'only the valid session should be listed');
+      assert.equal(sessions[0]!.id, validId);
+      // The corrupt session is absent.
+      await assert.rejects(store.readHeader(corruptId), /Session metadata not found/);
+      // No tombstone was written.
+      const meta = openMetadata(root);
+      assert.equal(await meta.isTombstoned(corruptId), false);
+      assert.equal(await meta.has(corruptId), false);
+      meta.close();
+      await store.close?.();
+
+      // Repair: write a valid header, reopen, and verify the session is imported.
+      await repairSession(corruptPath, validHeaderLine, corruptId);
+      const store2 = createSessionStore(root);
+      const sessions2 = await store2.list();
+      assert.equal(sessions2.length, 2, 'both sessions should be listed after repair');
+      assert.equal(
+        sessions2.some((s) => s.id === corruptId),
+        true,
+        'repaired session should appear in list',
+      );
+      await store2.close?.();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('truncated JSON without a newline: catalog remains usable, session skipped without tombstone', async () => {
+    const { root, validId, corruptId, corruptPath, validHeaderLine } =
+      await setupWorkspaceWithCorruptSession('{ "id": "truncated"');
+    try {
+      const store = createSessionStore(root);
+      const sessions = await store.list();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0]!.id, validId);
+      await assert.rejects(store.readHeader(corruptId), /Session metadata not found/);
+      const meta = openMetadata(root);
+      assert.equal(await meta.isTombstoned(corruptId), false);
+      assert.equal(await meta.has(corruptId), false);
+      meta.close();
+      await store.close?.();
+
+      // Repair and verify import.
+      await repairSession(corruptPath, validHeaderLine, corruptId);
+      const store2 = createSessionStore(root);
+      const sessions2 = await store2.list();
+      assert.equal(sessions2.length, 2);
+      assert.equal(
+        sessions2.some((s) => s.id === corruptId),
+        true,
+      );
+      await store2.close?.();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('first record over 1 MiB limit: catalog usable, session skipped without tombstone', async () => {
+    // Build a >1 MiB first line that has no newline.
+    const oversized = '{ "' + 'x'.repeat(1024 * 1024 + 100) + '": 1 }';
+    const { root, validId, corruptId, corruptPath, validHeaderLine } =
+      await setupWorkspaceWithCorruptSession(oversized);
+    try {
+      const store = createSessionStore(root);
+      const sessions = await store.list();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0]!.id, validId);
+      await assert.rejects(store.readHeader(corruptId), /Session metadata not found/);
+      const meta = openMetadata(root);
+      assert.equal(await meta.isTombstoned(corruptId), false);
+      assert.equal(await meta.has(corruptId), false);
+      meta.close();
+      await store.close?.();
+
+      // Repair and verify import.
+      await repairSession(corruptPath, validHeaderLine, corruptId);
+      const store2 = createSessionStore(root);
+      const sessions2 = await store2.list();
+      assert.equal(sessions2.length, 2);
+      assert.equal(
+        sessions2.some((s) => s.id === corruptId),
+        true,
+      );
+      await store2.close?.();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('turn_state first record: valid sessions remain available through createSessionStore()', async () => {
+    // Simulate the original bug: a turn_state record where the header should be.
+    const turnStateFirst = (_sessionId: string, _original: string) =>
+      JSON.stringify({
+        type: 'turn_state',
+        id: 'state-1',
+        turnId: 'turn-1',
+        ts: 1,
+        status: 'running',
+        partialOutputRetained: false,
+      }) + '\n';
+    const { root, validId, corruptId, corruptPath, validHeaderLine } =
+      await setupWorkspaceWithCorruptSession(turnStateFirst);
+    try {
+      const store = createSessionStore(root);
+      const sessions = await store.list();
+      assert.equal(sessions.length, 1);
+      assert.equal(sessions[0]!.id, validId);
+      await assert.rejects(store.readHeader(corruptId), /Session metadata not found/);
+      const meta = openMetadata(root);
+      assert.equal(await meta.isTombstoned(corruptId), false);
+      assert.equal(await meta.has(corruptId), false);
+      meta.close();
+      await store.close?.();
+
+      // Repair and verify import.
+      await repairSession(corruptPath, validHeaderLine, corruptId);
+      const store2 = createSessionStore(root);
+      const sessions2 = await store2.list();
+      assert.equal(sessions2.length, 2);
+      assert.equal(
+        sessions2.some((s) => s.id === corruptId),
+        true,
+      );
+      await store2.close?.();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('EISDIR filesystem failure: store.list() rejects with EISDIR, no metadata or tombstone written', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-boundary-eisdir-'));
+    const legacy = createLegacyStore(root);
+    try {
+      const valid = await legacy.create(makeInput({ name: 'Valid' }));
+      const unreadable = await legacy.create(makeInput({ name: 'Unreadable' }));
+      await legacy.close?.();
+      const unreadablePath = join(root, 'sessions', unreadable.id, 'session.jsonl');
+      // Replace the session file with a directory to provoke EISDIR.
+      await rm(unreadablePath);
+      await mkdir(unreadablePath);
+
+      const store = createSessionStore(root);
+      await assert.rejects(
+        store.list(),
+        (error: NodeJS.ErrnoException) => error.code === 'EISDIR',
+      );
+      // No metadata or tombstone was written for either session.
+      const meta = openMetadata(root);
+      assert.equal(await meta.has(valid.id), false);
+      assert.equal(await meta.has(unreadable.id), false);
+      assert.equal(await meta.isTombstoned(unreadable.id), false);
+      meta.close();
+      await store.close?.();
+    } finally {
       await rm(root, { recursive: true, force: true });
     }
   });

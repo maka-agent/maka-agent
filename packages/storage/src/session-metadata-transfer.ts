@@ -89,12 +89,15 @@ export async function readLegacySessionMetadataEntry(
   sourcePath: string,
   sessionId: string,
 ): Promise<SessionMetadataImportEntry | null> {
-  // File I/O errors (EACCES, EIO, etc.) propagate without wrapping so they
-  // are not mistaken for corrupt data by isMalformedLegacySessionHeader().
-  const headerLine = await readFirstJsonlRecord(sourcePath);
-  let value: unknown;
   try {
-    value = JSON.parse(headerLine) as unknown;
+    // readFirstJsonlRecord may throw:
+    //  - Filesystem I/O errors (EACCES, EIO, EISDIR, etc.) which carry a
+    //    `.code` property and must propagate without wrapping.
+    //  - Content/framing errors (empty file, no newline, oversized header)
+    //    which are plain Error instances without `.code` and should be
+    //    treated as malformed legacy content.
+    const headerLine = await readFirstJsonlRecord(sourcePath);
+    const value = JSON.parse(headerLine) as unknown;
     if (isSessionTranscriptMarker(value)) {
       decodeSessionTranscriptMarker(value, sessionId);
       return null;
@@ -107,6 +110,9 @@ export async function readLegacySessionMetadataEntry(
       },
     };
   } catch (error) {
+    // Filesystem I/O errors propagate without wrapping so they are not
+    // mistaken for corrupt data by isMalformedLegacySessionHeader().
+    if (isFilesystemError(error)) throw error;
     throw new Error(`Invalid legacy session header at ${sourcePath}`, { cause: error });
   }
 }
@@ -121,14 +127,25 @@ function isNotFound(error: unknown): boolean {
 }
 
 /**
+ * Returns `true` for Node.js filesystem errors that carry a `.code`
+ * property (e.g. `EACCES`, `EIO`, `EISDIR`, `EMFILE`).  These are
+ * transient or environmental failures, not corrupt session content.
+ */
+function isFilesystemError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' && /^E[A-Z]/.test(code);
+}
+
+/**
  * Detects errors caused by a corrupt or malformed legacy session header.
  *
- * `readLegacySessionMetadataEntry` wraps only parse/decode failures
- * (JSON.parse, decodeSessionHeader, decodeSessionTranscriptMarker) as
- * `"Invalid legacy session header at <path>"` with the original error
- * as `cause`.  Filesystem I/O errors (EACCES, EIO, etc.) propagate without
- * wrapping and are NOT matched here, so transient failures are not treated
- * as corrupt data.
+ * `readLegacySessionMetadataEntry` wraps only parse/decode/framing
+ * failures (JSON.parse, decodeSessionHeader, decodeSessionTranscriptMarker,
+ * empty/truncated/oversized files) as `"Invalid legacy session header at
+ * <path>"` with the original error as `cause`.  Filesystem I/O errors
+ * (EACCES, EIO, etc.) propagate without wrapping and are NOT matched
+ * here, so transient failures are not treated as corrupt data.
  */
 function isMalformedLegacySessionHeader(error: unknown): boolean {
   let current = error;
