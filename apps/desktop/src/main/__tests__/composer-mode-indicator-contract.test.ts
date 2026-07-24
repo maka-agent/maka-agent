@@ -33,6 +33,19 @@ function declaration(body: string, property: string): string | undefined {
   return match?.[1].trim().replace(/\s+/g, ' ');
 }
 
+function isModeIndicatorRestSelector(selector: string): boolean {
+  const subject =
+    selector
+      .trim()
+      .split(/\s*[>+~]\s*|\s+/)
+      .filter(Boolean)
+      .at(-1) ?? '';
+  return (
+    subject.includes('.maka-composer-mode-indicator') &&
+    !/[:[]/.test(subject)
+  );
+}
+
 describe('composer active-mode indicator visual contract', () => {
   it('shares the composer picker footprint and hover treatment without a private geometry path', async () => {
     const cssRules = rules(await readFile(COMPOSER_CSS, 'utf8'));
@@ -82,7 +95,7 @@ describe('composer active-mode indicator visual contract', () => {
     const privateBaseRules = cssRules.filter(
       (rule) =>
         rule !== baseRule &&
-        rule.selectors.includes('.maka-composer-mode-indicator'),
+        rule.selectors.some(isModeIndicatorRestSelector),
     );
     for (const property of [
       'height',
@@ -103,5 +116,51 @@ describe('composer active-mode indicator visual contract', () => {
         `${property} must come from the shared composer-control rule, not a private mode-indicator rule`,
       );
     }
+
+    const modeHoverRules = cssRules.filter((rule) =>
+      rule.selectors.some(
+        (selector) =>
+          selector.includes('.maka-composer-mode-indicator') &&
+          selector.includes(':hover'),
+      ),
+    );
+    assert.deepEqual(
+      modeHoverRules,
+      [hoverRule],
+      'the shared hover rule must remain the only hover owner for active-mode indicators',
+    );
+  });
+
+  it('catches descendant, compound, selector-list, and private-hover overrides', () => {
+    const fixtures = [
+      '.composer .maka-composer-mode-indicator { height: 24px; }',
+      '.maka-composer-mode-indicator.active { padding: 0 4px; }',
+      '.other, .maka-composer-mode-indicator { border-radius: 4px; }',
+    ];
+    for (const fixture of fixtures) {
+      const fixtureRules = rules(fixture).filter((rule) =>
+        rule.selectors.some(isModeIndicatorRestSelector),
+      );
+      assert.equal(
+        fixtureRules.length,
+        1,
+        `private rest geometry must be detected: ${fixture}`,
+      );
+    }
+
+    const hoverFixture = rules(
+      '.composer .maka-composer-mode-indicator:hover { background: red; }',
+    );
+    assert.equal(
+      hoverFixture.filter((rule) =>
+        rule.selectors.some(
+          (selector) =>
+            selector.includes('.maka-composer-mode-indicator') &&
+            selector.includes(':hover'),
+        ),
+      ).length,
+      1,
+      'a private hover owner must be detected',
+    );
   });
 });

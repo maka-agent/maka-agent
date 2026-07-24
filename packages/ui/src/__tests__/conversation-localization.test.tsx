@@ -155,7 +155,7 @@ describe('localized conversation journey', () => {
     assert.match(on, /<button[^>]*maka-composer-mode-indicator/);
     assert.match(
       on,
-      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*aria-hidden="true"/,
+      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*class="lucide lucide-x"[^>]*aria-hidden="true"/,
     );
 
     const off = render('zh', <Composer onSend={() => {}} onStop={() => {}} onPlanModeChange={() => {}} />);
@@ -180,7 +180,7 @@ describe('localized conversation journey', () => {
     assert.match(markup, /等待流式输出结束/);
     assert.match(
       markup,
-      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*aria-hidden="true"/,
+      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*class="lucide lucide-x"[^>]*aria-hidden="true"/,
     );
   });
 
