@@ -1485,9 +1485,6 @@ export class SessionManager {
     ) {
       throw new Error('Claimed graph execution target must be a linked child session');
     }
-    if (child.isArchived || child.status === 'archived' || child.status === 'aborted') {
-      throw new Error('Claimed graph execution target child session is terminated');
-    }
     const readyInfo = {
       claimId: claim.claimId,
       graphId: claim.graphId,
@@ -1541,6 +1538,9 @@ export class SessionManager {
     }
     if (messages.some((message) => 'turnId' in message && message.turnId === claim.targetTurnId)) {
       throw new Error(`Claimed graph turn ${claim.targetTurnId} already has durable messages`);
+    }
+    if (child.isArchived || child.status === 'archived' || child.status === 'aborted') {
+      throw new Error('Claimed graph execution target child session is terminated');
     }
     if (input.abortSignal?.aborted) {
       throw new Error('Claimed graph execution was cancelled before runtime admission');

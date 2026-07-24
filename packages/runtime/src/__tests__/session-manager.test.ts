@@ -183,6 +183,7 @@ describe('SessionManager claimed graph intent execution', () => {
       ),
     ).toMatchObject({ text: 'summarize the routed records' });
 
+    await store.archive(child.id);
     const retry = await manager.runClaimedAgentGraphIntent({
       ...graphExecutionInput(claim, 'summarize the routed records'),
     });
