@@ -150,8 +150,13 @@ describe('localized conversation journey', () => {
     assert.match(on, /maka-composer-mode-indicator/);
     assert.match(on, /Plan 模式已启用/);
     // Same visual language as the permission select: a quiet text BUTTON
-    // (no chevron — it cannot drop down); clicking turns the mode off.
+    // with an explicit close icon (no chevron — it cannot drop down);
+    // clicking turns the mode off.
     assert.match(on, /<button[^>]*maka-composer-mode-indicator/);
+    assert.match(
+      on,
+      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*aria-hidden="true"/,
+    );
 
     const off = render('zh', <Composer onSend={() => {}} onStop={() => {}} onPlanModeChange={() => {}} />);
     assert.doesNotMatch(off, /maka-composer-mode-indicator/);
@@ -173,6 +178,10 @@ describe('localized conversation journey', () => {
     assert.match(markup, /Swarm 模式已启用/);
     assert.match(markup, /disabled=""/);
     assert.match(markup, /等待流式输出结束/);
+    assert.match(
+      markup,
+      /<button[^>]*maka-composer-mode-indicator[^>]*>(?:(?!<\/button>)[\s\S])*?<svg[^>]*aria-hidden="true"/,
+    );
   });
 
   it('keeps Swarm Mode out of the toolbar (#1433)', () => {

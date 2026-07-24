@@ -922,6 +922,7 @@ export const Composer = forwardRef<
                 }
               >
                 {copy.planModeLabel}
+                <X size={12} aria-hidden="true" />
               </button>
             ) : null}
             {props.swarmModeActive ? (
@@ -943,6 +944,7 @@ export const Composer = forwardRef<
                 }
               >
                 {copy.swarmModeLabel}
+                <X size={12} aria-hidden="true" />
               </button>
             ) : null}
           </div>

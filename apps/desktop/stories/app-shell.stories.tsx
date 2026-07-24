@@ -334,6 +334,12 @@ export const PlanModeActive: Story = {
   render: () => <ComposedShell composer={{ planModeActive: true }} />,
 };
 
+// Real path: enable Swarm mode (＋ menu) → while the mode is on, the composer
+// shows the same direct-close indicator as Plan beside the permission select.
+export const SwarmModeActive: Story = {
+  render: () => <ComposedShell composer={{ swarmModeActive: true }} />,
+};
+
 // Real path: returning user with session history → start a new chat (or
 // open a session with no messages yet). This is the DAILY empty home:
 // ChatView falls back to its built-in EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —
