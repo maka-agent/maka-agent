@@ -42,6 +42,8 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *                 and the flush trailer keeps finishReason 'other' (the
  *                 isErrorChunk branch never reassigns it) — locks recovery
  *                 against per-family trailer drift
+ *  - 'toolThenOverflowPart' → a tool call followed by an in-stream context
+ *                 error before the request completes
  *  - 'error400' → a non-overflow, non-retryable provider failure
  *  - 'error500' → a retryable provider-unavailable failure
  *  - 'rateLimit' → a retryable rate-limit failure
@@ -61,6 +63,7 @@ type CallKind =
   | 'overflow'
   | 'overflowPart'
   | 'overflowPartResponses'
+  | 'toolThenOverflowPart'
   | 'error400'
   | 'error500'
   | 'rateLimit'
@@ -212,7 +215,11 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
         },
       });
     }
-    if (kind === 'overflowPart' || kind === 'overflowPartResponses') {
+    if (
+      kind === 'overflowPart' ||
+      kind === 'overflowPartResponses' ||
+      kind === 'toolThenOverflowPart'
+    ) {
       // The 200 response starts streaming, then the provider sends the error
       // inside the SSE stream. Each shape below is exactly what the locked
       // provider transform enqueues — no cross-family mixing:
@@ -220,7 +227,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       // part with finishReason 'error'; Responses forwards the WHOLE error
       // chunk and its flush keeps the initial finishReason 'other'.
       const errorValue =
-        kind === 'overflowPart'
+        kind === 'overflowPart' || kind === 'toolThenOverflowPart'
           ? {
               message: 'Bad Request',
               type: 'invalid_request_error',
@@ -244,6 +251,16 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       return simulateReadableStream({
         chunks: [
           { type: 'stream-start', warnings: [] },
+          ...(kind === 'toolThenOverflowPart'
+            ? ([
+                {
+                  type: 'tool-call',
+                  toolCallId: `tool-${call}`,
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'one.md' }),
+                },
+              ] satisfies LanguageModelV4StreamPart[])
+            : []),
           { type: 'error', error: errorValue },
           { type: 'finish', finishReason: trailerReason, usage: usage(0, 0) },
         ] satisfies LanguageModelV4StreamPart[],
@@ -690,6 +707,20 @@ describe('reactive overflow recovery in the streaming backend', () => {
     );
     assert.equal(fixture.recorded.length, 1);
     assert.equal(fixture.recorded[0]!.phase, 'mid_turn');
+  });
+
+  test('does not recover an overflow after the failed stream emitted a tool call', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['tool', 'toolThenOverflowPart', 'done'],
+      bigPriors: true,
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'error');
+    assert.deepEqual(fixture.toolExecutions, ['one.md']);
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(fixture.summarizerCalls(), 0);
   });
 
   test('the recovery baseline is the request the provider rejected, not the attempt-initial messages', async () => {

@@ -1546,22 +1546,23 @@ export class AiSdkBackend implements AgentBackend {
               // more step; with the send-level budget already spent there is
               // nothing left to grant it, so the error is terminal.
               const stepBudgetRemains = this.maxSteps === undefined || runtimeSteps < this.maxSteps;
-              const recovered = stepBudgetRemains
-                ? await this.compaction.recoverFromOverflowError({
-                    error: streamFailure,
-                    retryAlreadyUsed: overflowRetryUsed,
-                    midTurnState,
-                    turnId,
-                    currentMessages: attemptMessages,
-                    providerTools,
-                    activeTools: activeToolsForRequest,
-                    systemPromptChars: midTurnSystemPromptChars,
-                    turnTailPrompt,
-                    queue,
-                    onDiagnosticPatch: onMidTurnDiagnosticPatch,
-                    abortSignal: turnAbortController.signal,
-                  })
-                : undefined;
+              const recovered =
+                stepBudgetRemains && returnedToolCalls.length === 0
+                  ? await this.compaction.recoverFromOverflowError({
+                      error: streamFailure,
+                      retryAlreadyUsed: overflowRetryUsed,
+                      midTurnState,
+                      turnId,
+                      currentMessages: attemptMessages,
+                      providerTools,
+                      activeTools: activeToolsForRequest,
+                      systemPromptChars: midTurnSystemPromptChars,
+                      turnTailPrompt,
+                      queue,
+                      onDiagnosticPatch: onMidTurnDiagnosticPatch,
+                      abortSignal: turnAbortController.signal,
+                    })
+                  : undefined;
               if (recovered) {
                 overflowRetryUsed = true;
                 // Recovery rebuilds the request from the durable ledger, whose
