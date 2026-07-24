@@ -46,16 +46,16 @@ describe('sidebar project view mode', () => {
     assert.match(fallbackMarkup, /待发送/);
   });
 
-  it('renders the status/project view mode controls as a pressed segmented control', () => {
-    // #571 routes the toggle through the shared Segmented primitive,
-    // whose <button> carries aria-pressed and puts the label inline (no <span>).
-    const statusMarkup = renderSessionListPanel({ viewMode: 'status' });
-    assert.match(statusMarkup, /<button[^>]*aria-pressed="true"[^>]*>按状态/);
-    assert.match(statusMarkup, /<button[^>]*aria-pressed="false"[^>]*>按项目/);
+  it('moves the status/project controls into the session-list heading menu', async () => {
+    const markup = renderSessionListPanel({ viewMode: 'status' });
+    const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
-    const projectMarkup = renderSessionListPanel({ viewMode: 'project' });
-    assert.match(projectMarkup, /<button[^>]*aria-pressed="false"[^>]*>按状态/);
-    assert.match(projectMarkup, /<button[^>]*aria-pressed="true"[^>]*>按项目/);
+    assert.match(markup, /class="maka-session-list-heading"[^>]*>会话/);
+    assert.match(markup, /aria-label="会话分组方式"/);
+    assert.doesNotMatch(markup, />按状态|>按项目/);
+    assert.match(panel, /<MenuRadioGroup value=\{viewMode\}/);
+    assert.match(panel, /<MenuRadioItem value="status">\{copy\.groupByStatus\}/);
+    assert.match(panel, /<MenuRadioItem value="project">\{copy\.groupByProject\}/);
   });
 
   it('renders project groups as folder headers with an initial four-session preview', () => {

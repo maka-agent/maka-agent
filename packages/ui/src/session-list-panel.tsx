@@ -1,8 +1,10 @@
 import type { PlanReminder, SessionSummary } from '@maka/core';
-import type { NavSelection } from './nav-selection.js';
+import type { NavModuleMemory, NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
-import { Segmented } from './primitives/segmented.js';
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from './primitives/menu.js';
+import { Button as UiButton } from './ui.js';
+import { ListTodo } from './icons.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 
@@ -20,6 +22,7 @@ export function SessionListPanel(props: {
   viewMode?: SessionViewMode;
   onViewModeChange?: (mode: SessionViewMode) => void;
   onSelectSession(sessionId: string): void;
+  moduleMemory?: NavModuleMemory;
   onSelect(selection: NavSelection): void;
   onOpenSettings(): void;
   onNew(): void;
@@ -47,22 +50,29 @@ export function SessionListPanel(props: {
       <SessionSidebarNav
         selection={props.selection}
         planReminders={props.planReminders}
+        moduleMemory={props.moduleMemory}
         onSelect={props.onSelect}
         onNew={props.onNew}
       />
       {showSessionNavigation && onViewModeChange && (
-        <div className="maka-view-mode-toggle">
-          {/* Shared segmented primitive — same control family as the
-              daily-review range tabs. The previous hand-rolled buttons
-              referenced tokens that don't exist in maka-tokens
-              (--surface-secondary etc.), rendering an invisible chrome. */}
-          <Segmented
-            value={viewMode}
-            options={[['status', copy.groupByStatus], ['project', copy.groupByProject]]}
-            onChange={(mode) => onViewModeChange(mode)}
-            ariaLabel={copy.groupingAriaLabel}
-            className="maka-view-mode-segmented"
-          />
+        <div className="maka-session-list-toolbar">
+          <span className="maka-session-list-heading">{copy.title}</span>
+          <Menu>
+            <MenuTrigger
+              render={<UiButton variant="quiet" size="icon-sm" />}
+              type="button"
+              aria-label={copy.groupingAriaLabel}
+              title={copy.groupingAriaLabel}
+            >
+              <ListTodo size={15} aria-hidden="true" />
+            </MenuTrigger>
+            <MenuPopup align="end">
+              <MenuRadioGroup value={viewMode} onValueChange={(mode) => onViewModeChange(mode as SessionViewMode)}>
+                <MenuRadioItem value="status">{copy.groupByStatus}</MenuRadioItem>
+                <MenuRadioItem value="project">{copy.groupByProject}</MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
         </div>
       )}
       <SessionHistoryList

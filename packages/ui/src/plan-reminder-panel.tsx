@@ -61,6 +61,7 @@ import { Input } from './primitives/input.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
+import type { ModuleHubHeader } from './module-hub-switch.js';
 import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,
@@ -82,6 +83,7 @@ function planRunStatusChipTone(
 
 export function PlanReminderPanel(props: {
   reminders: PlanReminder[];
+  hubHeader?: ModuleHubHeader;
   auditReport?: CapabilityAuditReport;
   /**
    * Current persisted 保持系统唤醒 state. `undefined` means the capability is
@@ -255,8 +257,10 @@ export function PlanReminderPanel(props: {
           as_wrapper="div"
           className="maka-plan-hero"
           as="h2"
-          title={copy.page.title}
-          subtitle={copy.page.subtitle}
+          title={props.hubHeader?.title ?? copy.page.title}
+          subtitle={props.hubHeader?.subtitle ?? copy.page.subtitle}
+          badge={props.hubHeader?.badge}
+          headingRowClassName={props.hubHeader ? 'maka-module-hub-heading' : undefined}
           contentClassName="maka-plan-heading"
           actions={
           <div className="maka-plan-top-actions" aria-label={copy.page.actionsAriaLabel}>

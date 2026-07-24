@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react';
 import type { ComponentProps } from 'react';
 import type { SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, Composer, SessionListPanel } from '@maka/ui';
-import type { ChatModelChoice } from '@maka/ui';
+import type { ChatModelChoice, SessionViewMode } from '@maka/ui';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from '../src/renderer/app-shell-chrome-actions';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
@@ -184,6 +184,7 @@ function ComposedShell(props: {
   detailChildren?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
+  const [viewMode, setViewMode] = useState<SessionViewMode>('status');
   const sidebarWidth = collapsed ? 0 : 260;
   const sessions = sidebarSessions.map((s) =>
     s.id === activeSession.id && (props.session?.status || props.session?.blockedReason)
@@ -232,6 +233,8 @@ function ComposedShell(props: {
               activeId={active.id}
               statusGroups={groups}
               streamingSessionIds={streamingIds}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
               onSelect={noop}
               onSelectSession={noop}
               onOpenSettings={noop}

@@ -11,22 +11,26 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
   await page.getByRole('button', { name: '展开侧边栏' }).click();
   const sidebar = page.getByRole('complementary', { name: '对话列表' });
   const extensions = sidebar.getByRole('button', { name: '扩展', exact: true });
-  await expect(extensions).toHaveAttribute('aria-expanded', 'true');
-  await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toBeVisible();
-  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: '技能', exact: true })).toHaveCount(0);
+  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toHaveCount(0);
   await extensions.click();
-  await expect(extensions).toHaveAttribute('aria-expanded', 'false');
-  await expect(sidebar.getByRole('button', { name: 'MCP', exact: true })).toBeHidden();
-  if (screenshotPath) {
-    await extensions.hover();
-    await page.screenshot({ path: variantPath(screenshotPath, 'extensions-hover') });
-  }
-  await extensions.click();
-  await sidebar.getByRole('button', { name: 'MCP', exact: true }).click();
-  await expect(sidebar.getByRole('group', { name: '会话分组方式' })).toHaveCount(0);
+  await expect(extensions).toHaveAttribute('aria-current', 'page');
+  await expect(sidebar.getByRole('button', { name: '会话分组方式' })).toHaveCount(0);
   await expect(sidebar.locator('.maka-session-list')).toBeVisible();
-  const mcp = page.getByRole('main', { name: 'MCP' });
-  await expect(mcp.getByRole('heading', { name: 'MCP' })).toBeVisible();
+
+  const extensionSwitch = page.getByRole('group', { name: '扩展内容' });
+  await expect(extensionSwitch.getByRole('button', { name: '技能' })).toHaveAttribute('aria-pressed', 'true');
+  await extensionSwitch.getByRole('button', { name: 'MCP' }).click();
+  const mcp = page.getByRole('main', { name: '扩展' });
+  await expect(mcp.getByRole('heading', { name: '扩展' })).toBeVisible();
+  await expect(extensionSwitch.getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'true');
+
+  // Each hub restores its last module when the user returns from another
+  // sidebar destination.
+  await sidebar.getByRole('button', { name: '定时任务', exact: true }).click();
+  await extensions.click();
+  await expect(page.getByRole('main', { name: '扩展' })).toBeVisible();
+  await expect(extensionSwitch.getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'true');
   if (screenshotPath) {
     await page.screenshot({ path: variantPath(screenshotPath, 'market') });
     await page.getByRole('button', { name: '设置', exact: true }).click();

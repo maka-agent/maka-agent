@@ -238,7 +238,7 @@ export function buildCommandList(args: {
       ...staticCopy('nav:automations'),
       Icon: Clock,
       keywords: [...copy.staticKeywords['nav:automations']],
-      run: () => select({ section: 'automations' }),
+      run: () => select({ section: 'automations', module: 'plan-reminders' }),
     });
     cmds.push({
       id: 'nav:skills',
@@ -246,7 +246,7 @@ export function buildCommandList(args: {
       ...staticCopy('nav:skills'),
       Icon: Blocks,
       keywords: [...copy.staticKeywords['nav:skills']],
-      run: () => select({ section: 'skills' }),
+      run: () => select({ section: 'extensions', module: 'skills' }),
     });
     cmds.push({
       id: 'nav:mcp',
@@ -254,7 +254,7 @@ export function buildCommandList(args: {
       ...staticCopy('nav:mcp'),
       Icon: Plug,
       keywords: [...copy.staticKeywords['nav:mcp']],
-      run: () => select({ section: 'mcp' }),
+      run: () => select({ section: 'extensions', module: 'mcp' }),
     });
     cmds.push({
       id: 'nav:daily-review',
@@ -262,7 +262,7 @@ export function buildCommandList(args: {
       ...staticCopy('nav:daily-review'),
       Icon: CalendarDays,
       keywords: [...copy.staticKeywords['nav:daily-review']],
-      run: () => select({ section: 'daily-review' }),
+      run: () => select({ section: 'automations', module: 'daily-review' }),
     });
   }
 

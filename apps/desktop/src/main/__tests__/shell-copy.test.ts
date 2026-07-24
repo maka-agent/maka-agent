@@ -43,7 +43,7 @@ describe('shell copy catalog', () => {
     const mcpCommand = commands.find((command) => command.id === 'nav:mcp');
     assert.equal(mcpCommand?.label, 'Open · MCP');
     mcpCommand?.run();
-    assert.deepEqual(selectedModule, { section: 'mcp' });
+    assert.deepEqual(selectedModule, { section: 'extensions', module: 'mcp' });
 
     const sessionCommands = buildSessionCommands({
       locale: 'en',

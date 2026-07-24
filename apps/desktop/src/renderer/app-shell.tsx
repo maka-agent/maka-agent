@@ -35,6 +35,7 @@ import {
   type MakaUriDest,
   MakaUriContext,
   LocaleProvider,
+  ModuleHubSwitch,
   ToastProvider,
   type NavSelection,
   SessionListPanel,
@@ -43,6 +44,7 @@ import {
   type TurnFooterActionMeta,
   useToast,
   activeInteractionFor,
+  getSharedUiCopy,
 } from '@maka/ui';
 import { useKeyboardHelp } from './keyboard-help';
 import { useCommandPalette } from './command-palette';
@@ -71,7 +73,7 @@ import { deriveSessionStatusGroups } from './session-status-grouping';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
-import { readNavSelection } from './nav-selection';
+import { readNavigationState, selectNavigation } from './nav-selection';
 import { sessionMatchesNavSelection } from './session-nav-filter';
 import { deriveSessionRevisionNavigation } from './session-revisions';
 import {
@@ -243,7 +245,14 @@ function AppShellContent({
   // P3: session ids with a live embedded-browser view. The right-side
   // BrowserPanel mounts only for these, so ordinary chats reserve no space.
   const [liveBrowserSessionIds, setLiveBrowserSessionIds] = useState<string[]>([]);
-  const [navSelection, setNavSelection] = useState<NavSelection>(() => readNavSelection());
+  const [navigationState, setNavigationState] = useState(() => readNavigationState());
+  const navSelection = navigationState.selection;
+  const setNavSelection = useCallback<Dispatch<SetStateAction<NavSelection>>>((nextSelection) => {
+    setNavigationState((current) => selectNavigation(
+      current,
+      typeof nextSelection === 'function' ? nextSelection(current.selection) : nextSelection,
+    ));
+  }, []);
   const navSelectionRef = useRef<NavSelection>(navSelection);
   const {
     messageLoadErrorBySession,
@@ -301,6 +310,29 @@ function AppShellContent({
     setUiLocalePreference,
   });
   const shellCopy = getShellCopy(uiLocale).app;
+  const moduleHubCopy = getSharedUiCopy(uiLocale).moduleHubs;
+  const extensionsHubHeader = {
+    title: moduleHubCopy.extensions.title,
+    subtitle: moduleHubCopy.extensions.description,
+    badge: (
+      <ModuleHubSwitch
+        hub="extensions"
+        value={navSelection.section === 'extensions' ? navSelection.module : navigationState.moduleMemory.extensions}
+        onChange={(module) => setNavSelection({ section: 'extensions', module })}
+      />
+    ),
+  };
+  const automationsHubHeader = {
+    title: moduleHubCopy.automations.title,
+    subtitle: moduleHubCopy.automations.description,
+    badge: (
+      <ModuleHubSwitch
+        hub="automations"
+        value={navSelection.section === 'automations' ? navSelection.module : navigationState.moduleMemory.automations}
+        onChange={(module) => setNavSelection({ section: 'automations', module })}
+      />
+    ),
+  };
   // Persisted composer defaults seed the empty-state model, project path, and
   // recent workspace history so the home view is populated before the async
   // `app:info` round-trip completes on mount.
@@ -957,15 +989,15 @@ function AppShellContent({
   }, [quotePanel, workbarCollapsed, activeId]);
 
   function isAutomationsSurfaceActive(): boolean {
-    return navSelectionRef.current.section === 'automations';
+    return navSelectionRef.current.section === 'automations' && navSelectionRef.current.module === 'plan-reminders';
   }
 
   function isSkillsSurfaceActive(): boolean {
-    return navSelectionRef.current.section === 'skills';
+    return navSelectionRef.current.section === 'extensions' && navSelectionRef.current.module === 'skills';
   }
 
   function isDailyReviewSurfaceActive(): boolean {
-    return navSelectionRef.current.section === 'daily-review';
+    return navSelectionRef.current.section === 'automations' && navSelectionRef.current.module === 'daily-review';
   }
 
   const {
@@ -1347,7 +1379,7 @@ function AppShellContent({
     toastApi,
   });
   useAppShellPersistenceEffects({
-    navSelection,
+    navigationState,
     sessionListCollapsed,
     sessionListWidth,
     workbarCollapsed,
@@ -1433,7 +1465,7 @@ function AppShellContent({
   }
 
   function openPlanReminderForm() {
-    setNavSelection({ section: 'automations' });
+    setNavSelection({ section: 'automations', module: 'plan-reminders' });
     closePalette();
     window.requestAnimationFrame(() => {
       document.querySelector<HTMLInputElement>('[data-maka-plan-title-input="true"]')?.focus({ preventScroll: false });
@@ -1600,6 +1632,7 @@ function AppShellContent({
             onViewModeChange={setViewMode}
             statusGroups={sessionListGroups}
             childSessionsByParentId={visibleSessionTree.childrenByParentId}
+            moduleMemory={navigationState.moduleMemory}
             onSelect={setNavSelection}
             onSelectSession={sessionListSelectSession}
             onOpenSettings={openSettings}
@@ -1626,14 +1659,10 @@ function AppShellContent({
           data-sidebar-state={sessionListCollapsed ? 'collapsed' : 'expanded'}
           data-agents-view={
             navSelection.section === 'automations'
-              ? 'cron'
-              : navSelection.section === 'skills'
-                ? 'skills'
-                : navSelection.section === 'mcp'
-                  ? 'mcp'
-                : navSelection.section === 'sessions'
-                  ? 'im_hub'
-                  : navSelection.section
+              ? navSelection.module === 'daily-review' ? 'daily-review' : 'cron'
+              : navSelection.section === 'extensions'
+                ? navSelection.module
+                : 'im_hub'
           }
         >
           <AppShellWorkspaceTopActions
@@ -1656,8 +1685,9 @@ function AppShellContent({
           <MakaUriContext.Provider value={dispatchMakaUri}>
           <div className="maka-detail-with-artifacts">
             <div className="mainColumn" data-home-surface={homeSurfaceActive ? 'true' : undefined}>
-              {navSelection.section === 'skills' ? (
+              {navSelection.section === 'extensions' && navSelection.module === 'skills' ? (
                 <SkillsPage
+                  hubHeader={extensionsHubHeader}
                   skills={skills}
                   planReminders={planReminders}
                   onRefreshSkills={() => refreshSkills()}
@@ -1678,10 +1708,11 @@ function AppShellContent({
                   onSetSkillPinned={(skillRef, pinned) => setSkillPinned(skillRef, pinned)}
                   onDeleteSkill={(skillId) => deleteSkill(skillId)}
                 />
-              ) : navSelection.section === 'mcp' ? (
-                <McpPage />
-              ) : navSelection.section === 'automations' ? (
+              ) : navSelection.section === 'extensions' && navSelection.module === 'mcp' ? (
+                <McpPage hubHeader={extensionsHubHeader} />
+              ) : navSelection.section === 'automations' && navSelection.module === 'plan-reminders' ? (
                 <AutomationsPage
+                  hubHeader={automationsHubHeader}
                   skills={skills}
                   reminders={planReminders}
                   keepSystemAwake={
@@ -1707,8 +1738,9 @@ function AppShellContent({
                   onClearRunHistory={(id) => clearPlanReminderRunHistory(id)}
                   onDelete={(id) => deletePlanReminder(id)}
                 />
-              ) : navSelection.section === 'daily-review' ? (
+              ) : navSelection.section === 'automations' && navSelection.module === 'daily-review' ? (
                 <DailyReviewPage
+                  hubHeader={automationsHubHeader}
                   bridge={dailyReviewBridge}
                   onSelectSession={openSessionInChat}
                   onCopyMarkdown={(input) => copyDailyReviewMarkdown(input, { shouldShowFeedback: isDailyReviewSurfaceActive })}
@@ -1845,7 +1877,10 @@ function AppShellContent({
                 }}
                 onOpenSettingsSection={(section) => openSettingsSection(section)}
                 onOpenSidebarModule={(target) => {
-                  setNavSelection({ section: target });
+                  setNavSelection({
+                    section: 'automations',
+                    module: target === 'daily-review' ? 'daily-review' : 'plan-reminders',
+                  });
                 }}
                 onStartPlanReminder={openPlanReminderForm}
                 conversationItems={planConversationItems}
@@ -2064,7 +2099,7 @@ function AppShellContent({
         settingsCreateProviderType={settingsCreateProviderType}
         onOpenDailyReview={() => {
           closeSettings();
-          setNavSelection({ section: 'daily-review' });
+          setNavSelection({ section: 'automations', module: 'daily-review' });
         }}
         onOpenSettingsSession={(sessionId) => {
           closeSettings();

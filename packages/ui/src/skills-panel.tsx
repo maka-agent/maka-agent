@@ -22,6 +22,7 @@ import { SettingsSelect, type SettingsSelectOption } from './primitives/settings
 import { EmptyState } from './empty-state.js';
 import { SectionHeader } from './primitives/section-header.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
+import type { ModuleHubHeader } from './module-hub-switch.js';
 import type { BundledSkillCatalogEntry, ManagedSkillCategory, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
 import { getSkillsCopy, type SkillsCopy } from './skills-copy.js';
 import { useUiLocale } from './locale-context.js';
@@ -773,6 +774,7 @@ function previewText(content: string): string {
 
 export function SkillsModuleMain(props: {
   skills?: SkillEntry[];
+  hubHeader?: ModuleHubHeader;
   managedSkillSources?: ManagedSkillSourceEntry[];
   bundledSkillCatalog?: BundledSkillCatalogEntry[];
   auditReport?: CapabilityAuditReport;
@@ -825,12 +827,14 @@ export function SkillsModuleMain(props: {
   const skillCreateLegacyLabel = pendingSkillAction === 'create' ? copy.page.creating : copy.page.createExample;
   const auditReport = props.auditReport ?? deriveCapabilityAuditReport({ skills: props.skills ?? [] });
   return (
-    <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label={copy.page.title}>
+    <main className="maka-main detailPane maka-module-main agents-chat-panel" aria-label={props.hubHeader?.title ?? copy.page.title}>
       <PageHeader
         className="maka-module-main-header"
         as="h2"
-        title={copy.page.title}
-        subtitle={copy.page.subtitle}
+        title={props.hubHeader?.title ?? copy.page.title}
+        subtitle={props.hubHeader?.subtitle ?? copy.page.subtitle}
+        badge={props.hubHeader?.badge}
+        headingRowClassName={props.hubHeader ? 'maka-module-hub-heading' : undefined}
         actions={
         <div className="maka-module-main-actions" role="group" aria-label={copy.page.actions}>
           <label className="maka-skill-search" aria-label={copy.page.search}>

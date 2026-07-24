@@ -107,21 +107,21 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     );
   });
 
-  it('.maka-session-panel reserves explicit rows for header, nav, view toggle, list, and footer', async () => {
+  it('.maka-session-panel reserves explicit rows for header, nav, session heading, list, and footer', async () => {
     const css = await readRendererContractCss();
     const ruleBody = extractRuleBody(css, '.maka-session-panel');
     assert.ok(ruleBody, '.maka-session-panel rule must exist');
     assert.match(
       ruleBody,
       /grid-template-rows:\s*auto\s+auto\s+auto\s+minmax\(\s*0\s*,\s*1fr\s*\)\s+auto/,
-      'sidebar panel must keep the view-mode toggle in its own row above the constrained session list',
+      'sidebar panel must keep the session heading in its own row above the constrained session list',
     );
   });
 
-  it('.maka-session-panel[data-collapsed="true"] uses a 4-row grid because the view toggle is hidden', async () => {
-    // Collapsed rail sets the view-mode toggle to display:none. A display:none
+  it('.maka-session-panel[data-collapsed="true"] uses a 4-row grid because the session heading is hidden', async () => {
+    // Collapsed rail sets the session heading row to display:none. A display:none
     // item does NOT participate in grid layout, so the collapsed panel must not
-    // keep a 5th row reserved for the toggle — otherwise the footer drops into
+    // keep a 5th row reserved for it — otherwise the footer drops into
     // the minmax(0, 1fr) track and the settings button floats mid-panel.
     const css = await readRendererContractCss();
     const ruleBody = extractRuleBody(css, '.maka-session-panel[data-collapsed="true"]');
@@ -129,7 +129,7 @@ describe('sidebar session list CSS scroll contract (PR-SIDEBAR-IA-0 Phase 1)', (
     assert.match(
       ruleBody,
       /grid-template-rows:\s*auto\s+auto\s+minmax\(\s*0\s*,\s*1fr\s*\)\s+auto/,
-      'collapsed panel must use a 4-row grid: the hidden view toggle must not reserve a 5th track',
+      'collapsed panel must use a 4-row grid: the hidden session heading must not reserve a 5th track',
     );
   });
 

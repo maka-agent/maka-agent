@@ -149,13 +149,13 @@ export function createAppShellE2eFixtureActions(options: {
       openPalette();
     }
     if (state.sidebarSection === 'automations') {
-      setNavSelection({ section: 'automations' });
+      setNavSelection({ section: 'automations', module: 'plan-reminders' });
     } else if (state.sidebarSection === 'skills') {
-      setNavSelection({ section: 'skills' });
+      setNavSelection({ section: 'extensions', module: 'skills' });
     } else if (state.sidebarSection === 'mcp') {
-      setNavSelection({ section: 'mcp' });
+      setNavSelection({ section: 'extensions', module: 'mcp' });
     } else if (state.sidebarSection === 'daily-review') {
-      setNavSelection({ section: 'daily-review' });
+      setNavSelection({ section: 'automations', module: 'daily-review' });
     } else if (state.sidebarSection === 'sessions') {
       setNavSelection({ section: 'sessions', filter: 'chats' });
     }

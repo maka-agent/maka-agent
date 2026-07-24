@@ -1656,7 +1656,7 @@ description: Exercise workspace-contained open paths.
 
     assert.match(
       renderer,
-      /function isSkillsSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'skills';[\s\S]*\}/,
+      /function isSkillsSurfaceActive\(\): boolean \{[\s\S]*return navSelectionRef\.current\.section === 'extensions' && navSelectionRef\.current\.module === 'skills';[\s\S]*\}/,
       'Skills feedback must be owned by the current Skills surface',
     );
     assert.match(

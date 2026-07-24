@@ -150,7 +150,7 @@ test('returning to the session after visiting skills re-settles the new transcri
   // `.maka-turn` node with no remembered size, so the warm-up must walk the
   // NEW DOM. Fixture windows don't pass OS hit-testing — dispatch clicks.
   await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
-  await page.locator('button[aria-label="技能"]').dispatchEvent('click');
+  await page.locator('button[aria-label="扩展"]').dispatchEvent('click');
   await expect(page.locator('.maka-turn')).toHaveCount(0);
   await page.getByText('超长会话滚动几何').first().dispatchEvent('click');
   await expect(page.locator('.maka-turn')).toHaveCount(24);

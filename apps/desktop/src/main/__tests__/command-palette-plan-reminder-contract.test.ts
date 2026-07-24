@@ -26,7 +26,7 @@ describe('command palette plan reminder contract', () => {
     const dialog = await readFile(resolve(REPO_ROOT, 'packages/ui/src/plan-reminder-form-dialog.tsx'), 'utf8');
 
     assert.match(main, /function\s+openPlanReminderForm\(\)/);
-    assert.match(main, /setNavSelection\(\{\s*section:\s*'automations'\s*\}\)/);
+    assert.match(main, /setNavSelection\(\{\s*section:\s*'automations',\s*module:\s*'plan-reminders'\s*\}\)/);
     // #1045: run() reads openPlanReminderForm from the live options ref.
     assert.match(main, /onStartPlanReminder:\s*\(\)\s*=>\s*optionsRef\.current\.openPlanReminderForm\(\)/);
     assert.match(main, /querySelector<HTMLInputElement>\('\[data-maka-plan-title-input="true"\]'\)/);

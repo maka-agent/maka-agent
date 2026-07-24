@@ -21,6 +21,22 @@ export interface SharedUiCopy {
     searchPlaceholder: string;
     searchAriaLabel: string;
   };
+  moduleHubs: {
+    extensions: {
+      title: string;
+      description: string;
+      switchLabel: string;
+      skills: string;
+      mcp: string;
+    };
+    automations: {
+      title: string;
+      description: string;
+      switchLabel: string;
+      planReminders: string;
+      dailyReview: string;
+    };
+  };
   modules: {
     skills: string;
     loadingSkills: string;
@@ -87,6 +103,22 @@ const SHARED_UI_COPY = {
       searchPlaceholder: '搜索模型…',
       searchAriaLabel: '搜索模型',
     },
+    moduleHubs: {
+      extensions: {
+        title: '扩展',
+        description: '管理 Maka 可调用的技能与外部工具。',
+        switchLabel: '扩展内容',
+        skills: '技能',
+        mcp: 'MCP',
+      },
+      automations: {
+        title: '定时任务',
+        description: '安排计划提醒，并回顾本机对话中的工作进展。',
+        switchLabel: '定时任务内容',
+        planReminders: '计划提醒',
+        dailyReview: '每日回顾',
+      },
+    },
     modules: {
       skills: '技能',
       loadingSkills: '正在加载技能…',
@@ -136,6 +168,22 @@ const SHARED_UI_COPY = {
       empty: 'No matching models',
       searchPlaceholder: 'Search models…',
       searchAriaLabel: 'Search models',
+    },
+    moduleHubs: {
+      extensions: {
+        title: 'Extensions',
+        description: 'Manage the skills and external tools Maka can use.',
+        switchLabel: 'Extension content',
+        skills: 'Skills',
+        mcp: 'MCP',
+      },
+      automations: {
+        title: 'Scheduled tasks',
+        description: 'Schedule reminders and review progress from local conversations.',
+        switchLabel: 'Scheduled task content',
+        planReminders: 'Plan reminders',
+        dailyReview: 'Daily review',
+      },
     },
     modules: {
       skills: 'Skills',
