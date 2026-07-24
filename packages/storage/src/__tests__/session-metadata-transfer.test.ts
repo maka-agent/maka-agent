@@ -306,11 +306,11 @@ describe('malformed legacy headers at the public SessionStore boundary', () => {
     await legacy.close?.();
     const corruptPath = join(root, 'sessions', corrupt.id, 'session.jsonl');
     const lines = (await readFile(corruptPath, 'utf8')).split('\n');
-    const validHeaderLine = (await readFile(join(root, 'sessions', valid.id, 'session.jsonl'), 'utf8')).split('\n')[0]!;
+    const validHeaderLine = (
+      await readFile(join(root, 'sessions', valid.id, 'session.jsonl'), 'utf8')
+    ).split('\n')[0]!;
     const newContent =
-      typeof corruptContent === 'function'
-        ? corruptContent(corrupt.id, lines[0]!)
-        : corruptContent;
+      typeof corruptContent === 'function' ? corruptContent(corrupt.id, lines[0]!) : corruptContent;
     await writeFile(corruptPath, newContent, 'utf8');
     return { root, validId: valid.id, corruptId: corrupt.id, corruptPath, validHeaderLine };
   }
@@ -318,7 +318,11 @@ describe('malformed legacy headers at the public SessionStore boundary', () => {
   // Helper: repair a corrupt session file by writing a valid header line
   // derived from the valid session's header, with the id swapped to the
   // corrupt session's id.
-  async function repairSession(path: string, validHeaderLine: string, targetId: string): Promise<void> {
+  async function repairSession(
+    path: string,
+    validHeaderLine: string,
+    targetId: string,
+  ): Promise<void> {
     const header = JSON.parse(validHeaderLine) as Record<string, unknown>;
     header.id = targetId;
     await writeFile(path, `${JSON.stringify(header)}\n`, 'utf8');
@@ -478,10 +482,7 @@ describe('malformed legacy headers at the public SessionStore boundary', () => {
       await mkdir(unreadablePath);
 
       const store = createSessionStore(root);
-      await assert.rejects(
-        store.list(),
-        (error: NodeJS.ErrnoException) => error.code === 'EISDIR',
-      );
+      await assert.rejects(store.list(), (error: NodeJS.ErrnoException) => error.code === 'EISDIR');
       // No metadata or tombstone was written for either session.
       const meta = openMetadata(root);
       assert.equal(await meta.has(valid.id), false);
