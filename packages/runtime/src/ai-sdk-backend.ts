@@ -1104,7 +1104,12 @@ export class AiSdkBackend implements AgentBackend {
             ]);
         const currentUserContent = input.continuation
           ? undefined
-          : await this.buildCurrentUserContent(input.text, input.attachments, input.quotes);
+          : await this.buildCurrentUserContent(
+              input.text,
+              input.attachments,
+              input.quotes,
+              input.headAnchorRuntimeEvent?.id,
+            );
         const messages =
           currentUserContent === undefined
             ? [...priorReplay.messages]
@@ -2663,7 +2668,11 @@ export class AiSdkBackend implements AgentBackend {
       }
       return {
         role: 'user',
-        content: await this.appendImageParts(item.content, item.attachments),
+        content: await this.appendImageParts(
+          item.content,
+          item.attachments,
+          `runtime-event:${item.eventId}`,
+        ),
       } as ModelMessage;
     }
     return { role: item.role, content: item.content };
@@ -2739,6 +2748,7 @@ export class AiSdkBackend implements AgentBackend {
   private async appendImageParts(
     textContent: string,
     attachments?: AttachmentRef[],
+    decisionKeyPrefix?: string,
   ): Promise<ModelMessage['content']> {
     const images = attachments?.filter((a) => a.kind === 'image') ?? [];
     if (images.length === 0) {
@@ -2755,7 +2765,7 @@ export class AiSdkBackend implements AgentBackend {
       | { type: 'file'; data: { type: 'data'; data: Uint8Array }; mediaType: string }
     > = [{ type: 'text', text: textContent }];
     let omittedByBudget = 0;
-    for (const image of images) {
+    for (const [index, image] of images.entries()) {
       const read = await this.input.readAttachmentBytes(image.ref);
       if (!read.ok) {
         parts.push({
@@ -2764,7 +2774,9 @@ export class AiSdkBackend implements AgentBackend {
         });
         continue;
       }
-      if (!this.chargeImageBudget(read.bytes.length)) {
+      const decisionKey =
+        decisionKeyPrefix === undefined ? undefined : `${decisionKeyPrefix}:image:${index}`;
+      if (!this.chargeImageBudget(read.bytes.length, decisionKey)) {
         omittedByBudget += 1;
         continue;
       }
@@ -2828,6 +2840,7 @@ export class AiSdkBackend implements AgentBackend {
     text: string,
     attachments?: AttachmentRef[],
     quotes?: QuoteRef[],
+    runtimeEventId?: string,
   ): Promise<ModelMessage['content']> {
     return this.appendImageParts(
       formatTextWithInlineRefs(text, {
@@ -2835,6 +2848,7 @@ export class AiSdkBackend implements AgentBackend {
         ...(quotes !== undefined ? { quotes } : {}),
       }),
       attachments,
+      runtimeEventId === undefined ? undefined : `runtime-event:${runtimeEventId}`,
     );
   }
 

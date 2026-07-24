@@ -1521,6 +1521,63 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('charges a durable current-turn image once when the first request reloads the ledger', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const attachment = {
+      kind: 'image' as const,
+      name: 'chart.png',
+      mimeType: 'image/png',
+      bytes: bytes.length,
+      ref: { kind: 'session_file' as const, sessionId: 'session-1', relativePath: 'chart' },
+    };
+    const anchor = runtimeEvent({
+      id: 'rt-current',
+      turnId: 'turn-current',
+      role: 'user',
+      author: 'user',
+      content: {
+        kind: 'text',
+        text: 'describe this chart',
+        attachments: [attachment],
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      loadTurnRuntimeEvents: async () => [anchor],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'describe this chart',
+        attachments: [attachment],
+        context: [],
+        headAnchorRuntimeEvent: anchor,
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: unknown }>;
+    const parts = prompt.at(-1)?.content as Array<{ type: string; mediaType?: string }>;
+    assert.equal(
+      parts.filter((part) => part.type !== 'text' && part.mediaType === 'image/png').length,
+      1,
+    );
+  });
+
   test('degrades excess replayed image tool results once the per-request budget is exceeded', async () => {
     const bytes = new Uint8Array(10);
     const model = completionModel();
