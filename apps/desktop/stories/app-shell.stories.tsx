@@ -29,7 +29,7 @@ type Story = StoryObj<typeof meta>;
 type ChatViewProps = ComponentProps<typeof ChatView>;
 type ComposerProps = ComponentProps<typeof Composer>;
 type SessionListPanelProps = ComponentProps<typeof SessionListPanel>;
-type StatusGroup = NonNullable<SessionListPanelProps['statusGroups']>[number];
+type SessionGroup = NonNullable<SessionListPanelProps['groups']>[number];
 
 const noop = () => undefined;
 
@@ -184,7 +184,7 @@ function ComposedShell(props: {
   detailChildren?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
-  const [viewMode, setViewMode] = useState<SessionViewMode>('status');
+  const [viewMode, setViewMode] = useState<SessionViewMode>('conversation');
   const sidebarWidth = collapsed ? 0 : 260;
   const sessions = sidebarSessions.map((s) =>
     s.id === activeSession.id && (props.session?.status || props.session?.blockedReason)
@@ -195,11 +195,8 @@ function ComposedShell(props: {
   const streamingIds = new Set(
     props.session?.streaming ? ['session-running', active.id] : ['session-running'],
   );
-  const groups: StatusGroup[] = [
-    { id: 'running', label: '进行中', sessions: sessions.filter((s) => s.status === 'running'), collapsible: false, defaultExpanded: true },
-    { id: 'waiting_for_user', label: '等待你', sessions: sessions.filter((s) => s.status === 'waiting_for_user'), collapsible: false, defaultExpanded: true },
-    { id: 'active', label: '最近', sessions: sessions.filter((s) => s.status === 'active'), collapsible: false, defaultExpanded: true },
-    { id: 'done', label: '已完成', sessions: sessions.filter((s) => s.status === 'done'), collapsible: true, defaultExpanded: false },
+  const projectGroups: SessionGroup[] = [
+    { id: 'project:maka-agent', label: 'maka-agent', sessions },
   ];
 
   return (
@@ -231,7 +228,7 @@ function ComposedShell(props: {
               selection={{ section: 'sessions', filter: 'chats' }}
               sessions={sessions}
               activeId={active.id}
-              statusGroups={groups}
+              groups={viewMode === 'project' ? projectGroups : undefined}
               streamingSessionIds={streamingIds}
               viewMode={viewMode}
               onViewModeChange={setViewMode}

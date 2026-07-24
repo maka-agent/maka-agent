@@ -69,7 +69,6 @@ import { useShellSearch } from './use-shell-search';
 import { useSessionGoal } from './use-session-goal';
 import { deriveStaleSessionIds } from './stale-sessions';
 import { deriveProjectGroups } from './session-project-grouping';
-import { deriveSessionStatusGroups } from './session-status-grouping';
 import { deriveAppShellTurnViewModel } from './app-shell-turn-view-model';
 import { readScrollMotionBehavior } from './scroll-motion-policy';
 import { deriveBranchBanner } from './branch-banner';
@@ -339,7 +338,7 @@ function AppShellContent({
   const persistedComposerDefaults = loadComposerDefaults();
   const [helpOpen, closeHelp, openHelp] = useKeyboardHelp();
   const [paletteOpen, openPalette, closePalette] = useCommandPalette();
-  const [viewMode, setViewMode] = useState<SessionViewMode>('status');
+  const [viewMode, setViewMode] = useState<SessionViewMode>('conversation');
   const composerRef = useRef<ComposerHandle>(null);
   // Codex-style quote side panel: a companion (fork of the main session) opened
   // from text selections in the transcript, surfaced as a transient workbar tab.
@@ -412,12 +411,7 @@ function AppShellContent({
     [sidebarSessionTree, navSelection, companionForkId],
   );
   const visibleSessions = visibleSessionTree.roots;
-  const sessionStatusGroups = useMemo(
-    () => deriveSessionStatusGroups(visibleSessions, { pinFirst: true, locale: uiLocale }),
-    [visibleSessions, uiLocale],
-  );
   const sessionProjectGroups = useMemo(() => deriveProjectGroups(visibleSessions, uiLocale), [visibleSessions, uiLocale]);
-  const sessionListGroups = viewMode === 'project' ? sessionProjectGroups : sessionStatusGroups;
 
   // PR-DAILY-REVIEW-MVP-0: bridge for the main Daily Review module.
   // Memoized so the panel's `useEffect` cleanup keys
@@ -1630,7 +1624,7 @@ function AppShellContent({
             staleSessionIds={staleSessionIds}
             viewMode={viewMode}
             onViewModeChange={setViewMode}
-            statusGroups={sessionListGroups}
+            groups={viewMode === 'project' ? sessionProjectGroups : undefined}
             childSessionsByParentId={visibleSessionTree.childrenByParentId}
             moduleMemory={navigationState.moduleMemory}
             onSelect={setNavSelection}

@@ -88,7 +88,7 @@ describe('renderer style layer cascade contract', () => {
 
   it('keeps composite session-list controls on one complete interaction contract', async () => {
     const styles = await readAllRendererCss();
-    const controls = ':is\\(\\.maka-list-group-toggle, \\.maka-list-project-heading, \\.maka-list-project-more\\)';
+    const controls = ':is\\(\\.maka-list-project-heading, \\.maka-list-project-more\\)';
 
     assert.match(styles, new RegExp(`${controls}:hover\\s*\\{[^}]*background:\\s*var\\(--state-hover-bg\\);`));
     assert.match(styles, new RegExp(`${controls}:active\\s*\\{[^}]*background:\\s*var\\(--state-selected-bg\\);`));

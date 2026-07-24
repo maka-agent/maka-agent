@@ -210,10 +210,8 @@
   border-top: 0;
 }
 
-/* Group label — section header for session groups. #546 PR7: unified with
-   project-heading on font-size-ui + muted-foreground + medium so all three
-   group-header variants (plain label / collapsible toggle / project heading)
-   share one visual rhythm, distinguished from session rows by color not size. */
+/* Group label — a quiet, non-interactive divider for flat conversations.
+   Project disclosures use their own heading control below. */
 .maka-list-group-label {
   display: flex;
   align-items: baseline;
@@ -639,55 +637,32 @@
   animation: none;
 }
 
-/* Group label as a toggle button (archived group). Matches existing
- * maka-list-group-label tone so the toggle doesn't visually fight
- * non-collapsible groups. */
-.maka-list-group-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: var(--space-1-5);
-  width: 100%;
-  background: transparent;
-  border: 0;
-  text-align: left;
-}
-.maka-list-group-chevron {
-  transition: transform var(--duration-base) var(--ease-out-strong);
-}
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more) {
+:is(.maka-list-project-heading, .maka-list-project-more) {
   transition:
     background-color var(--duration-base) var(--ease-out-strong),
     color var(--duration-base) var(--ease-out-strong),
     opacity var(--duration-base) var(--ease-out-strong);
 }
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):hover {
+:is(.maka-list-project-heading, .maka-list-project-more):hover {
   background: var(--state-hover-bg);
   color: var(--foreground);
 }
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):active {
+:is(.maka-list-project-heading, .maka-list-project-more):active {
   background: var(--state-selected-bg);
 }
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):focus-visible {
+:is(.maka-list-project-heading, .maka-list-project-more):focus-visible {
   outline: var(--focus-ring-width) solid var(--focus-ring);
   outline-offset: var(--focus-ring-offset);
   border-radius: var(--radius-control);
 }
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled {
+:is(.maka-list-project-heading, .maka-list-project-more):disabled {
   cursor: not-allowed;
   opacity: var(--opacity-disabled);
 }
-:is(.maka-list-group-toggle, .maka-list-project-heading, .maka-list-project-more):disabled:hover {
+:is(.maka-list-project-heading, .maka-list-project-more):disabled:hover {
   background: transparent;
   color: var(--muted-foreground);
 }
-.maka-list-group-count {
-  font-variant-numeric: tabular-nums;
-  color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-}
-
 .maka-list-row-stale-pill {
   flex-shrink: 0;
   /* PR-UI-3: drop margin-left, let parent's gap (6px) handle spacing

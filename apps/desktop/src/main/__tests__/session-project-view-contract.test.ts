@@ -5,7 +5,6 @@ import { describe, it } from 'node:test';
 import { filterLinkedSessionTree, projectLinkedSessionTree } from '@maka/core';
 import { sessionMatchesNavSelection } from '../../renderer/session-nav-filter.js';
 import { deriveProjectGroups } from '../../renderer/session-project-grouping.js';
-import { deriveSessionStatusGroups } from '../../renderer/session-status-grouping.js';
 import { makeSessionSummary, renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
@@ -15,7 +14,7 @@ async function readRepo(path: string): Promise<string> {
 }
 
 describe('sidebar project view mode', () => {
-  it('renders project groups, the unassigned bucket, and keeps the status fallback path', () => {
+  it('renders project groups, the unassigned bucket, and keeps the conversation fallback path', () => {
     const sessions = [
       makeSessionSummary({
         id: 'repo-session',
@@ -35,7 +34,7 @@ describe('sidebar project view mode', () => {
 
     const projectMarkup = renderSessionListPanel({
       sessions,
-      statusGroups: deriveProjectGroups(sessions),
+      groups: deriveProjectGroups(sessions),
       viewMode: 'project',
     });
     assert.match(projectMarkup, /repo-a/);
@@ -44,37 +43,52 @@ describe('sidebar project view mode', () => {
     const fallbackMarkup = renderSessionListPanel({
       sessions: [sessions[1]],
     });
-    assert.match(fallbackMarkup, /待发送/);
+    assert.match(fallbackMarkup, />最近</);
   });
 
-  it('moves the status/project controls into the session-list heading menu', async () => {
-    const markup = renderSessionListPanel({ viewMode: 'status' });
+  it('moves the conversation/project controls into the session-list heading menu', async () => {
+    const markup = renderSessionListPanel({ viewMode: 'conversation' });
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
     assert.match(markup, /class="maka-session-list-heading"[^>]*>会话/);
     assert.match(markup, /aria-label="会话分组方式"/);
     assert.doesNotMatch(markup, />按状态|>按项目/);
     assert.match(panel, /<MenuRadioGroup value=\{viewMode\}/);
-    assert.match(panel, /<MenuRadioItem value="status">\{copy\.groupByStatus\}/);
+    assert.match(panel, /<MenuRadioItem value="conversation">\{copy\.groupByConversation\}/);
     assert.match(panel, /<MenuRadioItem value="project">\{copy\.groupByProject\}/);
   });
 
-  it('renders the panel title once and gives active sessions their lifecycle heading', () => {
+  it('renders lifecycle state only on non-active conversation rows', () => {
     const sessions = [
       makeSessionSummary({
         id: 'active-session',
         name: 'Active session',
         status: 'active',
       }),
+      makeSessionSummary({
+        id: 'running-session',
+        name: 'Running session',
+        status: 'running',
+      }),
+      makeSessionSummary({
+        id: 'blocked-session',
+        name: 'Blocked session',
+        status: 'blocked',
+      }),
     ];
     const markup = renderSessionListPanel({
       sessions,
-      statusGroups: deriveSessionStatusGroups(sessions),
-      viewMode: 'status',
+      viewMode: 'conversation',
     });
 
     assert.equal((markup.match(/>会话</g) ?? []).length, 1);
-    assert.match(markup, />可继续</);
+    assert.equal((markup.match(/maka-list-group-label/g) ?? []).length, 1);
+    assert.match(markup, />最近</);
+    assert.equal((markup.match(/maka-list-row-status-icon/g) ?? []).length, 2);
+    assert.match(markup, /data-status="running"/);
+    assert.match(markup, /data-status="blocked"/);
+    assert.doesNotMatch(markup, /data-status="active"/);
+    assert.doesNotMatch(markup, />进行中|>需要处理|>可继续|>已完成/);
   });
 
   it('uses the sidebar UI type tier for the session-list heading', async () => {
@@ -106,7 +120,7 @@ describe('sidebar project view mode', () => {
 
     const markup = renderSessionListPanel({
       sessions,
-      statusGroups: deriveProjectGroups(sessions),
+      groups: deriveProjectGroups(sessions),
       viewMode: 'project',
     });
 
@@ -206,7 +220,7 @@ describe('sidebar project view mode', () => {
     );
   });
 
-  it('AppShell derives status and project groups from the same visible session set', async () => {
+  it('AppShell derives only project groups and lets conversation mode use the flat list', async () => {
     const appShell = await readRepo('apps/desktop/src/renderer/app-shell.tsx');
     const panel = await readRepo('packages/ui/src/session-list-panel.tsx');
 
@@ -218,10 +232,9 @@ describe('sidebar project view mode', () => {
       appShell,
       /const visibleSessionTree = useMemo\([\s\S]*filterLinkedSessionTree\(sidebarSessionTree,[\s\S]*sessionMatchesNavSelection\(session, navSelection\)[\s\S]*\[sidebarSessionTree, navSelection[^\]]*\]/,
     );
-    assert.match(appShell, /deriveSessionStatusGroups\(visibleSessions, \{ pinFirst: true, locale: uiLocale \}\)/);
+    assert.doesNotMatch(appShell, /deriveSessionStatusGroups|sessionStatusGroups/);
     assert.match(appShell, /deriveProjectGroups\(visibleSessions, uiLocale\)/);
-    assert.match(appShell, /const sessionListGroups = viewMode === 'project' \? sessionProjectGroups : sessionStatusGroups/);
-    assert.match(appShell, /statusGroups=\{sessionListGroups\}/);
+    assert.match(appShell, /groups=\{viewMode === 'project' \? sessionProjectGroups : undefined\}/);
     assert.match(
       appShell,
       /childSessionsByParentId=\{visibleSessionTree\.childrenByParentId\}/,
@@ -254,7 +267,7 @@ describe('sidebar project view mode', () => {
     // Rendered markup: group body ids and aria-controls stay whitespace-free and pair up.
     const markup = renderSessionListPanel({
       sessions,
-      statusGroups: groups,
+      groups,
       viewMode: 'project',
     });
     const bodyIds = [...markup.matchAll(/id="maka-list-group-body-([^"]*)"/g)].map((m) => m[1]);

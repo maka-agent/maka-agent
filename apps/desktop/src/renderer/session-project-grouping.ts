@@ -5,7 +5,7 @@
  */
 
 import type { SessionSummary, UiLocale } from '@maka/core';
-import type { SessionHistoryStatusGroup } from '@maka/ui';
+import type { SessionHistoryGroup } from '@maka/ui';
 import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
 
 const UNGROUPED_KEY = '__ungrouped__';
@@ -15,7 +15,7 @@ const UNGROUPED_KEY = '__ungrouped__';
  * Groups are returned in insertion order; the ungrouped bucket (if any)
  * appears last. The label is the basename of the project directory.
  */
-export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>, locale: UiLocale = 'zh'): SessionHistoryStatusGroup[] {
+export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>, locale: UiLocale = 'zh'): SessionHistoryGroup[] {
   const map = new Map<string, SessionSummary[]>();
   for (const session of sessions) {
     const key = session.cwd ?? UNGROUPED_KEY;
@@ -27,15 +27,13 @@ export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>, loc
     bucket.push(session);
   }
 
-  const groups: SessionHistoryStatusGroup[] = [];
+  const groups: SessionHistoryGroup[] = [];
   for (const [key, bucket] of map) {
     if (key === UNGROUPED_KEY) continue; // append last
     groups.push({
       id: groupIdFromPath(key),
       label: labelFromPath(key),
       sessions: bucket,
-      collapsible: true,
-      defaultExpanded: true,
     });
   }
   // Un-belonged sessions go last, in a single catch-all group.
@@ -45,8 +43,6 @@ export function deriveProjectGroups(sessions: ReadonlyArray<SessionSummary>, loc
       id: UNGROUPED_KEY,
       label: getShellRemainingCopy(locale).projects.ungrouped,
       sessions: ungrouped,
-      collapsible: true,
-      defaultExpanded: true,
     });
   }
   return groups;
