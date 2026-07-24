@@ -685,6 +685,54 @@ describe('reactive overflow recovery in the streaming backend', () => {
     );
   });
 
+  test('cancels a provider backoff when the event consumer detaches', async () => {
+    let retryStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      retryStarted = resolve;
+    });
+    let retrySleepAborted = false;
+    const fixture = buildReactiveFixture({
+      script: ['rateLimit', 'done'],
+      providerRetrySleep: async (_delayMs, signal) => {
+        retryStarted();
+        await new Promise<void>((resolve, reject) => {
+          const fallback = setTimeout(resolve, 50);
+          signal.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(fallback);
+              retrySleepAborted = true;
+              reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            },
+            { once: true },
+          );
+        });
+      },
+    });
+    const iterator = fixture.backend
+      .send({
+        runId: 'run-1',
+        turnId: 'turn-1',
+        headAnchorRuntimeEvent: fixture.anchor,
+        text: ANCHOR_TEXT,
+        context: [],
+        runtimeContext: [...fixture.priorEvents],
+      })
+      [Symbol.asyncIterator]();
+
+    const retryScheduled = await iterator.next();
+    assert.equal(retryScheduled.value?.type, 'provider_retry');
+    assert.equal(
+      retryScheduled.value?.type === 'provider_retry' ? retryScheduled.value.phase : undefined,
+      'scheduled',
+    );
+    await started;
+    await iterator.return?.();
+
+    assert.equal(retrySleepAborted, true);
+    assert.equal(fixture.model.doStreamCalls.length, 1);
+  });
+
   test('retries one transient transport failure from the completed-step request boundary', async () => {
     const fixture = buildReactiveFixture({ script: ['tool', 'terminated', 'done'] });
     await runTurn(fixture);

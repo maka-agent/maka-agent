@@ -2094,11 +2094,14 @@ export class AiSdkBackend implements AgentBackend {
       }
     })();
 
+    let drainedNormally = false;
     try {
       // drain() carries the seq-ack semantics (consumer pull = processed ack);
       // every consumer-facing path must go through it.
       yield* this.drain(queue);
+      drainedNormally = true;
     } finally {
+      if (!drainedNormally) turnAbortController.abort();
       await pumpDone.catch(() => {});
       this.cleanupAfterTurn(turnId);
     }
