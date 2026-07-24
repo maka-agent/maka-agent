@@ -184,6 +184,26 @@ describe('localized conversation journey', () => {
     );
   });
 
+  it('keeps the ＋ menu reachable while streaming (#1444)', () => {
+    const markup = render(
+      'zh',
+      <Composer
+        onSend={() => {}}
+        onStop={() => {}}
+        streaming
+        onPickAttachments={() => {}}
+        expertTeams={[{ id: 'team-a', name: '专家团 A' }]}
+        onStartExpertTeam={() => {}}
+        onPlanModeChange={() => {}}
+        onSwarmModeChange={() => {}}
+      />,
+    );
+    // Menu trigger must stay mounted mid-turn so attachments, expert teams,
+    // and Plan/Swarm remain reachable from the ＋ menu (import itself stays
+    // blocked mid-stream by runImportAction / the disabled attach item).
+    assert.match(markup, /aria-label="添加"/);
+  });
+
   it('keeps Swarm Mode out of the toolbar (#1433)', () => {
     const markup = render(
       'zh',

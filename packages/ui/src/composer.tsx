@@ -88,8 +88,8 @@ export const Composer = forwardRef<
     /**
      * When true, a turn is in flight — live output OR (with `processing`) the
      * pre-first-token wait. Toolbar swaps to a working hint ("Maka 正在回答…" or
-     * "正在处理…") and the Stop button is the only visible action — Send is hidden
-     * because the model is busy.
+     * "正在处理…") and Send becomes Stop. The ＋ menu stays reachable (#1444);
+     * import actions remain blocked mid-turn until the runtime accepts them.
      */
     streaming?: boolean;
     /**
@@ -771,7 +771,11 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0 || props.onPlanModeChange || props.onSwarmModeChange) ? (
+            {/* #1444: keep the ＋ menu reachable while streaming. Import
+                actions still no-op mid-turn (`runImportAction` / drop
+                target), so the attach item is disabled rather than
+                vanishing the whole menu (and Plan/Swarm / expert teams). */}
+            {(props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0 || props.onPlanModeChange || props.onSwarmModeChange) ? (
               <Menu>
                 <MenuTrigger
                   render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -794,14 +798,17 @@ export const Composer = forwardRef<
                 />
                 <MenuPopup className="maka-composer-context-menu" align="start" side="top" sideOffset={6}>
                   {props.onPickAttachments ? (
-                    <MenuItem onClick={() => void runImportAction('pick', props.onPickAttachments)}>
+                    <MenuItem
+                      disabled={props.disabled || props.streaming === true || importActionBusy}
+                      onClick={() => void runImportAction('pick', props.onPickAttachments)}
+                    >
                       <Paperclip size={13} aria-hidden="true" />
                       <span>{copy.addFileOrDirectory}</span>
                     </MenuItem>
                   ) : null}
                   {(props.expertTeams?.length ?? 0) > 0 ? (
                     <MenuSub>
-                      <MenuSubTrigger>
+                      <MenuSubTrigger disabled={props.disabled}>
                         <Blocks size={13} aria-hidden="true" />
                         <span>{copy.expertTeam}</span>
                       </MenuSubTrigger>
@@ -809,6 +816,7 @@ export const Composer = forwardRef<
                         {props.expertTeams?.map((team) => (
                           <MenuItem
                             key={team.id}
+                            disabled={props.disabled}
                             onClick={() => props.onStartExpertTeam?.(team.id)}
                             {...(team.description ? { title: team.description } : {})}
                           >
@@ -897,12 +905,11 @@ export const Composer = forwardRef<
             ) : null}
             {/* #1433: active-mode indicators. The Plan/Swarm toggles live in
                 the ＋ menu (subtraction), so an ON mode would otherwise be
-                invisible — including while streaming, where the ＋ menu is
-                hidden. The indicator uses the same quiet-text-button language
-                as the permission select next to it, WITHOUT a chevron: it
-                cannot drop down. Clicking turns the mode off directly; while
-                streaming (or otherwise disabled) it stays visible but
-                disabled with the reason as its title. */}
+                easy to miss without opening the menu. The indicator uses the
+                same quiet-text-button language as the permission select next
+                to it, WITHOUT a chevron: it cannot drop down. Clicking turns
+                the mode off directly; while streaming (or otherwise disabled)
+                it stays visible but disabled with the reason as its title. */}
             {props.planModeActive ? (
               <button
                 type="button"
