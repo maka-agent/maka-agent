@@ -142,7 +142,9 @@ describe('session projection helpers', () => {
       status: 'failed',
       errorClass: 'tool_failed',
     });
-    expect(turnStatusFromEvent({ type: 'complete', ts: 1, stopReason: 'user_stop' } as never)).toEqual({
+    expect(
+      turnStatusFromEvent({ type: 'complete', ts: 1, stopReason: 'user_stop' } as never),
+    ).toEqual({
       status: 'aborted',
     });
     expect(

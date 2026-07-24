@@ -36,7 +36,8 @@ interface PriorRunTerminalFactContext {
 export async function buildPriorRuntimeContext(
   input: BuildPriorRuntimeContextInput,
 ): Promise<PriorRuntimeContext | undefined> {
-  if (input.resumedFromRunId) return await buildResumedChildRuntimeContext(input, input.resumedFromRunId);
+  if (input.resumedFromRunId)
+    return await buildResumedChildRuntimeContext(input, input.resumedFromRunId);
   if (input.parentRunId) return undefined;
   if (
     !input.runStore ||
@@ -72,15 +73,22 @@ export async function buildPriorRuntimeContext(
     if (events.length === 0) {
       const recovered = await backfillMissingPriorRuntimeEvents(input, run);
       if (recovered.length === 0 || !recovered.some(isTerminalRuntimeEvent)) {
-        throw new Error(`Cannot build model context: RuntimeEvent ledger is missing for prior run ${run.runId}`);
+        throw new Error(
+          `Cannot build model context: RuntimeEvent ledger is missing for prior run ${run.runId}`,
+        );
       }
       events = recovered;
     }
-    if (!events.some(isTerminalRuntimeEvent) && (await input.repairRunRuntimeLedger?.(input.sessionId, run.runId))) {
+    if (
+      !events.some(isTerminalRuntimeEvent) &&
+      (await input.repairRunRuntimeLedger?.(input.sessionId, run.runId))
+    ) {
       events = await input.runtimeEventStore.readRuntimeEvents(input.sessionId, run.runId);
     }
     if (!events.some(isTerminalRuntimeEvent)) {
-      throw new Error(`Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`);
+      throw new Error(
+        `Cannot build model context: RuntimeEvent ledger has no terminal fact for prior run ${run.runId}`,
+      );
     }
     let terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
     if (!terminalFact && (await input.repairRunRuntimeLedger?.(input.sessionId, run.runId))) {
@@ -88,7 +96,9 @@ export async function buildPriorRuntimeContext(
       terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
     }
     if (!terminalFact) {
-      throw new Error(`Cannot build model context: RuntimeEvent ledger has no valid terminal fact for prior run ${run.runId}`);
+      throw new Error(
+        `Cannot build model context: RuntimeEvent ledger has no valid terminal fact for prior run ${run.runId}`,
+      );
     }
     priorRuns[runIndex] = effectiveRunHeaderFromTerminalFact(run, terminalFact);
     appendEvents(ordered, events, runIndex, input);
@@ -96,7 +106,8 @@ export async function buildPriorRuntimeContext(
 
   ordered.sort((a, b) => a.runIndex - b.runIndex || a.eventIndex - b.eventIndex);
   const events = ordered.map((item) => item.event);
-  if (events.length === 0 || buildRuntimeEventModelReplayPlan(events).items.length === 0) return undefined;
+  if (events.length === 0 || buildRuntimeEventModelReplayPlan(events).items.length === 0)
+    return undefined;
   return { events, runs: priorRuns };
 }
 
@@ -104,7 +115,12 @@ async function buildResumedChildRuntimeContext(
   input: BuildPriorRuntimeContextInput,
   sourceRunId: string,
 ): Promise<PriorRuntimeContext> {
-  if (!input.runStore || !input.runtimeEventStore || !input.runStoreAvailable || !input.runtimeEventStoreAvailable) {
+  if (
+    !input.runStore ||
+    !input.runtimeEventStore ||
+    !input.runStoreAvailable ||
+    !input.runtimeEventStoreAvailable
+  ) {
     throw new Error('Child AgentRun resume requires durable run and RuntimeEvent stores');
   }
   const sessionRuns = await input.runStore.listSessionRuns(input.sessionId);
@@ -113,11 +129,16 @@ async function buildResumedChildRuntimeContext(
   const visited = new Set<string>();
   let cursor: string | undefined = sourceRunId;
   while (cursor) {
-    if (visited.has(cursor)) throw new Error(`Child AgentRun resume lineage contains a cycle at ${cursor}`);
+    if (visited.has(cursor))
+      throw new Error(`Child AgentRun resume lineage contains a cycle at ${cursor}`);
     visited.add(cursor);
     const run = runsById.get(cursor);
     if (!run) throw new Error(`Child AgentRun resume source ${cursor} was not found`);
-    if (input.linkedChildSession ? !isSessionInlineRun(run) : !run.parentRunId || isSessionInlineRun(run)) {
+    if (
+      input.linkedChildSession
+        ? !isSessionInlineRun(run)
+        : !run.parentRunId || isSessionInlineRun(run)
+    ) {
       throw new Error(`AgentRun ${cursor} is not a resumable child run`);
     }
     if (!run.agentId || run.agentId !== input.agentId) {
@@ -135,7 +156,13 @@ async function buildResumedChildRuntimeContext(
   }
   const replay = buildRuntimeEventModelReplayPlan(events);
   const unsafe = replay.diagnostics.find((diagnostic) =>
-    ['unmatched_tool_call', 'unmatched_tool_result', 'tool_id_mismatch', 'unsupported_role', 'unsupported_content'].includes(diagnostic.code),
+    [
+      'unmatched_tool_call',
+      'unmatched_tool_result',
+      'tool_id_mismatch',
+      'unsupported_role',
+      'unsupported_content',
+    ].includes(diagnostic.code),
   );
   if (unsafe) throw new Error(`Child AgentRun resume history is unsafe: ${unsafe.code}`);
   const first = replay.items[0];
@@ -150,14 +177,20 @@ async function loadRequiredChildResumeContext(
   run: AgentRunHeader,
 ): Promise<PriorRunTerminalFactContext> {
   let events = await input.runtimeEventStore!.readRuntimeEvents(input.sessionId, run.runId);
-  if ((events.length === 0 || !events.some(isTerminalRuntimeEvent)) && (await input.repairRunRuntimeLedger?.(input.sessionId, run.runId))) {
+  if (
+    (events.length === 0 || !events.some(isTerminalRuntimeEvent)) &&
+    (await input.repairRunRuntimeLedger?.(input.sessionId, run.runId))
+  ) {
     events = await input.runtimeEventStore!.readRuntimeEvents(input.sessionId, run.runId);
   }
   if (events.length === 0 || !events.some(isTerminalRuntimeEvent)) {
     throw new Error(`Child AgentRun resume source ${run.runId} has no terminal RuntimeEvent fact`);
   }
   const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
-  if (!terminalFact) throw new Error(`Child AgentRun resume source ${run.runId} has an invalid terminal RuntimeEvent fact`);
+  if (!terminalFact)
+    throw new Error(
+      `Child AgentRun resume source ${run.runId} has an invalid terminal RuntimeEvent fact`,
+    );
   return { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) };
 }
 
@@ -166,9 +199,13 @@ async function readNonTerminalPriorRunWithTerminalFact(
   run: AgentRunHeader,
 ): Promise<PriorRunTerminalFactContext | undefined> {
   if (!input.runtimeEventStore) return undefined;
-  const events = await input.runtimeEventStore.readRuntimeEvents(input.sessionId, run.runId).catch(() => []);
+  const events = await input.runtimeEventStore
+    .readRuntimeEvents(input.sessionId, run.runId)
+    .catch(() => []);
   const terminalFact = classifyRuntimeEventTerminalFact(run, events).fact;
-  return terminalFact ? { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) } : undefined;
+  return terminalFact
+    ? { events, run: effectiveRunHeaderFromTerminalFact(run, terminalFact) }
+    : undefined;
 }
 
 async function backfillMissingPriorRuntimeEvents(
