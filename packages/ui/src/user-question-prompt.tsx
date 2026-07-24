@@ -128,24 +128,22 @@ export function UserQuestionPrompt(props: {
               <span className="maka-question-radio" aria-hidden="true" />
               <span className="maka-question-option-copy">
                 <strong>{copy.other}</strong>
-                <small>{copy.otherDescription}</small>
               </span>
             </ChoiceCard>
           </ChoiceCardGroup>
-          <div className="maka-question-other-answer">
-            <Input
-              ref={otherInputRef}
-              aria-label={copy.otherAriaLabel}
-              className="maka-question-other-input"
-              placeholder={copy.otherPlaceholder}
-              value={draft?.kind === 'other' ? draft.value : ''}
-              disabled={interactionDisabled}
-              onFocus={() => {
-                if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
-              }}
-              onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
-            />
-          </div>
+          <Input
+            ref={otherInputRef}
+            unstyled
+            aria-label={copy.otherAriaLabel}
+            className="maka-question-other-input"
+            placeholder={copy.otherPlaceholder}
+            value={draft?.kind === 'other' ? draft.value : ''}
+            disabled={interactionDisabled}
+            onFocus={() => {
+              if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
+            }}
+            onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
+          />
         </div>
 
         <footer className="permissionActions maka-question-actions">

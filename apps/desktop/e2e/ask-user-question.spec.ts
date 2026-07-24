@@ -44,21 +44,59 @@ test('answers three questions and continues the same fake-backend turn', async (
 
   await expect(prompt.getByText('3 / 3', { exact: true })).toBeVisible();
   await expect(prompt.getByRole('radio', { name: '是' })).toBeFocused();
+  const otherOption = prompt.getByRole('radio', { name: /其他/ });
   const other = prompt.getByRole('textbox', { name: '其他答案' });
   await expect(other).toBeVisible();
   await expect(other).toHaveValue('');
+  const geometryBeforeInput = await Promise.all([
+    prompt.boundingBox(),
+    otherOption.boundingBox(),
+    other.boundingBox(),
+  ]);
+  expect(geometryBeforeInput.every(Boolean)).toBe(true);
+  expect(geometryBeforeInput[2]?.y).toBeGreaterThanOrEqual(geometryBeforeInput[1]?.y ?? Number.POSITIVE_INFINITY);
+  expect((geometryBeforeInput[2]?.y ?? 0) + (geometryBeforeInput[2]?.height ?? 0))
+    .toBeLessThanOrEqual((geometryBeforeInput[1]?.y ?? 0) + (geometryBeforeInput[1]?.height ?? 0));
+  expect(
+    await other.evaluate((input) => getComputedStyle(input).borderTopWidth),
+  ).toBe('0px');
+  expect(
+    await prompt.locator('.maka-question-options').evaluate((container) => {
+      const radio = container.querySelector<HTMLElement>('.maka-question-other-trigger');
+      const input = container.querySelector<HTMLElement>('.maka-question-other-input');
+      if (!radio || !input) return false;
+      const width = container.getBoundingClientRect();
+      const row = radio.getBoundingClientRect();
+      const points = [0.1, 0.5, 0.9].flatMap((xRatio) =>
+        [0.1, 0.5, 0.9].map((yRatio) => [
+          width.left + width.width * xRatio,
+          row.top + row.height * yRatio,
+        ] as const)
+      );
+      return points.every(([x, y]) => {
+        const target = document.elementFromPoint(x, y);
+        return target === input || target === radio || Boolean(target && radio.contains(target));
+      });
+    }),
+  ).toBe(true);
   await other.focus();
-  await expect(prompt.getByRole('radio', { name: /其他/ })).toBeChecked();
+  await expect(otherOption).toBeChecked();
   expect(
     await other.evaluate((input) => input.closest('[role="radiogroup"]') === null),
   ).toBe(true);
   await expect(prompt.getByRole('button', { name: '提交答案' })).toBeDisabled();
   await other.fill('自定义节奏');
+  const geometryAfterInput = await Promise.all([
+    prompt.boundingBox(),
+    otherOption.boundingBox(),
+    other.boundingBox(),
+  ]);
+  expect(geometryAfterInput).toEqual(geometryBeforeInput);
   await other.press('Home');
   await other.press('ArrowLeft');
   await expect(other).toBeFocused();
   await expect(other).toHaveValue('自定义节奏');
-  await expect(prompt.getByRole('radio', { name: /其他/ })).toBeChecked();
+  await expect(otherOption).toBeChecked();
   await prompt.getByRole('button', { name: '提交答案' }).click();
 
   await expect(prompt).toHaveCount(0);
