@@ -44,6 +44,35 @@
   flex: 0 0 auto;
 }
 
+/* #1433: active-mode mark (Plan/Swarm) — the same quiet-text-button
+   language as the permission select beside it, minus the chevron (it
+   cannot drop down; clicking turns the mode off). No chip wash, no dot:
+   weight and color alone carry the "this is on" signal. */
+.maka-composer-mode-indicator {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--h-control-sm);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--foreground);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--leading-none);
+  white-space: nowrap;
+  transition: background-color var(--duration-base) var(--ease-out-strong);
+}
+
+.maka-composer-mode-indicator:hover:not(:disabled) {
+  background: var(--state-hover-bg);
+}
+
+.maka-composer-mode-indicator:disabled {
+  cursor: not-allowed;
+  color: var(--muted-foreground);
+}
+
 .maka-composer-right-controls {
   flex: 0 0 auto;
   justify-content: flex-end;

@@ -895,6 +895,56 @@ export const Composer = forwardRef<
                 disabledReason={props.permissionModeDisabledReason}
               />
             ) : null}
+            {/* #1433: active-mode indicators. The Plan/Swarm toggles live in
+                the ＋ menu (subtraction), so an ON mode would otherwise be
+                invisible — including while streaming, where the ＋ menu is
+                hidden. The indicator uses the same quiet-text-button language
+                as the permission select next to it, WITHOUT a chevron: it
+                cannot drop down. Clicking turns the mode off directly; while
+                streaming (or otherwise disabled) it stays visible but
+                disabled with the reason as its title. */}
+            {props.planModeActive ? (
+              <button
+                type="button"
+                className="maka-composer-mode-indicator"
+                data-mode="plan"
+                disabled={
+                  props.disabled
+                  || props.planModePending === true
+                  || Boolean(props.planModeDisabledReason)
+                }
+                onClick={() => {
+                  void props.onPlanModeChange?.(false);
+                }}
+                aria-label={copy.planModeOnTitle}
+                title={
+                  props.planModeDisabledReason ?? copy.planModeOnTitle
+                }
+              >
+                {copy.planModeLabel}
+              </button>
+            ) : null}
+            {props.swarmModeActive ? (
+              <button
+                type="button"
+                className="maka-composer-mode-indicator"
+                data-mode="swarm"
+                disabled={
+                  props.disabled
+                  || props.swarmModePending === true
+                  || Boolean(props.swarmModeDisabledReason)
+                }
+                onClick={() => {
+                  void props.onSwarmModeChange?.(false);
+                }}
+                aria-label={copy.swarmModeOnTitle}
+                title={
+                  props.swarmModeDisabledReason ?? copy.swarmModeOnTitle
+                }
+              >
+                {copy.swarmModeLabel}
+              </button>
+            ) : null}
           </div>
           <span className="maka-composer-status-slot">
             {props.disabled ? (

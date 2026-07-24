@@ -302,6 +302,12 @@ export const WaitingForPermission: Story = {
   ),
 };
 
+// Real path: enable Plan mode (＋ menu) → while the mode is on, the composer
+// shows a quiet Plan indicator next to the permission select (#1433).
+export const PlanModeActive: Story = {
+  render: () => <ComposedShell composer={{ planModeActive: true }} />,
+};
+
 // Real path: returning user with session history → start a new chat (or
 // open a session with no messages yet). This is the DAILY empty home:
 // ChatView falls back to its built-in EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —

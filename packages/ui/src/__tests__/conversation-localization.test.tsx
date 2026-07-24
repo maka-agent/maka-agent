@@ -124,6 +124,39 @@ describe('localized conversation journey', () => {
     assert.doesNotMatch(markup, /maka-composer-plan-mode-control/);
   });
 
+  it('shows a quiet Plan indicator next to permission mode only while Plan is active', () => {
+    const on = render(
+      'zh',
+      <Composer onSend={() => {}} onStop={() => {}} planModeActive onPlanModeChange={() => {}} />,
+    );
+    assert.match(on, /maka-composer-mode-indicator/);
+    assert.match(on, /Plan 模式已启用/);
+    // Same visual language as the permission select: a quiet text BUTTON
+    // (no chevron — it cannot drop down); clicking turns the mode off.
+    assert.match(on, /<button[^>]*maka-composer-mode-indicator/);
+
+    const off = render('zh', <Composer onSend={() => {}} onStop={() => {}} onPlanModeChange={() => {}} />);
+    assert.doesNotMatch(off, /maka-composer-mode-indicator/);
+  });
+
+  it('keeps the active-mode indicator visible but disabled with reason while streaming', () => {
+    const markup = render(
+      'zh',
+      <Composer
+        onSend={() => {}}
+        onStop={() => {}}
+        streaming
+        swarmModeActive
+        swarmModeDisabledReason="等待流式输出结束"
+        onSwarmModeChange={() => {}}
+      />,
+    );
+    assert.match(markup, /maka-composer-mode-indicator/);
+    assert.match(markup, /Swarm 模式已启用/);
+    assert.match(markup, /disabled=""/);
+    assert.match(markup, /等待流式输出结束/);
+  });
+
   it('keeps Swarm Mode out of the toolbar (#1433)', () => {
     const markup = render(
       'zh',
