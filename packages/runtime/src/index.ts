@@ -38,6 +38,27 @@ export type {
   StopSessionInput,
 } from './session-manager.js';
 export type { SubagentExecutionRef } from './subagent-execution.js';
+export {
+  AGENT_GRAPH_RECORD_FACETS,
+  AGENT_GRAPH_RECORD_SCHEMA_VERSION,
+  projectAgentGraphRecords,
+  readCommittedAgentGraphProjection,
+  replayAgentGraphRecords,
+} from './stream-graph-projection.js';
+export type {
+  AgentGraphActivationState,
+  AgentGraphActivationStatus,
+  AgentGraphOperatorBinding,
+  AgentGraphOperatorState,
+  AgentGraphProjection,
+  AgentGraphRecord,
+  AgentGraphRecordFacet,
+  AgentGraphReplayState,
+  AgentGraphRunStream,
+  AgentGraphRuntimeEventSource,
+  ProjectAgentGraphRecordsInput,
+  ReadCommittedAgentGraphProjectionInput,
+} from './stream-graph-projection.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';

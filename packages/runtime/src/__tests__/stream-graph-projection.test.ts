@@ -1,0 +1,363 @@
+import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
+import type { AgentRunHeader, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import {
+  projectAgentGraphRecords,
+  readCommittedAgentGraphProjection,
+  replayAgentGraphRecords,
+} from '../stream-graph-projection.js';
+
+const baseTs = 1_800_000_000_000;
+
+describe('committed stream graph projection', () => {
+  test('projects immutable child-session events into a stable reference-only graph trace', async () => {
+    const runA = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'completed',
+      createdAt: baseTs,
+    });
+    const runB = runHeader({
+      sessionId: 'child-b',
+      runId: 'run-b',
+      turnId: 'turn-b',
+      status: 'failed',
+      createdAt: baseTs + 1,
+    });
+    const eventsByRun = new Map<string, RuntimeEvent[]>([
+      [
+        runA.runId,
+        [
+          runtimeEvent(runA, {
+            id: 'a-message',
+            ts: baseTs + 1,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text: 'payload-must-not-be-copied' },
+          }),
+          runtimeEvent(runA, {
+            id: 'a-partial',
+            ts: baseTs + 2,
+            partial: true,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'text', text: 'mutable-stream-chunk' },
+          }),
+          runtimeEvent(runA, {
+            id: 'a-permission',
+            ts: baseTs + 4,
+            actions: {
+              permissionRequest: {
+                kind: 'tool_permission',
+                requestId: 'permission-a',
+                toolUseId: 'tool-a',
+                toolName: 'Read',
+                category: 'read',
+                reason: 'custom',
+                args: {},
+                rememberForTurnAllowed: true,
+              },
+            },
+          }),
+          runtimeEvent(runA, {
+            id: 'a-permission-decision',
+            ts: baseTs + 5,
+            author: 'user',
+            actions: {
+              permissionDecision: {
+                requestId: 'permission-a',
+                decision: 'allow',
+                rememberForTurn: false,
+              },
+            },
+          }),
+          runtimeEvent(runA, {
+            id: 'a-complete',
+            ts: baseTs + 8,
+            status: 'completed',
+            actions: { endInvocation: true },
+          }),
+        ],
+      ],
+      [
+        runB.runId,
+        [
+          runtimeEvent(runB, {
+            id: 'b-tool-call',
+            ts: baseTs + 2,
+            role: 'model',
+            author: 'agent',
+            content: { kind: 'function_call', id: 'tool-b', name: 'Grep', args: {} },
+          }),
+          runtimeEvent(runB, {
+            id: 'b-tool-result',
+            ts: baseTs + 6,
+            role: 'tool',
+            author: 'tool',
+            content: {
+              kind: 'function_response',
+              id: 'tool-b',
+              name: 'Grep',
+              result: { matches: 0 },
+            },
+          }),
+          runtimeEvent(runB, {
+            id: 'b-failed',
+            ts: baseTs + 7,
+            status: 'failed',
+            content: { kind: 'error', message: 'provider failed' },
+          }),
+        ],
+      ],
+    ]);
+
+    const projection = await readCommittedAgentGraphProjection({
+      graphId: 'graph-1',
+      operators: [
+        { operatorId: 'research', sessionId: runA.sessionId },
+        { operatorId: 'verify', sessionId: runB.sessionId },
+      ],
+      runStore: {
+        async listSessionRuns(sessionId) {
+          return sessionId === runA.sessionId ? [runA] : [runB];
+        },
+      },
+      runtimeEventStore: {
+        async readImmutableRuntimeEvents(_sessionId, runId) {
+          return eventsByRun.get(runId) ?? [];
+        },
+      },
+    });
+
+    assert.equal(projection.ignoredPartialEvents, 1);
+    assert.deepEqual(
+      projection.records.map((record) => record.source.runtimeEventId),
+      [
+        'a-message',
+        'b-tool-call',
+        'a-permission',
+        'a-permission-decision',
+        'b-tool-result',
+        'b-failed',
+        'a-complete',
+      ],
+    );
+    assert.deepEqual(
+      projection.records.map((record) => record.logicalTime),
+      [1, 2, 3, 4, 5, 6, 7],
+    );
+    assert.deepEqual(projection.records[0]?.facets, ['message']);
+    assert.deepEqual(projection.records[1]?.facets, ['tool_call']);
+    assert.deepEqual(projection.records[5]?.facets, ['error', 'failed']);
+    assert.equal(projection.state.operators.research?.status, 'completed');
+    assert.equal(projection.state.operators.verify?.status, 'failed');
+    assert.equal(projection.state.operators.research?.activations['run-a']?.recordCount, 4);
+    assert.equal(projection.records[0]?.previousRecordId, undefined);
+    assert.equal(
+      projection.records[2]?.previousRecordId,
+      projection.records[0]?.recordId,
+      'predecessors are activation-local rather than global',
+    );
+    assert.doesNotMatch(JSON.stringify(projection.records), /payload-must-not-be-copied/);
+    assert.doesNotMatch(JSON.stringify(projection.records), /mutable-stream-chunk/);
+  });
+
+  test('replay is deterministic for reordered delivery and idempotent duplicates', () => {
+    const run = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'completed',
+      createdAt: baseTs,
+    });
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-replay',
+      streams: [
+        {
+          operator: { operatorId: 'research', sessionId: run.sessionId },
+          run,
+          events: [
+            runtimeEvent(run, {
+              id: 'message',
+              ts: baseTs + 1,
+              role: 'model',
+              author: 'agent',
+              content: { kind: 'text', text: 'result' },
+            }),
+            runtimeEvent(run, {
+              id: 'complete',
+              ts: baseTs + 2,
+              status: 'completed',
+            }),
+          ],
+        },
+      ],
+    });
+
+    const canonical = replayAgentGraphRecords(records);
+    const reorderedWithDuplicates = replayAgentGraphRecords([
+      records[1]!,
+      records[0]!,
+      records[0]!,
+      records[1]!,
+    ]);
+    assert.deepEqual(reorderedWithDuplicates, canonical);
+  });
+
+  test('keeps later session-inline runs as distinct activations of one operator', () => {
+    const first = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-1',
+      turnId: 'turn-1',
+      status: 'completed',
+      createdAt: baseTs,
+    });
+    const followup = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-2',
+      turnId: 'turn-2',
+      status: 'completed',
+      createdAt: baseTs + 10,
+    });
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-followup',
+      streams: [
+        {
+          operator: { operatorId: 'research', sessionId: first.sessionId },
+          run: followup,
+          events: [
+            runtimeEvent(followup, {
+              id: 'followup-complete',
+              ts: baseTs + 11,
+              status: 'completed',
+            }),
+          ],
+        },
+        {
+          operator: { operatorId: 'research', sessionId: first.sessionId },
+          run: first,
+          events: [
+            runtimeEvent(first, {
+              id: 'initial-complete',
+              ts: baseTs + 1,
+              status: 'completed',
+            }),
+          ],
+        },
+      ],
+    });
+
+    const state = replayAgentGraphRecords(records);
+    assert.deepEqual(Object.keys(state.operators.research?.activations ?? {}), ['run-1', 'run-2']);
+    assert.equal(state.operators.research?.currentActivationId, 'run-2');
+  });
+
+  test('fails closed on ambiguous authority or impossible replay order', async () => {
+    const run = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'completed',
+      createdAt: baseTs,
+    });
+    const runtimeEventStore: Pick<RuntimeEventStore, 'readImmutableRuntimeEvents'> = {};
+
+    await assert.rejects(
+      readCommittedAgentGraphProjection({
+        graphId: 'graph-no-immutable-reader',
+        operators: [{ operatorId: 'research', sessionId: run.sessionId }],
+        runStore: {
+          async listSessionRuns() {
+            return [run];
+          },
+        },
+        runtimeEventStore,
+      }),
+      /requires immutable RuntimeEvent reads/,
+    );
+
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-terminal',
+      streams: [
+        {
+          operator: { operatorId: 'research', sessionId: run.sessionId },
+          run,
+          events: [
+            runtimeEvent(run, { id: 'terminal', ts: baseTs + 1, status: 'completed' }),
+            runtimeEvent(run, {
+              id: 'after-terminal',
+              ts: baseTs + 2,
+              role: 'model',
+              author: 'agent',
+              content: { kind: 'text', text: 'impossible' },
+            }),
+          ],
+        },
+      ],
+    });
+    assert.throws(() => replayAgentGraphRecords(records), /appears after terminal record/);
+  });
+
+  test('preserves graph identity when no committed operator facts exist yet', async () => {
+    const projection = await readCommittedAgentGraphProjection({
+      graphId: 'graph-empty',
+      operators: [],
+      runStore: {
+        async listSessionRuns() {
+          return [];
+        },
+      },
+      runtimeEventStore: {
+        async readImmutableRuntimeEvents() {
+          return [];
+        },
+      },
+    });
+
+    assert.deepEqual(projection.state, {
+      graphId: 'graph-empty',
+      lastLogicalTime: 0,
+      appliedRecordIds: [],
+      operators: {},
+    });
+  });
+});
+
+function runHeader(input: {
+  sessionId: string;
+  runId: string;
+  turnId: string;
+  status: AgentRunHeader['status'];
+  createdAt: number;
+}): AgentRunHeader {
+  return {
+    ...input,
+    invocationId: `invocation-${input.runId}`,
+    backendKind: 'ai-sdk',
+    llmConnectionSlug: 'deepseek',
+    modelId: 'deepseek-chat',
+    cwd: '/workspace',
+    permissionMode: 'explore',
+    updatedAt: input.createdAt + 1,
+    ...(input.status === 'completed' || input.status === 'failed' || input.status === 'cancelled'
+      ? { completedAt: input.createdAt + 1 }
+      : {}),
+  };
+}
+
+function runtimeEvent(
+  run: AgentRunHeader,
+  overrides: Partial<RuntimeEvent> & Pick<RuntimeEvent, 'id' | 'ts'>,
+): RuntimeEvent {
+  return {
+    invocationId: run.invocationId ?? `invocation-${run.runId}`,
+    runId: run.runId,
+    sessionId: run.sessionId,
+    turnId: run.turnId,
+    partial: false,
+    role: 'system',
+    author: 'system',
+    ...overrides,
+  };
+}
