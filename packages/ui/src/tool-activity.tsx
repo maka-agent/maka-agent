@@ -392,9 +392,20 @@ export const SETTLE_FADE = '[animation:maka-stream-fade-in_var(--duration-emphas
  * boxed "工具调用 N" card stack inside a turn. The summary disclosure is the
  * stable root for both one and many tools, so a second call appends inside the
  * same component instead of replacing an expanded row with a collapsed group.
+ * A parent Processing disclosure can request direct rows because it already
+ * owns the group summary; this avoids rendering the same summary twice.
  */
-export function ToolTrow({ items }: { items: ToolActivityItem[] }) {
+export function ToolTrow({
+  items,
+  variant = 'group',
+}: {
+  items: ToolActivityItem[];
+  variant?: 'group' | 'rows';
+}) {
   if (items.length === 0) return null;
+  if (variant === 'rows') {
+    return items.map((item) => <ToolTrowRow key={item.toolUseId} item={item} />);
+  }
   return <ToolTrowGroup items={items} />;
 }
 

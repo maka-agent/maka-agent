@@ -929,8 +929,9 @@ function TurnTimelineEntry(props: {
  * destructive; folded reasoning is not counted) once the turn ends. A
  * `waiting_permission` prompt inside forces the block open (trowNeedsAttention);
  * an errored tool stays collapsed with its failure count on the summary line.
- * The expanded panel replays the full timeline — the SAME 深度思考 disclosures
- * and tool trows, just nested one indent in — so nothing is lost, only folded.
+ * The expanded panel preserves the full timeline with the SAME 深度思考
+ * disclosures and direct tool rows. Processing already owns the group summary,
+ * so nesting another tool-group disclosure would duplicate that layer.
  */
 function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
   const locale = useUiLocale();
@@ -979,9 +980,13 @@ function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
       </CollapsibleTrigger>
       <CollapsiblePanel>
         <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
-          {entries.map((entry, index) => (
-            <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
-          ))}
+          {entries.map((entry, index) =>
+            entry.kind === 'tools' ? (
+              <ToolTrow key={timelineEntryKey(entry, index)} items={entry.items} variant="rows" />
+            ) : (
+              <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
+            ),
+          )}
         </div>
       </CollapsiblePanel>
     </Collapsible>
