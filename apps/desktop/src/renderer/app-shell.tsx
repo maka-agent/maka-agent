@@ -35,7 +35,7 @@ import {
   type MakaUriDest,
   MakaUriContext,
   LocaleProvider,
-  ModuleHubSwitch,
+  ModuleHubSelector,
   ToastProvider,
   type NavSelection,
   SessionListPanel,
@@ -315,7 +315,7 @@ function AppShellContent({
     title: moduleHubCopy.extensions.title,
     subtitle: moduleHubCopy.extensions.description,
     badge: (
-      <ModuleHubSwitch
+      <ModuleHubSelector
         hub="extensions"
         value={navSelection.section === 'extensions' ? navSelection.module : navigationState.moduleMemory.extensions}
         onChange={(module) => setNavSelection({ section: 'extensions', module })}
@@ -326,7 +326,7 @@ function AppShellContent({
     title: moduleHubCopy.automations.title,
     subtitle: moduleHubCopy.automations.description,
     badge: (
-      <ModuleHubSwitch
+      <ModuleHubSelector
         hub="automations"
         value={navSelection.section === 'automations' ? navSelection.module : navigationState.moduleMemory.automations}
         onChange={(module) => setNavSelection({ section: 'automations', module })}

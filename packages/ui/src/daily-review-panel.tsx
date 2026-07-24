@@ -29,7 +29,7 @@ import { StatTile } from './primitives/stat-tile.js';
 import { SectionHeader } from './primitives/section-header.js';
 import { PageHeader } from './primitives/page-header.js';
 import type { DailyReviewBridge, DailyReviewMarkdownActionInput } from './module-panel-types.js';
-import type { ModuleHubHeader } from './module-hub-switch.js';
+import type { ModuleHubHeader } from './module-hub-selector.js';
 import { RelativeTime } from './relative-time.js';
 import { Markdown } from './markdown.js';
 import { useUiLocale } from './locale-context.js';

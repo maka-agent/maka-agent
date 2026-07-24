@@ -22,7 +22,7 @@ import { SettingsSelect, type SettingsSelectOption } from './primitives/settings
 import { EmptyState } from './empty-state.js';
 import { SectionHeader } from './primitives/section-header.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
-import type { ModuleHubHeader } from './module-hub-switch.js';
+import type { ModuleHubHeader } from './module-hub-selector.js';
 import type { BundledSkillCatalogEntry, ManagedSkillCategory, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry } from './module-panel-types.js';
 import { getSkillsCopy, type SkillsCopy } from './skills-copy.js';
 import { useUiLocale } from './locale-context.js';

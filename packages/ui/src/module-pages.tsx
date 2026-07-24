@@ -6,7 +6,7 @@ import { EmptyState } from './empty-state.js';
 import { PageHeader } from './primitives/page-header.js';
 import { useUiLocale } from './locale-context.js';
 import { getSharedUiCopy } from './shared-ui-copy.js';
-import type { ModuleHubHeader } from './module-hub-switch.js';
+import type { ModuleHubHeader } from './module-hub-selector.js';
 import type {
   BundledSkillCatalogEntry,
   DailyReviewBridge,

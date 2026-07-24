@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import {
   AutomationsPage,
   getSharedUiCopy,
-  ModuleHubSwitch,
+  ModuleHubSelector,
   SkillsPage,
   ToastProvider,
   useUiLocale,
@@ -38,7 +38,7 @@ function ExtensionsSkillsSurface() {
         hubHeader={{
           title: copy.title,
           subtitle: copy.description,
-          badge: <ModuleHubSwitch hub="extensions" value="skills" onChange={() => {}} />,
+          badge: <ModuleHubSelector hub="extensions" value="skills" onChange={() => {}} />,
         }}
         skills={[]}
         managedSkillSources={[]}
@@ -56,7 +56,7 @@ function ScheduledPlanRemindersSurface() {
         hubHeader={{
           title: copy.title,
           subtitle: copy.description,
-          badge: <ModuleHubSwitch hub="automations" value="plan-reminders" onChange={() => {}} />,
+          badge: <ModuleHubSelector hub="automations" value="plan-reminders" onChange={() => {}} />,
         }}
         skills={[]}
         reminders={[]}

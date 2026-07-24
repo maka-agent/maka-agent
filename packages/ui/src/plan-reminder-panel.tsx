@@ -61,7 +61,7 @@ import { Input } from './primitives/input.js';
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from './primitives/menu.js';
 import { EmptyState } from './empty-state.js';
 import { CapabilityAuditStrip } from './capability-audit-strip.js';
-import type { ModuleHubHeader } from './module-hub-switch.js';
+import type { ModuleHubHeader } from './module-hub-selector.js';
 import type {
   PlanReminderDraftInput,
   PlanReminderUpdatePatch,

@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { SessionSummary } from '@maka/core';
 import { LocaleProvider } from '../locale-context.js';
-import { ModuleHubSwitch } from '../module-hub-switch.js';
+import { ModuleHubSelector } from '../module-hub-selector.js';
 import { SessionListPanel } from '../session-list-panel.js';
 import { SessionSidebarNav } from '../session-sidebar-nav.js';
 
@@ -32,24 +32,27 @@ describe('sidebar subtraction', () => {
     assert.doesNotMatch(markup, /aria-expanded=/);
   });
 
-  it('renders the two hub switches as localized persistent choices', () => {
+  it('renders each child module as a localized path selector instead of a segmented control', () => {
     const extensions = renderToStaticMarkup(
       <LocaleProvider locale="zh">
-        <ModuleHubSwitch hub="extensions" value="skills" onChange={() => {}} />
+        <ModuleHubSelector hub="extensions" value="skills" onChange={() => {}} />
       </LocaleProvider>,
     );
     const automations = renderToStaticMarkup(
       <LocaleProvider locale="zh">
-        <ModuleHubSwitch hub="automations" value="plan-reminders" onChange={() => {}} />
+        <ModuleHubSelector hub="automations" value="plan-reminders" onChange={() => {}} />
       </LocaleProvider>,
     );
 
-    assert.match(extensions, /aria-label="扩展内容"/);
+    assert.match(extensions, /class="maka-module-hub-selector"/);
+    assert.match(extensions, /aria-label="扩展内容：技能"/);
+    assert.match(extensions, /aria-haspopup="menu"/);
     assert.match(extensions, />技能</);
-    assert.match(extensions, />MCP</);
-    assert.match(automations, /aria-label="定时任务内容"/);
+    assert.doesNotMatch(extensions, /maka-segmented/);
+    assert.match(automations, /class="maka-module-hub-selector"/);
+    assert.match(automations, /aria-label="定时任务内容：计划提醒"/);
     assert.match(automations, />计划提醒</);
-    assert.match(automations, />每日回顾</);
+    assert.doesNotMatch(automations, /maka-segmented/);
   });
 
   it('moves session grouping from a permanent segmented control into the list heading', () => {

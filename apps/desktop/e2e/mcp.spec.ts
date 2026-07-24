@@ -18,19 +18,20 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
   await expect(sidebar.getByRole('button', { name: '会话分组方式' })).toHaveCount(0);
   await expect(sidebar.locator('.maka-session-list')).toBeVisible();
 
-  const extensionSwitch = page.getByRole('group', { name: '扩展内容' });
-  await expect(extensionSwitch.getByRole('button', { name: '技能' })).toHaveAttribute('aria-pressed', 'true');
-  await extensionSwitch.getByRole('button', { name: 'MCP' }).click();
+  const extensionSelector = page.locator('.maka-module-hub-selector-trigger');
+  await expect(extensionSelector).toHaveAccessibleName('扩展内容：技能');
+  await extensionSelector.click();
+  await page.getByRole('menuitemradio', { name: 'MCP' }).click();
   const mcp = page.getByRole('main', { name: '扩展' });
   await expect(mcp.getByRole('heading', { name: '扩展' })).toBeVisible();
-  await expect(extensionSwitch.getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(extensionSelector).toHaveAccessibleName('扩展内容：MCP');
 
   // Each hub restores its last module when the user returns from another
   // sidebar destination.
   await sidebar.getByRole('button', { name: '定时任务', exact: true }).click();
   await extensions.click();
   await expect(page.getByRole('main', { name: '扩展' })).toBeVisible();
-  await expect(extensionSwitch.getByRole('button', { name: 'MCP' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(extensionSelector).toHaveAccessibleName('扩展内容：MCP');
   if (screenshotPath) {
     await page.screenshot({ path: variantPath(screenshotPath, 'market') });
     await page.getByRole('button', { name: '设置', exact: true }).click();

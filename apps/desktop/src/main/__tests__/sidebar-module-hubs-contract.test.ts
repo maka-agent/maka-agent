@@ -23,7 +23,7 @@ describe('sidebar module hubs contract', () => {
   it('projects both hubs through one localized title switch without parallel legacy pages', async () => {
     const shell = await readSource('apps/desktop/src/renderer/app-shell.tsx');
 
-    assert.match(shell, /<ModuleHubSwitch[\s\S]*hub="extensions"[\s\S]*hub="automations"/);
+    assert.match(shell, /<ModuleHubSelector[\s\S]*hub="extensions"[\s\S]*hub="automations"/);
     assert.match(shell, /<SkillsPage[\s\S]*hubHeader=\{extensionsHubHeader\}/);
     assert.match(shell, /<McpPage hubHeader=\{extensionsHubHeader\}/);
     assert.match(shell, /<AutomationsPage[\s\S]*hubHeader=\{automationsHubHeader\}/);

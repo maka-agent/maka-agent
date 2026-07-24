@@ -25,14 +25,14 @@ export interface SharedUiCopy {
     extensions: {
       title: string;
       description: string;
-      switchLabel: string;
+      selectorLabel: (module: string) => string;
       skills: string;
       mcp: string;
     };
     automations: {
       title: string;
       description: string;
-      switchLabel: string;
+      selectorLabel: (module: string) => string;
       planReminders: string;
       dailyReview: string;
     };
@@ -107,14 +107,14 @@ const SHARED_UI_COPY = {
       extensions: {
         title: '扩展',
         description: '管理 Maka 可调用的技能与外部工具。',
-        switchLabel: '扩展内容',
+        selectorLabel: (module) => `扩展内容：${module}`,
         skills: '技能',
         mcp: 'MCP',
       },
       automations: {
         title: '定时任务',
         description: '安排计划提醒，并回顾本机对话中的工作进展。',
-        switchLabel: '定时任务内容',
+        selectorLabel: (module) => `定时任务内容：${module}`,
         planReminders: '计划提醒',
         dailyReview: '每日回顾',
       },
@@ -173,14 +173,14 @@ const SHARED_UI_COPY = {
       extensions: {
         title: 'Extensions',
         description: 'Manage the skills and external tools Maka can use.',
-        switchLabel: 'Extension content',
+        selectorLabel: (module) => `Extension content: ${module}`,
         skills: 'Skills',
         mcp: 'MCP',
       },
       automations: {
         title: 'Scheduled tasks',
         description: 'Schedule reminders and review progress from local conversations.',
-        switchLabel: 'Scheduled task content',
+        selectorLabel: (module) => `Scheduled task content: ${module}`,
         planReminders: 'Plan reminders',
         dailyReview: 'Daily review',
       },
