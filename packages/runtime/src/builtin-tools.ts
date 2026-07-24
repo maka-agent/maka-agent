@@ -49,6 +49,8 @@ import { SandboxCommandError } from './sandbox/errors.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
 import type { SandboxPlatform, SandboxType } from './sandbox/types.js';
 import type { ChildFdInput } from './child-fd-input.js';
+import { buildArchiveReadTool } from './archive-read-tool.js';
+import type { ToolResultArchiveResourceReader } from './tool-result-archive-resource.js';
 import {
   normalizeAdditionalPermissionPath,
   planDeclaredBashAdditionalPermission,
@@ -72,6 +74,7 @@ const GREP_TIMEOUT_MS = 120_000;
 export interface BuildBuiltinToolsOptions {
   shellRuns?: ShellRunLauncher;
   runtimeResources?: RuntimeResourceReader;
+  archiveResources?: ToolResultArchiveResourceReader;
   backgroundTasks?: BackgroundTaskStopper;
   ptyControls?: PtyControlWriter;
   executor?: WorkspaceExecutor;
@@ -246,6 +249,7 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
   return [
     ...bashTools,
     ...backgroundTools,
+    ...(options.archiveResources ? [buildArchiveReadTool(options.archiveResources)] : []),
     {
       name: 'Read',
       activityKind: 'read',

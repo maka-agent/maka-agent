@@ -579,6 +579,7 @@ const {
   snapshotReadImage,
   persistArchivedToolResult,
   readArchivedToolResult,
+  readArchivedToolResultResource,
 } = createToolArtifactPersistence({ artifactStore, storeReadImage, safeSendToRenderer });
 
 const {
@@ -605,6 +606,7 @@ const {
   settingsStore,
   shellRuns,
   snapshotReadImage,
+  readArchivedToolResultResource,
   getWorkspacePrivacyContext,
   resolveDesktopSkillHost,
 });

@@ -111,6 +111,9 @@ export function registerWorkspaceResourcesIpc(deps: WorkspaceResourcesIpcDeps): 
     if (artifact?.source === 'deep_research') {
       throw new Error('Deep Research artifacts are protected by the durable research ledger');
     }
+    if (artifact?.source === 'tool_result_archive') {
+      throw new Error('Tool result archives are read-only runtime evidence');
+    }
     await deps.artifactStore.delete(artifactId);
     if (artifact) {
       deps.sendToRenderer('artifacts:changed', {

@@ -195,6 +195,23 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export {
+  buildToolResultArchiveResourceRef,
+  parseToolResultArchiveResourceRef,
+  readToolResultArchiveResource,
+  TOOL_RESULT_ARCHIVE_DEFAULT_LIMIT,
+  TOOL_RESULT_ARCHIVE_MAX_BYTES,
+  TOOL_RESULT_ARCHIVE_MAX_LIMIT,
+  TOOL_RESULT_ARCHIVE_MAX_RESPONSE_CHARS,
+  TOOL_RESULT_ARCHIVE_READ_INSTRUCTIONS,
+} from './tool-result-archive-resource.js';
+export type {
+  ToolResultArchiveResourceIdentity,
+  ToolResultArchiveResourceOperation,
+  ToolResultArchiveResourceReader,
+  ToolResultArchiveResourceReadInput,
+  ToolResultArchiveResourceRequest,
+} from './tool-result-archive-resource.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
 export {
   convertOpenAIComputerAction,

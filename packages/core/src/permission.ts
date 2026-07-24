@@ -254,6 +254,7 @@ export const PERMISSION_POLICY: Record<PermissionMode, Record<ToolCategory, Poli
 export const BUILTIN_TOOL_CATEGORY: Record<string, ToolCategory> = {
   // read
   Read: 'read',
+  ArchiveRead: 'read',
   search_files: 'read',
   Grep: 'read',
   Glob: 'read',

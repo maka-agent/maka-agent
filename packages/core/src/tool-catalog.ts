@@ -81,6 +81,7 @@ export const MAKA_CATALOG_TOOLS: readonly CatalogToolDef[] = Object.freeze(
     // Core file / shell
     { name: 'Bash' },
     { name: 'Read' },
+    { name: 'ArchiveRead' },
     { name: 'Write' },
     { name: 'Edit' },
     { name: 'FormatJson' },
