@@ -1247,6 +1247,7 @@ export class SessionManager {
         recoveryPlan.operations,
         recoveryPlan.runtimeEvents,
         sourceRun.cwd,
+        sourceRun.permissionMode,
       );
       if (recovery.diagnostic) {
         plan = {
@@ -1328,6 +1329,7 @@ export class SessionManager {
     operations: readonly ToolOperation[],
     runtimeEvents: readonly RuntimeEvent[],
     workspaceCwd: string,
+    permissionMode: AgentRunHeader['permissionMode'],
   ): Promise<{
     diagnostic?: SafeBoundaryContinuationPlan['diagnostics'][number];
     recoveredOperations: RecoveredOperationSummary[];
@@ -1357,6 +1359,7 @@ export class SessionManager {
             ? { preparedFileMutation: operation.preparedFileMutation }
             : {}),
           workspaceCwd,
+          permissionMode,
           evidenceEventIds: operation.evidenceEventIds,
         },
         runtimeIdentity: {

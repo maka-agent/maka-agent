@@ -355,6 +355,27 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
       requests[0]?.operationPermission.fileSystem?.entries.map((entry) => entry.path),
       [target, auxiliary.tempPath, auxiliary.beforeBackupPath, auxiliary.parentDirectory],
     );
+
+    await client.execute({
+      operation: {
+        kind: 'prepared_file_finalize',
+        path: target,
+        fact,
+      },
+      cwd: workspace,
+      mode: 'execute',
+    });
+
+    const finalizeTransform = transforms[1];
+    assert.ok(finalizeTransform);
+    assert.equal(
+      canWritePath(finalizeTransform.command.profile, sibling, finalizeTransform.command.pathContext),
+      false,
+    );
+    assert.deepEqual(
+      requests[1]?.operationPermission.fileSystem?.entries.map((entry) => entry.path),
+      [target, auxiliary.tempPath, auxiliary.beforeBackupPath, auxiliary.parentDirectory],
+    );
   });
 });
 
@@ -426,6 +447,8 @@ function fakeResult(request: FilesystemWorkerRequest): FilesystemWorkerResult {
       };
     case 'prepared_file_apply':
       return { kind: 'prepared_file_apply', ok: true };
+    case 'prepared_file_finalize':
+      return { kind: 'prepared_file_finalize', ok: true };
     case 'grep':
       return { kind: 'grep', matches: ['file.ts:1:value'] };
     default:

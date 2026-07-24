@@ -1147,6 +1147,7 @@ export {
 export {
   WorkerBackedFileCheckpointCarrier,
   applyPreparedFileThroughWorker,
+  finalizePreparedFileThroughWorker,
   selectPreparedFileMutationCarrier,
   type PreparedFileMutationCarrierSelection,
   type PreparedFileMutationExecutionOwner,

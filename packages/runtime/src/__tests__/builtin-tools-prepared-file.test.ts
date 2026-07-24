@@ -20,6 +20,7 @@ import type { DurableToolPreparationContext } from '../tool-runtime.js';
 import type { PreparedFileMutationFact } from '../tool-recovery-facts.js';
 import {
   applyPreparedFileThroughWorker,
+  finalizePreparedFileThroughWorker,
   selectPreparedFileMutationCarrier,
   WorkerBackedFileCheckpointCarrier,
 } from '../worker-backed-file-checkpoint-carrier.js';
@@ -69,11 +70,38 @@ describe('builtin prepared file mutations', () => {
     });
     const checkpoint = fact('operation-1', root, 'created.txt');
 
-    await carrier.apply(checkpoint, Buffer.from('hello'));
+    await carrier.apply(checkpoint, Buffer.from('hello'), {
+      cwd: root,
+      mode: 'ask',
+    });
 
     assert.equal(calls.length, 1);
     assert.equal((calls[0] as { mode?: string }).mode, 'ask');
     assert.deepEqual(local.redone, []);
+  });
+
+  test('keeps recovery finalization on the worker without host-local cleanup', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-prepared-finalize-worker-'));
+    const calls: unknown[] = [];
+    const checkpoint = fact('operation-finalize', root, 'created.txt');
+
+    await finalizePreparedFileThroughWorker(
+      {
+        execute: async (input) => {
+          calls.push(input);
+          return { kind: 'prepared_file_finalize', ok: true };
+        },
+      },
+      checkpoint,
+      { cwd: root, mode: 'ask' },
+    );
+
+    assert.equal(calls.length, 1);
+    assert.equal(
+      (calls[0] as { operation?: { kind?: string } }).operation?.kind,
+      'prepared_file_finalize',
+    );
+    assert.equal((calls[0] as { cwd?: string }).cwd, root);
   });
 
   test('keeps cancellation before worker launch out of durable recovery', async () => {
@@ -122,6 +150,7 @@ describe('builtin prepared file mutations', () => {
           },
           fact('operation-ambiguous', root, 'created.txt'),
           Buffer.from('hello'),
+          { cwd: root, mode: 'ask' },
         ),
         (thrown: unknown) => thrown instanceof DurableToolExecutionUnsettledError,
       );
@@ -243,6 +272,10 @@ class FakeCarrier implements PreparedFileMutationCarrier {
 
   constructor(readonly beforeContent?: Uint8Array) {}
 
+  async resolveWorkspaceIdentity(workspaceRoot: string): Promise<string> {
+    return workspaceRoot;
+  }
+
   async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
     return join(workspaceRoot, targetPath);
   }
@@ -265,6 +298,8 @@ class FakeCarrier implements PreparedFileMutationCarrier {
     if (this.rejectHostApply) throw new Error('host-local prepared apply was invoked');
     this.redone.push(input.operationId);
   }
+
+  async finalize(): Promise<void> {}
 }
 
 function expectedContent(

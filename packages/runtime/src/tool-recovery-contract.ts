@@ -1,4 +1,4 @@
-import type { ToolRecoveryMode } from '@maka/core';
+import type { PermissionMode, ToolRecoveryMode } from '@maka/core';
 import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export const TOOL_RECOVERY_CONTRACT_MODES = [
@@ -18,6 +18,7 @@ export interface UnsettledToolOperation {
   args: unknown;
   recoveryMode?: ToolRecoveryMode;
   workspaceCwd?: string;
+  permissionMode?: PermissionMode;
   preparedFileMutation?: PreparedFileMutationFact;
   evidenceEventIds: readonly string[];
 }

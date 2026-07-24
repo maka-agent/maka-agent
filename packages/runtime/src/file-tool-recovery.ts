@@ -16,17 +16,34 @@ import {
   type CurrentFileCheckpointState,
 } from './prepared-file-mutation.js';
 import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
+import type { PreparedFileMutationExecutionContext } from './local-file-checkpoint-carrier.js';
+import { LocalFileMutationConflictError } from './local-file-checkpoint-carrier.js';
 
 export interface PreparedFileRecoveryCarrier {
+  resolveWorkspaceIdentity(workspaceRoot: string): Promise<string>;
   resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string>;
   inspect(fact: PreparedFileMutationFact): Promise<CurrentFileCheckpointState>;
   readCurrentContent(fact: PreparedFileMutationFact): Promise<Uint8Array | undefined>;
-  apply(fact: PreparedFileMutationFact, expectedContent: Uint8Array): Promise<void>;
+  apply(
+    fact: PreparedFileMutationFact,
+    expectedContent: Uint8Array,
+    context?: PreparedFileMutationExecutionContext,
+  ): Promise<void>;
+  finalize(
+    fact: PreparedFileMutationFact,
+    context?: PreparedFileMutationExecutionContext,
+  ): Promise<void>;
+}
+
+interface ValidatedPreparedFileBinding {
+  trustedWorkspaceRoot: string;
+  canonicalPath: string;
 }
 
 type PreparedFileRecoveryObservation =
   | { status: 'checkpoint_missing' }
   | { status: 'checkpoint_invalid' }
+  | { status: 'prepared_file_unsafe'; reasonCode: string }
   | {
       status: 'prepared_after_matches' | 'prepared_redone' | 'prepared_file_drifted';
       current: CurrentFileCheckpointState;
@@ -91,16 +108,41 @@ async function reconcilePreparedFileOperation(
       decision: parked(`${toolName.toLowerCase()}_checkpoint_evidence_missing`),
     };
   }
-  if (!(await preparedFactMatchesOperation(toolName, fact, operation, carrier))) {
+  const binding = await validatePreparedFactOperation(toolName, fact, operation, carrier);
+  if (!binding) {
     const observation = { status: 'checkpoint_invalid' } as const;
     return { observation, decision: parked('prepared_file_checkpoint_invalid') };
   }
 
-  const lease = await acquireFileWriteLock(fact.canonicalPath);
+  const lease = await acquireFileWriteLock(binding.canonicalPath);
   try {
-    const initial = await carrier.inspect(fact);
+    const executionContext: PreparedFileMutationExecutionContext = {
+      cwd: binding.trustedWorkspaceRoot,
+      mode: operation.permissionMode!,
+    };
+    let initial: CurrentFileCheckpointState;
+    try {
+      initial = await carrier.inspect(fact);
+    } catch (error) {
+      if (!(error instanceof LocalFileMutationConflictError)) throw error;
+      const observation = {
+        status: 'prepared_file_unsafe',
+        reasonCode: error.reasonCode,
+      } as const;
+      return { observation, decision: parked(error.reasonCode) };
+    }
     const initialDecision = decidePreparedFileMutation(fact, initial);
     if (initialDecision.disposition === 'finalize') {
+      try {
+        await carrier.finalize(fact, executionContext);
+      } catch (error) {
+        if (!(error instanceof LocalFileMutationConflictError)) throw error;
+        const observation = {
+          status: 'prepared_file_unsafe',
+          reasonCode: error.reasonCode,
+        } as const;
+        return { observation, decision: parked(error.reasonCode) };
+      }
       const observation = { status: 'prepared_after_matches', current: initial } as const;
       return {
         observation,
@@ -114,7 +156,7 @@ async function reconcilePreparedFileOperation(
 
     try {
       const expectedContent = await regenerateExpectedContent(toolName, operation, fact, carrier);
-      await carrier.apply(fact, expectedContent);
+      await carrier.apply(fact, expectedContent, executionContext);
     } catch (error) {
       const afterFailure = await carrier.inspect(fact);
       const afterFailureDecision = decidePreparedFileMutation(fact, afterFailure);
@@ -132,6 +174,7 @@ async function reconcilePreparedFileOperation(
       const observation = { status: 'prepared_file_drifted', current: installed } as const;
       return { observation, decision: parked('prepared_file_install_unverified') };
     }
+    await carrier.finalize(fact, executionContext);
     const observation = { status: 'prepared_redone', current: installed } as const;
     return {
       observation,
@@ -168,37 +211,40 @@ async function regenerateExpectedContent(
   );
 }
 
-async function preparedFactMatchesOperation(
+async function validatePreparedFactOperation(
   toolName: 'Write' | 'Edit',
   fact: PreparedFileMutationFact,
   operation: UnsettledToolOperation,
   carrier: PreparedFileRecoveryCarrier,
-): Promise<boolean> {
-  if (!operation.operationId || fact.operationId !== operation.operationId) return false;
+): Promise<ValidatedPreparedFileBinding | undefined> {
+  if (!operation.operationId || fact.operationId !== operation.operationId) return undefined;
+  if (!operation.workspaceCwd || !operation.permissionMode) return undefined;
+  let trustedWorkspaceRoot: string;
   let canonicalOperationPath: string;
   try {
+    trustedWorkspaceRoot = await carrier.resolveWorkspaceIdentity(operation.workspaceCwd);
+    if (trustedWorkspaceRoot !== fact.workspaceRoot) return undefined;
     canonicalOperationPath = await carrier.resolveTargetIdentity(
-      fact.workspaceRoot,
+      trustedWorkspaceRoot,
       filePath(operation.args),
     );
   } catch {
-    return false;
+    return undefined;
   }
   if (canonicalOperationPath !== fact.canonicalPath) {
-    return false;
+    return undefined;
   }
   if (toolName === 'Write') {
     const args = parseWriteArgs(operation.args);
-    return (
-      args !== undefined &&
+    return args !== undefined &&
       fact.transform.id === WRITE_FILE_TRANSFORM.id &&
       fact.transform.version === WRITE_FILE_TRANSFORM.version &&
       fact.transform.argsHash === fileMutationArgsHash({ path: args.path, content: args.content })
-    );
+      ? { trustedWorkspaceRoot, canonicalPath: canonicalOperationPath }
+      : undefined;
   }
   const args = parseEditArgs(operation.args);
-  return (
-    args !== undefined &&
+  return args !== undefined &&
     fact.transform.id === EDIT_FILE_TRANSFORM.id &&
     fact.transform.version === EDIT_FILE_TRANSFORM.version &&
     fact.transform.argsHash ===
@@ -207,7 +253,8 @@ async function preparedFactMatchesOperation(
         old_string: args.oldString,
         new_string: args.newString,
       })
-  );
+    ? { trustedWorkspaceRoot, canonicalPath: canonicalOperationPath }
+    : undefined;
 }
 
 function synthesizedPreparedResult(

@@ -176,6 +176,17 @@ export async function executeFilesystemOperation(
       await new LocalFileCheckpointCarrier().apply(fact, expectedContent);
       return { kind: 'prepared_file_apply', ok: true };
     }
+    case 'prepared_file_finalize': {
+      const fact = parsePreparedFileMutationFact(operation.fact);
+      if (!fact || fact.canonicalPath !== operation.path) {
+        throw operationError(
+          'invalid_request',
+          'Prepared file mutation fact did not match its approved target.',
+        );
+      }
+      await new LocalFileCheckpointCarrier().finalize(fact);
+      return { kind: 'prepared_file_finalize', ok: true };
+    }
     case 'format_json': {
       const path = await resolveExistingAllowed(
         operation.cwd,

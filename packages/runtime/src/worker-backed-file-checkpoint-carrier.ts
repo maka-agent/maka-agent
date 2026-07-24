@@ -33,6 +33,10 @@ export class WorkerBackedFileCheckpointCarrier implements PreparedFileMutationCa
     return (await this.local.supports?.(workspaceRoot, targetPath)) ?? true;
   }
 
+  async resolveWorkspaceIdentity(workspaceRoot: string): Promise<string> {
+    return await this.local.resolveWorkspaceIdentity(workspaceRoot);
+  }
+
   async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
     return await this.local.resolveTargetIdentity(workspaceRoot, targetPath);
   }
@@ -54,7 +58,20 @@ export class WorkerBackedFileCheckpointCarrier implements PreparedFileMutationCa
     expectedContent: Uint8Array,
     context?: PreparedFileMutationExecutionContext,
   ): Promise<void> {
+    if (!context) {
+      throw new Error('Worker-backed prepared file mutation requires explicit execution context');
+    }
     await applyPreparedFileThroughWorker(this.worker, fact, expectedContent, context);
+  }
+
+  async finalize(
+    fact: PreparedFileMutationFact,
+    context?: PreparedFileMutationExecutionContext,
+  ): Promise<void> {
+    if (!context) {
+      throw new Error('Worker-backed prepared file mutation requires explicit execution context');
+    }
+    await finalizePreparedFileThroughWorker(this.worker, fact, context);
   }
 }
 
@@ -84,6 +101,9 @@ export async function applyPreparedFileThroughWorker(
   expectedContent: Uint8Array,
   context?: PreparedFileMutationExecutionContext,
 ): Promise<void> {
+  if (!context) {
+    throw new Error('Worker-backed prepared file mutation requires explicit execution context');
+  }
   const input: FilesystemWorkerExecuteInput = {
     operation: {
       kind: 'prepared_file_apply',
@@ -91,14 +111,40 @@ export async function applyPreparedFileThroughWorker(
       fact,
       expectedContentBase64: Buffer.from(expectedContent).toString('base64'),
     },
-    cwd: context?.cwd ?? fact.workspaceRoot,
-    mode: context?.mode ?? 'ask',
-    ...(context?.permissionProfile ? { permissionProfile: context.permissionProfile } : {}),
-    ...(context?.additionalGrant ? { additionalGrant: context.additionalGrant } : {}),
-    ...(context?.abortSignal ? { abortSignal: context.abortSignal } : {}),
+    cwd: context.cwd,
+    mode: context.mode,
+    ...(context.permissionProfile ? { permissionProfile: context.permissionProfile } : {}),
+    ...(context.additionalGrant ? { additionalGrant: context.additionalGrant } : {}),
+    ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
   };
   try {
     await worker.execute(input);
+  } catch (error) {
+    if (error instanceof FilesystemWorkerClientError && error.effectMayHaveStarted) {
+      throw new DurableToolExecutionUnsettledError('effect_may_have_started', error);
+    }
+    throw error;
+  }
+}
+
+export async function finalizePreparedFileThroughWorker(
+  worker: Pick<FilesystemWorkerClient, 'execute'>,
+  fact: PreparedFileMutationFact,
+  context: PreparedFileMutationExecutionContext,
+): Promise<void> {
+  try {
+    await worker.execute({
+      operation: {
+        kind: 'prepared_file_finalize',
+        path: fact.canonicalPath,
+        fact,
+      },
+      cwd: context.cwd,
+      mode: context.mode,
+      ...(context.permissionProfile ? { permissionProfile: context.permissionProfile } : {}),
+      ...(context.additionalGrant ? { additionalGrant: context.additionalGrant } : {}),
+      ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+    });
   } catch (error) {
     if (error instanceof FilesystemWorkerClientError && error.effectMayHaveStarted) {
       throw new DurableToolExecutionUnsettledError('effect_may_have_started', error);

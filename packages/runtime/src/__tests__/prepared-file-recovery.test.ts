@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
@@ -7,10 +7,15 @@ import { describe, test } from 'node:test';
 import { computeEditedSource } from '../edit-replace.js';
 import { createPreparedWriteEditRecoveryContracts } from '../file-tool-recovery.js';
 import { fileMutationArgsHash } from '../file-mutation-transform.js';
-import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js';
+import {
+  LocalFileCheckpointCarrier,
+  preparedFileMutationAuxiliaryPaths,
+  type PreparedFileMutationExecutionContext,
+} from '../local-file-checkpoint-carrier.js';
 import type { CurrentFileCheckpointState } from '../prepared-file-mutation.js';
 import type { UnsettledToolOperation } from '../tool-recovery-contract.js';
 import type { PreparedFileMutationFact } from '../tool-recovery-facts.js';
+import { WorkerBackedFileCheckpointCarrier } from '../worker-backed-file-checkpoint-carrier.js';
 
 describe('prepared Write/Edit recovery contracts', () => {
   test('current after image finalizes without executing the mutation again', async () => {
@@ -31,6 +36,34 @@ describe('prepared Write/Edit recovery contracts', () => {
       },
     });
     assert.equal(carrier.applyCalls, 0);
+    assert.deepEqual(carrier.finalizeContexts, [{ cwd: '/workspace', mode: 'ask' }]);
+  });
+
+  test('routes recovery finalization through the worker with the source Run context', async () => {
+    const local = new RecoveryCarrier({ kind: 'file', sha256: 'a'.repeat(64) });
+    const workerCalls: unknown[] = [];
+    const carrier = new WorkerBackedFileCheckpointCarrier(local, {
+      execute: async (input) => {
+        workerCalls.push(input);
+        return { kind: 'prepared_file_finalize', ok: true };
+      },
+    });
+
+    const result =
+      await createPreparedWriteEditRecoveryContracts(carrier).Write.reconcile(writeOperation());
+
+    assert.equal(result.decision.nextAction, 'synthesize_response');
+    assert.deepEqual(local.finalizeContexts, []);
+    assert.equal(workerCalls.length, 1);
+    assert.deepEqual(workerCalls[0], {
+      operation: {
+        kind: 'prepared_file_finalize',
+        path: '/workspace/notes.txt',
+        fact: preparedFact('maka.write.utf8'),
+      },
+      cwd: '/workspace',
+      mode: 'ask',
+    });
   });
 
   test('current before image regenerates and installs the prepared after image', async () => {
@@ -40,6 +73,7 @@ describe('prepared Write/Edit recovery contracts', () => {
     const result = await contract.reconcile?.(writeOperation());
 
     assert.equal(carrier.applyCalls, 1);
+    assert.deepEqual(carrier.finalizeContexts, [{ cwd: '/workspace', mode: 'ask' }]);
     assert.equal(result?.decision.result, 'applied');
     assert.equal(result?.decision.reasonCode, 'prepared_redone');
     assert.equal(result?.decision.nextAction, 'synthesize_response');
@@ -82,6 +116,7 @@ describe('prepared Write/Edit recovery contracts', () => {
         args,
         recoveryMode: 'reconcile',
         workspaceCwd: root,
+        permissionMode: 'ask',
         evidenceEventIds: ['call', 'prepared', 'dispatch'],
         preparedFileMutation: fact,
       };
@@ -120,6 +155,7 @@ describe('prepared Write/Edit recovery contracts', () => {
         args,
         recoveryMode: 'reconcile',
         workspaceCwd: root,
+        permissionMode: 'ask',
         evidenceEventIds: ['call', 'prepared', 'dispatch'],
         preparedFileMutation: fact,
       };
@@ -134,6 +170,108 @@ describe('prepared Write/Edit recovery contracts', () => {
     }
   });
 
+  test('cleans a Windows before-image backup before synthesizing recovered success', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-recovery-windows-finalize-'));
+    try {
+      const args = { path: 'notes.txt', content: 'expected' };
+      await writeFile(join(root, args.path), 'before');
+      const interrupted = new LocalFileCheckpointCarrier({
+        platform: 'win32',
+        failpoint: (point) => {
+          if (point === 'after_parent_fsync') throw new Error('crash before backup cleanup');
+        },
+      });
+      const fact = await interrupted.prepare({
+        operationId: 'operation-windows-finalize',
+        workspaceRoot: root,
+        targetPath: args.path,
+        expectedContent: Buffer.from(args.content),
+        transform: {
+          id: 'maka.write.utf8',
+          version: 1,
+          argsHash: fileMutationArgsHash(args),
+        },
+      });
+      await assert.rejects(interrupted.apply(fact, Buffer.from(args.content)));
+      const backupPath = preparedFileMutationAuxiliaryPaths(fact).beforeBackupPath;
+      assert.equal(await readFile(backupPath, 'utf8'), 'before');
+
+      const recoveryCarrier = new LocalFileCheckpointCarrier({ platform: 'win32' });
+      const operation: UnsettledToolOperation = {
+        operationId: fact.operationId,
+        toolCallId: 'call-windows-finalize',
+        toolName: 'Write',
+        args,
+        recoveryMode: 'reconcile',
+        workspaceCwd: root,
+        permissionMode: 'ask',
+        evidenceEventIds: ['call', 'prepared', 'dispatch'],
+        preparedFileMutation: fact,
+      };
+      const result =
+        await createPreparedWriteEditRecoveryContracts(recoveryCarrier).Write.reconcile(operation);
+
+      assert.equal(result.decision.nextAction, 'synthesize_response');
+      await assert.rejects(readFile(backupPath), { code: 'ENOENT' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  for (const referentLocation of ['inside', 'outside'] as const) {
+    test(`parks recovery when the prepared target becomes an ${referentLocation}-workspace symlink`, {
+      skip: process.platform === 'win32',
+    }, async () => {
+      const root = await mkdtemp(join(tmpdir(), `maka-recovery-link-${referentLocation}-`));
+      const outside =
+        referentLocation === 'outside'
+          ? await mkdtemp(join(tmpdir(), 'maka-recovery-link-referent-'))
+          : root;
+      try {
+        const target = join(root, 'notes.txt');
+        const referent = join(outside, 'referent.txt');
+        const args = { path: 'notes.txt', content: 'expected' };
+        await writeFile(target, 'before');
+        await writeFile(referent, args.content);
+        const carrier = new LocalFileCheckpointCarrier();
+        const fact = await carrier.prepare({
+          operationId: `operation-link-${referentLocation}`,
+          workspaceRoot: root,
+          targetPath: args.path,
+          expectedContent: Buffer.from(args.content),
+          transform: {
+            id: 'maka.write.utf8',
+            version: 1,
+            argsHash: fileMutationArgsHash(args),
+          },
+        });
+        await unlink(target);
+        await symlink(referent, target);
+        const operation: UnsettledToolOperation = {
+          operationId: fact.operationId,
+          toolCallId: `call-link-${referentLocation}`,
+          toolName: 'Write',
+          args,
+          recoveryMode: 'reconcile',
+          workspaceCwd: root,
+          permissionMode: 'ask',
+          evidenceEventIds: ['call', 'prepared', 'dispatch'],
+          preparedFileMutation: fact,
+        };
+
+        const result =
+          await createPreparedWriteEditRecoveryContracts(carrier).Write.reconcile(operation);
+
+        assert.equal(result.decision.nextAction, 'park');
+        assert.equal(result.decision.reasonCode, 'prepared_file_became_symbolic_link');
+        assert.equal(await readFile(referent, 'utf8'), args.content);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+        if (outside !== root) await rm(outside, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('a current state matching neither before nor after parks without overwriting', async () => {
     const carrier = new RecoveryCarrier({ kind: 'file', sha256: 'd'.repeat(64) });
     const contract = createPreparedWriteEditRecoveryContracts(carrier).Edit;
@@ -145,6 +283,29 @@ describe('prepared Write/Edit recovery contracts', () => {
       reasonCode: 'prepared_file_drifted',
       nextAction: 'park',
     });
+    assert.equal(carrier.applyCalls, 0);
+    assert.deepEqual(carrier.finalizeContexts, []);
+  });
+
+  test('rejects a checkpoint rooted in a different workspace before observation', async () => {
+    const carrier = new RecoveryCarrier({ kind: 'file', sha256: 'a'.repeat(64) });
+    const contract = createPreparedWriteEditRecoveryContracts(carrier).Write;
+    const operation = writeOperation();
+    operation.workspaceCwd = '/trusted-workspace';
+    operation.preparedFileMutation = {
+      ...operation.preparedFileMutation!,
+      workspaceRoot: '/fact-controlled-workspace',
+      canonicalPath: '/fact-controlled-workspace/notes.txt',
+    };
+
+    const result = await contract.reconcile(operation);
+
+    assert.deepEqual(result.decision, {
+      result: 'conflict',
+      reasonCode: 'prepared_file_checkpoint_invalid',
+      nextAction: 'park',
+    });
+    assert.equal(carrier.inspectCalls, 0);
     assert.equal(carrier.applyCalls, 0);
   });
 
@@ -167,12 +328,21 @@ describe('prepared Write/Edit recovery contracts', () => {
 class RecoveryCarrier {
   inspectCalls = 0;
   applyCalls = 0;
+  readonly finalizeContexts: PreparedFileMutationExecutionContext[] = [];
 
   constructor(private state: CurrentFileCheckpointState) {}
+
+  async resolveWorkspaceIdentity(workspaceRoot: string): Promise<string> {
+    return workspaceRoot;
+  }
 
   async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
     if (/^(?:[A-Za-z]:[\\/]|\/)/.test(targetPath)) return targetPath;
     return `${workspaceRoot.replace(/[\\/]$/, '')}/${targetPath.replaceAll('\\', '/')}`;
+  }
+
+  async prepare(): Promise<PreparedFileMutationFact> {
+    throw new Error('prepare is not used by this recovery-only fake');
   }
 
   async inspect(): Promise<CurrentFileCheckpointState> {
@@ -188,6 +358,13 @@ class RecoveryCarrier {
     this.applyCalls += 1;
     this.state = { kind: 'file', sha256: fact.expectedAfter.sha256 };
   }
+
+  async finalize(
+    _fact: PreparedFileMutationFact,
+    context?: PreparedFileMutationExecutionContext,
+  ): Promise<void> {
+    if (context) this.finalizeContexts.push(context);
+  }
 }
 
 function writeOperation(): UnsettledToolOperation {
@@ -198,6 +375,7 @@ function writeOperation(): UnsettledToolOperation {
     args: { path: 'notes.txt', content: 'expected' },
     recoveryMode: 'reconcile',
     workspaceCwd: '/workspace',
+    permissionMode: 'ask',
     evidenceEventIds: ['call-1', 'prepared-1', 'dispatch-1'],
     preparedFileMutation: preparedFact('maka.write.utf8'),
   };

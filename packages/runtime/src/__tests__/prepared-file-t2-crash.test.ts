@@ -67,6 +67,7 @@ test('a crash after atomic replace but before T2 only synthesizes the missing re
           args: operation.args,
           recoveryMode: operation.recoveryMode,
           workspaceCwd: root,
+          permissionMode: 'ask',
           preparedFileMutation: operation.preparedFileMutation,
           evidenceEventIds: operation.evidenceEventIds,
         },

@@ -305,6 +305,102 @@ describe('local file transaction checkpoint carrier', () => {
     }
   });
 
+  test('revalidates external drift injected immediately before replacement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-local-final-revalidate-'));
+    try {
+      const target = join(root, 'notes.txt');
+      await writeFile(target, 'before image');
+      const carrier = new LocalFileCheckpointCarrier({
+        failpoint: (point) => {
+          if (point === 'before_replace') writeFileSync(target, 'external edit');
+        },
+      });
+      const fact = await carrier.prepare({
+        operationId: 'operation-final-revalidate',
+        workspaceRoot: root,
+        targetPath: 'notes.txt',
+        expectedContent: Buffer.from('after image'),
+        transform: { id: 'maka.write.utf8', version: 1, argsHash: '9'.repeat(64) },
+      });
+
+      await assert.rejects(
+        carrier.apply(fact, Buffer.from('after image')),
+        /prepared_file_drifted_before_replace/,
+      );
+      assert.equal(await readFile(target, 'utf8'), 'external edit');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a target replaced by an in-workspace symlink after checkpoint preparation', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-local-link-after-t1-'));
+    try {
+      const target = join(root, 'notes.txt');
+      const referent = join(root, 'referent.txt');
+      await writeFile(target, 'before image');
+      await writeFile(referent, 'after image');
+      const carrier = new LocalFileCheckpointCarrier();
+      const fact = await carrier.prepare({
+        operationId: 'operation-link-after-t1',
+        workspaceRoot: root,
+        targetPath: 'notes.txt',
+        expectedContent: Buffer.from('after image'),
+        transform: { id: 'maka.write.utf8', version: 1, argsHash: 'a'.repeat(64) },
+      });
+      await unlink(target);
+      await symlink(referent, target);
+
+      await assert.rejects(
+        carrier.inspect(fact),
+        (error: unknown) =>
+          error instanceof Error &&
+          'reasonCode' in error &&
+          error.reasonCode === 'prepared_file_became_symbolic_link',
+      );
+      assert.equal(await readFile(referent, 'utf8'), 'after image');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a target replaced by an out-of-workspace symlink after checkpoint preparation', {
+    skip: process.platform === 'win32',
+  }, async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-local-link-outside-after-t1-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-local-link-outside-referent-'));
+    try {
+      const target = join(root, 'notes.txt');
+      const referent = join(outside, 'referent.txt');
+      await writeFile(target, 'before image');
+      await writeFile(referent, 'after image');
+      const carrier = new LocalFileCheckpointCarrier();
+      const fact = await carrier.prepare({
+        operationId: 'operation-link-outside-after-t1',
+        workspaceRoot: root,
+        targetPath: 'notes.txt',
+        expectedContent: Buffer.from('after image'),
+        transform: { id: 'maka.write.utf8', version: 1, argsHash: 'b'.repeat(64) },
+      });
+      await unlink(target);
+      await symlink(referent, target);
+
+      await assert.rejects(
+        carrier.inspect(fact),
+        (error: unknown) =>
+          error instanceof Error &&
+          'reasonCode' in error &&
+          error.reasonCode === 'prepared_file_became_symbolic_link',
+      );
+      assert.equal(await readFile(referent, 'utf8'), 'after image');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test('rejects a prepared image that exceeds the configured checkpoint limit', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-local-limit-'));
     try {

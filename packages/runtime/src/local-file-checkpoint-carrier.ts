@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { constants as fsConstants, type Stats } from 'node:fs';
 import { lstat, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { PermissionMode, PermissionProfile } from '@maka/core';
@@ -33,6 +34,8 @@ export type PrepareFileMutationInput = PrepareFileMutationBaseInput &
 
 export interface PreparedFileMutationCarrier {
   supports?(workspaceRoot: string, targetPath: string): Promise<boolean>;
+  /** Canonicalize the independently trusted workspace root for recovery binding. */
+  resolveWorkspaceIdentity(workspaceRoot: string): Promise<string>;
   /** Resolve a tool argument to the same workspace-bounded identity stored in its checkpoint. */
   resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string>;
   prepare(input: PrepareFileMutationInput): Promise<PreparedFileMutationFact>;
@@ -41,6 +44,10 @@ export interface PreparedFileMutationCarrier {
   apply(
     fact: PreparedFileMutationFact,
     expectedContent: Uint8Array,
+    context?: PreparedFileMutationExecutionContext,
+  ): Promise<void>;
+  finalize(
+    fact: PreparedFileMutationFact,
     context?: PreparedFileMutationExecutionContext,
   ): Promise<void>;
 }
@@ -96,8 +103,12 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
     }
   }
 
+  async resolveWorkspaceIdentity(workspaceRoot: string): Promise<string> {
+    return await realpath(workspaceRoot);
+  }
+
   async resolveTargetIdentity(workspaceRoot: string, targetPath: string): Promise<string> {
-    const canonicalRoot = await realpath(workspaceRoot);
+    const canonicalRoot = await this.resolveWorkspaceIdentity(workspaceRoot);
     return await resolvePreparedTarget(canonicalRoot, targetPath);
   }
 
@@ -209,7 +220,7 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
       initialState.recoverableBeforeBackupSha256 === fact.before.sha256;
     const initial = decidePreparedFileMutation(fact, initialState);
     if (initial.disposition === 'finalize') {
-      await removeIfPresent(beforeBackupPath);
+      await this.finalize(fact);
       return;
     }
     if (initial.disposition === 'park') {
@@ -240,6 +251,10 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
         await temp.close();
       }
 
+      // This failpoint is intentionally before the last state observation: tests and
+      // crash injectors that mutate the target at the replacement boundary must still
+      // be covered by the final drift check.
+      this.options.failpoint?.('before_replace', { tempPath });
       const revalidated = decidePreparedFileMutation(fact, await this.inspect(fact));
       if (revalidated.disposition === 'finalize') return;
       if (revalidated.disposition !== 'redo') {
@@ -252,7 +267,6 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
           throw new LocalFileMutationConflictError('prepared_file_drifted_after_backup');
         }
       }
-      this.options.failpoint?.('before_replace', { tempPath });
       replaceAttempted = true;
       await (this.options.replaceFile ?? rename)(tempPath, fact.canonicalPath);
       replaceCompleted = true;
@@ -260,7 +274,7 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
       this.options.failpoint?.('after_replace');
       await (this.options.syncDirectory ?? fsyncDirectory)(targetDir);
       this.options.failpoint?.('after_parent_fsync');
-      await removeIfPresent(beforeBackupPath);
+      await this.finalize(fact);
       // The temp bytes were verified before rename. A successful same-directory rename installs
       // that exact inode; rereading the full target here would add another hash pass without
       // closing the external-writer race that exists after any observation.
@@ -276,6 +290,35 @@ export class LocalFileCheckpointCarrier implements PreparedFileMutationCarrier {
     } finally {
       if (tempExists) await unlink(tempPath).catch(() => undefined);
     }
+  }
+
+  async finalize(fact: PreparedFileMutationFact): Promise<void> {
+    const current = await this.inspect(fact);
+    if (decidePreparedFileMutation(fact, current).disposition !== 'finalize') {
+      throw new LocalFileMutationConflictError('prepared_file_finalize_target_changed');
+    }
+    const tempPath = operationTempPath(fact);
+    const beforeBackupPath = operationBeforeBackupPath(fact);
+    await removeVerifiedAuxiliaryFile(
+      tempPath,
+      fact.expectedAfter.sha256,
+      this.maxFileBytes,
+      'prepared_file_temp_cleanup_conflict',
+    );
+    if (fact.before.kind === 'file') {
+      await removeVerifiedAuxiliaryFile(
+        beforeBackupPath,
+        fact.before.sha256,
+        this.maxFileBytes,
+        'prepared_file_backup_cleanup_conflict',
+      );
+    } else {
+      await assertAuxiliaryMissing(
+        beforeBackupPath,
+        'prepared_file_unexpected_backup_conflict',
+      );
+    }
+    await (this.options.syncDirectory ?? fsyncDirectory)(dirname(fact.canonicalPath));
   }
 
   private assertWithinLimit(
@@ -473,12 +516,22 @@ async function readBoundedFile(
   sha256: string;
   mode: number;
   nlink: number;
+  dev: number;
+  ino: number;
 }> {
-  const file = await open(path, 'r');
+  const pathInfoBefore = await lstat(path);
+  assertRegularNonSymlink(pathInfoBefore);
+  const openFlags =
+    fsConstants.O_RDONLY |
+    (process.platform === 'win32' ? 0 : (fsConstants.O_NOFOLLOW ?? 0));
+  const file = await open(path, openFlags);
   try {
     const info = await file.stat();
-    if (!info.isFile()) {
-      throw new Error('Prepared file mutation target must be a regular file');
+    assertRegularNonSymlink(info);
+    if (!sameFileIdentity(pathInfoBefore, info)) {
+      throw new LocalFileMutationConflictError(
+        'prepared_file_identity_changed_during_observation',
+      );
     }
     if (info.size > maxFileBytes) {
       throw new PreparedFileCheckpointLimitError(side, info.size, maxFileBytes);
@@ -499,15 +552,93 @@ async function readBoundedFile(
       hash.update(bytes);
       chunks.push(Buffer.from(bytes));
     }
+    const handleInfoAfter = await file.stat();
+    let pathInfoAfter: Stats;
+    try {
+      pathInfoAfter = await lstat(path);
+    } catch (error) {
+      if (isNodeError(error) && ['ENOENT', 'ENOTDIR'].includes(error.code ?? '')) {
+        throw new LocalFileMutationConflictError(
+          'prepared_file_identity_changed_during_observation',
+        );
+      }
+      throw error;
+    }
+    assertRegularNonSymlink(pathInfoAfter);
+    if (
+      !sameFileIdentity(info, handleInfoAfter) ||
+      !sameFileIdentity(handleInfoAfter, pathInfoAfter) ||
+      info.size !== handleInfoAfter.size ||
+      info.mtimeMs !== handleInfoAfter.mtimeMs ||
+      info.ctimeMs !== handleInfoAfter.ctimeMs
+    ) {
+      throw new LocalFileMutationConflictError(
+        'prepared_file_identity_changed_during_observation',
+      );
+    }
     return {
       content: Buffer.concat(chunks, byteLength),
       sha256: hash.digest('hex'),
-      mode: info.mode,
-      nlink: info.nlink,
+      mode: handleInfoAfter.mode,
+      nlink: handleInfoAfter.nlink,
+      dev: handleInfoAfter.dev,
+      ino: handleInfoAfter.ino,
     };
   } finally {
     await file.close();
   }
+}
+
+function assertRegularNonSymlink(info: Stats): void {
+  if (info.isSymbolicLink()) {
+    throw new LocalFileMutationConflictError('prepared_file_became_symbolic_link');
+  }
+  if (!info.isFile()) {
+    throw new Error('Prepared file mutation target must be a regular file');
+  }
+}
+
+function sameFileIdentity(left: Stats, right: Stats): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+async function removeVerifiedAuxiliaryFile(
+  path: string,
+  expectedSha256: string,
+  maxFileBytes: number,
+  conflictReason: string,
+): Promise<void> {
+  let snapshot: Awaited<ReturnType<typeof readBoundedFile>>;
+  try {
+    snapshot = await readBoundedFile(path, maxFileBytes, 'current');
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return;
+    if (error instanceof LocalFileMutationConflictError) throw error;
+    throw new LocalFileMutationConflictError(conflictReason);
+  }
+  if (snapshot.sha256 !== expectedSha256) {
+    throw new LocalFileMutationConflictError(conflictReason);
+  }
+  const current = await lstat(path).catch((error) => {
+    if (isNodeError(error) && error.code === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (!current) return;
+  assertRegularNonSymlink(current);
+  if (current.dev !== snapshot.dev || current.ino !== snapshot.ino) {
+    throw new LocalFileMutationConflictError(conflictReason);
+  }
+  await unlink(path);
+}
+
+async function assertAuxiliaryMissing(path: string, conflictReason: string): Promise<void> {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if (isNodeError(error) && error.code === 'ENOENT') return;
+    throw error;
+  }
+  throw new LocalFileMutationConflictError(conflictReason);
 }
 
 function normalizePath(path: string): string {

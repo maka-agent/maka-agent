@@ -195,7 +195,10 @@ export class FilesystemWorkerClient {
       access: 'read' | 'write';
       scope: 'exact' | 'subtree';
     }> = [{ path: target.enforcementPath, access, scope: target.scope }];
-    if (parsedOperation.data.kind === 'prepared_file_apply') {
+    if (
+      parsedOperation.data.kind === 'prepared_file_apply' ||
+      parsedOperation.data.kind === 'prepared_file_finalize'
+    ) {
       const fact = parsePreparedFileMutationFact(parsedOperation.data.fact);
       if (!fact || fact.canonicalPath !== target.enforcementPath) {
         throw clientError('invalid_operation', 'validation', requestId);
@@ -364,6 +367,7 @@ function operationAccess(kind: FilesystemWorkerOperation['kind']): 'read' | 'wri
   return kind === 'write' ||
     kind === 'edit' ||
     kind === 'prepared_file_apply' ||
+    kind === 'prepared_file_finalize' ||
     kind === 'format_json'
     ? 'write'
     : 'read';
