@@ -734,10 +734,24 @@ describe('SessionManager child-session runtime primitive', () => {
 
     const originalPrompt = LOCAL_READ_AGENT_DEFINITION.systemPrompt;
     const originalPolicy = LOCAL_READ_AGENT_DEFINITION.categoryPolicy;
+    let parentTurnDrained = false;
+    const drainParentTurn = async (): Promise<void> => {
+      parentGate.release();
+      while (!(await parentTurn.next()).done) {}
+      parentTurnDrained = true;
+    };
     try {
       LOCAL_READ_AGENT_DEFINITION.systemPrompt = 'Changed catalog prompt that must not leak.';
       LOCAL_READ_AGENT_DEFINITION.categoryPolicy = { read: 'block' };
-      await manager.refreshIdleBackends();
+      let refreshSettled = false;
+      const refresh = manager.refreshIdleBackends().finally(() => {
+        refreshSettled = true;
+      });
+      await Promise.resolve();
+      expect(refreshSettled).toBe(false);
+      expect(contexts.filter((ctx) => ctx.sessionId === parent.id).length).toBe(1);
+      await drainParentTurn();
+      await refresh;
       await drain(
         manager.sendMessage(child.childSessionId, {
           turnId: 'child-follow-up',
@@ -745,6 +759,7 @@ describe('SessionManager child-session runtime primitive', () => {
         }),
       );
     } finally {
+      if (!parentTurnDrained) await drainParentTurn();
       LOCAL_READ_AGENT_DEFINITION.systemPrompt = originalPrompt;
       LOCAL_READ_AGENT_DEFINITION.categoryPolicy = originalPolicy;
     }
@@ -772,9 +787,6 @@ describe('SessionManager child-session runtime primitive', () => {
       ),
       /runtime tool snapshot is unavailable/,
     );
-
-    parentGate.release();
-    while (!(await parentTurn.next()).done) {}
   });
 
   test('reopens after restart with isolated history, tool activity, usage, and compaction', async () => {
