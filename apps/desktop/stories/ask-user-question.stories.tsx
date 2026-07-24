@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { UserQuestionRequestEvent } from '@maka/core';
 import { UserQuestionPrompt } from '@maka/ui';
+import { expect, userEvent, within } from 'storybook/test';
 
 import './ask-user-question.css';
 
@@ -75,9 +76,10 @@ export const OtherAnswerSelected: Story = {
     </main>
   ),
   play: async ({ canvasElement }) => {
-    await new Promise<void>((resolve) => {
-      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
-    });
-    canvasElement.querySelector<HTMLInputElement>('.maka-question-other-input')?.focus();
+    const canvas = within(canvasElement);
+    const input = canvas.getByRole('textbox', { name: '其他答案' });
+    await userEvent.click(input);
+    await expect(input).toHaveFocus();
+    await expect(canvas.getByRole('radio', { name: /其他/ })).toBeChecked();
   },
 };

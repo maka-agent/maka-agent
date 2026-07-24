@@ -98,31 +98,28 @@ export function UserQuestionPrompt(props: {
           </div>
         </header>
 
-        <ChoiceCardGroup
-          aria-label={question.question}
-          className="maka-question-options"
-          value={selectedValue}
-          onValueChange={select}
-        >
-          {question.options.map((option, optionIndex) => (
-            <ChoiceCard
-              ref={optionIndex === 0 ? firstOptionRef : undefined}
-              className="maka-question-option"
-              value={`option:${optionIndex}`}
-              key={`${optionIndex}:${option.label}`}
-              disabled={interactionDisabled}
-            >
-              <span className="maka-question-radio" aria-hidden="true" />
-              <span className="maka-question-option-copy">
-                <strong>{option.label}</strong>
-                {option.description && <small>{option.description}</small>}
-              </span>
-            </ChoiceCard>
-          ))}
-          <div
-            className="maka-question-other-option"
-            data-checked={draft?.kind === 'other' ? '' : undefined}
+        <div className="maka-question-options">
+          <ChoiceCardGroup
+            aria-label={question.question}
+            className="maka-question-choice-group"
+            value={selectedValue}
+            onValueChange={select}
           >
+            {question.options.map((option, optionIndex) => (
+              <ChoiceCard
+                ref={optionIndex === 0 ? firstOptionRef : undefined}
+                className="maka-question-option"
+                value={`option:${optionIndex}`}
+                key={`${optionIndex}:${option.label}`}
+                disabled={interactionDisabled}
+              >
+                <span className="maka-question-radio" aria-hidden="true" />
+                <span className="maka-question-option-copy">
+                  <strong>{option.label}</strong>
+                  {option.description && <small>{option.description}</small>}
+                </span>
+              </ChoiceCard>
+            ))}
             <ChoiceCard
               className="maka-question-option maka-question-other-trigger"
               value={OTHER_VALUE}
@@ -134,6 +131,8 @@ export function UserQuestionPrompt(props: {
                 <small>{copy.otherDescription}</small>
               </span>
             </ChoiceCard>
+          </ChoiceCardGroup>
+          <div className="maka-question-other-answer">
             <Input
               ref={otherInputRef}
               aria-label={copy.otherAriaLabel}
@@ -147,7 +146,7 @@ export function UserQuestionPrompt(props: {
               onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
             />
           </div>
-        </ChoiceCardGroup>
+        </div>
 
         <footer className="permissionActions maka-question-actions">
           <Button

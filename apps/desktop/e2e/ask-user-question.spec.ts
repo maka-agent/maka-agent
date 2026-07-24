@@ -50,10 +50,15 @@ test('answers three questions and continues the same fake-backend turn', async (
   await other.focus();
   await expect(prompt.getByRole('radio', { name: /其他/ })).toBeChecked();
   expect(
-    await other.evaluate((input) => input.closest('.maka-question-other-option') !== null),
+    await other.evaluate((input) => input.closest('[role="radiogroup"]') === null),
   ).toBe(true);
   await expect(prompt.getByRole('button', { name: '提交答案' })).toBeDisabled();
   await other.fill('自定义节奏');
+  await other.press('Home');
+  await other.press('ArrowLeft');
+  await expect(other).toBeFocused();
+  await expect(other).toHaveValue('自定义节奏');
+  await expect(prompt.getByRole('radio', { name: /其他/ })).toBeChecked();
   await prompt.getByRole('button', { name: '提交答案' }).click();
 
   await expect(prompt).toHaveCount(0);
