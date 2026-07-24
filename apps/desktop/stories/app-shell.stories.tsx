@@ -138,12 +138,18 @@ const baseComposerProps: ComposerProps = {
   permissionMode: 'ask',
   onPermissionModeChange: noop,
   // Fidelity: production app-shell always wires these (app-shell.tsx
-  // ~1851-1960), so the daily composer renders the ＋ menu, the Plan
-  // switch, and the Swarm switch. Omitting them here understated the
-  // persistent element count in every shell story. expertTeams stays
-  // empty — most users have none configured; the ＋ menu shows just the
-  // attachment item then, as it does for them.
+  // ~1851-1960), so the daily composer renders the ＋ menu (attachments +
+  // expert teams), the Plan switch, and the Swarm switch. Omitting them
+  // here understated the persistent element count in every shell story.
+  // Plan/Swarm stay noop defaults here — ComposedShell overrides them with
+  // real useState so the switches (and the subtracted ＋-menu items)
+  // actually toggle in the demo.
   onPickAttachments: noop,
+  expertTeams: [
+    { id: 'team-code-review', name: '代码评审组', description: '多视角评审一个改动' },
+    { id: 'team-release-escort', name: '发布护航组', description: '发布前检查与回归' },
+  ],
+  onStartExpertTeam: noop,
   planModeActive: false,
   onPlanModeChange: noop,
   swarmModeActive: false,
@@ -186,6 +192,10 @@ function ComposedShell(props: {
   chrome?: ChromeVariant;
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
+  // Live Plan/Swarm state so the composer switches (toolbar in default
+  // chrome, ＋-menu items in subtracted chrome) really toggle.
+  const [planActive, setPlanActive] = useState(false);
+  const [swarmActive, setSwarmActive] = useState(false);
   const sidebarWidth = collapsed ? 0 : 260;
 
   return (
@@ -249,7 +259,15 @@ function ComposedShell(props: {
             <div style={{ display: 'flex', minHeight: 0, width: '100%', flexDirection: 'column', flex: 1 }}>
               <ChatView {...baseChatProps} {...props.chat} />
               <div style={{ padding: '0 24px 24px' }}>
-                <Composer {...baseComposerProps} chrome={props.chrome} {...props.composer} />
+                <Composer
+                  {...baseComposerProps}
+                  chrome={props.chrome}
+                  planModeActive={planActive}
+                  onPlanModeChange={(active) => setPlanActive(active)}
+                  swarmModeActive={swarmActive}
+                  onSwarmModeChange={(active) => setSwarmActive(active)}
+                  {...props.composer}
+                />
               </div>
             </div>
           )}
