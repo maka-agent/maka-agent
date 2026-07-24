@@ -363,6 +363,8 @@ describe('AiSdkBackend deferred agent tools', () => {
 
     assert.ok(capturedTools[0]?.includes(AGENT_SWARM_TOOL_NAME));
     assert.match(capturedPrompts[0] ?? '', /Orchestration Mode: Swarm/);
+    assert.match(capturedPrompts[0] ?? '', /preferred default execution strategy/);
+    assert.match(capturedPrompts[0] ?? '', /You may continue directly/);
     assert.match(capturedPrompts[0] ?? '', /only tool in its assistant step/);
   });
 
