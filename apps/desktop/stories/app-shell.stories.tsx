@@ -81,13 +81,6 @@ const sidebarSessions: SessionSummary[] = [
   makeSession({ id: 'session-review', name: '已完成的 smoke 回归', status: 'done', lastMessageAt: NOW - 3 * 60 * 60_000 }),
 ];
 
-const statusGroups: StatusGroup[] = [
-  { id: 'running', label: '进行中', sessions: sidebarSessions.filter((s) => s.status === 'running'), collapsible: false, defaultExpanded: true },
-  { id: 'waiting_for_user', label: '等待你', sessions: sidebarSessions.filter((s) => s.status === 'waiting_for_user'), collapsible: false, defaultExpanded: true },
-  { id: 'active', label: '最近', sessions: sidebarSessions.filter((s) => s.status === 'active'), collapsible: false, defaultExpanded: true },
-  { id: 'done', label: '已完成', sessions: sidebarSessions.filter((s) => s.status === 'done'), collapsible: true, defaultExpanded: false },
-];
-
 const sidebarRowActions: NonNullable<SessionListPanelProps['rowActions']> = {
   onToggleFlag: noop,
   onArchive: noop,
@@ -173,12 +166,40 @@ function ShellFrame(props: { children: ReactNode }) {
 // layout shifts, this story may drift — it owns its own 2-col scaffold.
 function ComposedShell(props: {
   sidebarCollapsed?: boolean;
+  /**
+   * The ONE active-session scenario. ComposedShell projects it across the
+   * sidebar row, the chat header, and the composer, so the three regions
+   * can never disagree about what state the active session is in (review
+   * P2: stories used to patch each region independently and drifted).
+   * `streaming` additionally marks the active session as live-streaming
+   * and flips the composer into its streaming state.
+   */
+  session?: {
+    status?: SessionSummary['status'];
+    blockedReason?: SessionSummary['blockedReason'];
+    streaming?: boolean;
+  };
   chat?: Partial<ChatViewProps>;
   composer?: Partial<ComposerProps>;
   detailChildren?: ReactNode;
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
   const sidebarWidth = collapsed ? 0 : 260;
+  const sessions = sidebarSessions.map((s) =>
+    s.id === activeSession.id && (props.session?.status || props.session?.blockedReason)
+      ? { ...s, status: props.session.status ?? s.status, blockedReason: props.session.blockedReason ?? s.blockedReason }
+      : s,
+  );
+  const active = sessions.find((s) => s.id === activeSession.id) ?? activeSession;
+  const streamingIds = new Set(
+    props.session?.streaming ? ['session-running', active.id] : ['session-running'],
+  );
+  const groups: StatusGroup[] = [
+    { id: 'running', label: '进行中', sessions: sessions.filter((s) => s.status === 'running'), collapsible: false, defaultExpanded: true },
+    { id: 'waiting_for_user', label: '等待你', sessions: sessions.filter((s) => s.status === 'waiting_for_user'), collapsible: false, defaultExpanded: true },
+    { id: 'active', label: '最近', sessions: sessions.filter((s) => s.status === 'active'), collapsible: false, defaultExpanded: true },
+    { id: 'done', label: '已完成', sessions: sessions.filter((s) => s.status === 'done'), collapsible: true, defaultExpanded: false },
+  ];
 
   return (
     <ShellFrame>
@@ -207,10 +228,10 @@ function ComposedShell(props: {
           {!collapsed && (
             <SessionListPanel
               selection={{ section: 'sessions', filter: 'chats' }}
-              sessions={sidebarSessions}
-              activeId={activeSession.id}
-              statusGroups={statusGroups}
-              streamingSessionIds={new Set(['session-running'])}
+              sessions={sessions}
+              activeId={active.id}
+              statusGroups={groups}
+              streamingSessionIds={streamingIds}
               onSelect={noop}
               onSelectSession={noop}
               onOpenSettings={noop}
@@ -237,9 +258,14 @@ function ComposedShell(props: {
           />
           {props.detailChildren ?? (
             <div style={{ display: 'flex', minHeight: 0, width: '100%', flexDirection: 'column', flex: 1 }}>
-              <ChatView {...baseChatProps} {...props.chat} />
+              <ChatView {...baseChatProps} activeSession={active} {...props.chat} />
               <div style={{ padding: '0 24px 24px' }}>
-                <Composer {...baseComposerProps} {...props.composer} />
+                <Composer
+                  {...baseComposerProps}
+                  activeSession={active}
+                  streaming={props.session?.streaming ?? false}
+                  {...props.composer}
+                />
               </div>
             </div>
           )}
@@ -266,6 +292,7 @@ export const CollapsedSidebar: Story = {
 export const StreamingTurn: Story = {
   render: () => (
     <ComposedShell
+      session={{ status: 'running', streaming: true }}
       chat={{
         messages: [
           user('msg-s-1', 'turn-s', 3, '顶层布局的 story 怎么做最稳？'),
@@ -279,7 +306,6 @@ export const StreamingTurn: Story = {
           }],
         },
       }}
-      composer={{ streaming: true }}
     />
   ),
 };
@@ -290,12 +316,9 @@ export const StreamingTurn: Story = {
 export const WaitingForPermission: Story = {
   render: () => (
     <ComposedShell
-      chat={{
-        activeSession: { ...activeSession, status: 'waiting_for_user', blockedReason: 'permission_required' },
-      }}
+      session={{ status: 'waiting_for_user', blockedReason: 'permission_required' }}
       composer={{
         disabled: true,
-        activeSession: { ...activeSession, status: 'waiting_for_user', blockedReason: 'permission_required' },
         permissionModeDisabledReason: '当前有工具调用正在等待确认，处理后再切换权限模式。',
       }}
     />
