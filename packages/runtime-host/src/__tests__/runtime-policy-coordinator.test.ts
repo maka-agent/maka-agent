@@ -9,7 +9,7 @@ import type {
   ConnectionCatalogSnapshot,
   CredentialLocator,
 } from '@maka/core/runtime-policy';
-import { FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
+import { FAKE_ASK_USER_QUESTION_PROMPT, FakeBackend } from '@maka/runtime';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
 import { openInteractiveRuntimePolicyStoresForWrite } from '@maka/storage/runtime-policy-stores';
 import { resolveStorageRoot, tryAcquireInteractiveRootOwner } from '@maka/storage/root-authority';
@@ -115,6 +115,110 @@ test('production composition shares one gate across mutation and backend activat
   } finally {
     mutationSpy.mock.restore();
     backendActivationSpy.mock.restore();
+    try {
+      await composition?.close();
+    } finally {
+      try {
+        await owner.close();
+      } finally {
+        await rm(base, { recursive: true, force: true });
+      }
+    }
+  }
+});
+
+test('production policy mutation drains and poisons activation when cached backend disposal fails', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-runtime-policy-disposal-failure-'));
+  const root = join(base, 'interactive');
+  const capability = await resolveStorageRoot({ path: root, kind: 'interactive' });
+  const owner = await tryAcquireInteractiveRootOwner(capability);
+  assert.ok(owner);
+  if (!owner) return;
+
+  let drainRequests = 0;
+  let composition: Awaited<ReturnType<typeof createExecutionRuntimeHostComposition>> | undefined;
+  let disposalSpy: ReturnType<typeof mock.method> | undefined;
+  const activationGates: RuntimePolicyActivationGate[] = [];
+  const originalRunBackendActivation = RuntimePolicyActivationGate.prototype.runBackendActivation;
+  const activationSpy = mock.method(
+    RuntimePolicyActivationGate.prototype,
+    'runBackendActivation',
+    function <T>(this: RuntimePolicyActivationGate, operation: () => Promise<T> | T): Promise<T> {
+      activationGates.push(this);
+      return Reflect.apply(originalRunBackendActivation, this, [operation]) as Promise<T>;
+    },
+  );
+  try {
+    const setupStores = await openInteractiveExecutionStoresForWrite(owner.lease);
+    const session = await setupStores.sessionStore.create({
+      cwd: root,
+      backend: 'fake',
+      llmConnectionSlug: 'fake',
+      model: 'fake-model',
+      permissionMode: 'ask',
+    });
+    await setupStores.sessionStore.close?.();
+
+    composition = await createExecutionRuntimeHostComposition({
+      owner,
+      acquireResidency: context.acquireResidency,
+      requestDrain: () => {
+        drainRequests += 1;
+      },
+    });
+    await composition.recover();
+
+    const firstTurnId = randomUUID();
+    const started = await composition.handlers['turn.start'](
+      { sessionId: session.id, turnId: firstTurnId, text: 'cache this backend' },
+      context,
+    );
+    assert.equal(started.ok, true);
+    if (!started.ok) return;
+    let snapshot = started.result;
+    for (let attempt = 0; attempt < 100 && !isTerminalTurnStatus(snapshot.status); attempt += 1) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 20));
+      const queried = await composition.handlers['turn.query'](
+        { sessionId: session.id, turnId: firstTurnId },
+        context,
+      );
+      assert.equal(queried.ok, true);
+      if (!queried.ok) return;
+      snapshot = queried.result;
+    }
+    assert.equal(isTerminalTurnStatus(snapshot.status), true);
+
+    disposalSpy = mock.method(FakeBackend.prototype, 'dispose', async () => {
+      throw new Error('injected cached backend disposal failure');
+    });
+    const initial = await composition.handlers['runtime.policy.query']({}, context);
+    assert.equal(initial.ok, true);
+    if (!initial.ok) return;
+    const mutated = await composition.handlers['runtime.policy.mutate'](
+      {
+        expectedRevision: initial.result.revision,
+        operation: {
+          kind: 'set_memory',
+          value: { enabled: false, agentReadEnabled: false },
+        },
+      },
+      context,
+    );
+
+    assert.deepEqual(mutated, {
+      ok: true,
+      result: { kind: 'committed', revision: initial.result.revision + 1 },
+    });
+    assert.equal(drainRequests, 1);
+    assert.equal(activationGates.length, 1);
+    await assert.rejects(
+      () => activationGates[0]!.runBackendActivation(async () => undefined),
+      /Runtime policy activation is poisoned/,
+    );
+    assert.equal(drainRequests, 1);
+  } finally {
+    activationSpy.mock.restore();
+    disposalSpy?.mock.restore();
     try {
       await composition?.close();
     } finally {
@@ -564,6 +668,10 @@ test('reconstructs a large catalog with revision-pinned pages and rejects stale 
     });
   });
 });
+
+function isTerminalTurnStatus(status: string): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
 
 function largeConnection(connectionIndex: number): ConnectionCatalogEntryDraft {
   return {

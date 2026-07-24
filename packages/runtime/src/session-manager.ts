@@ -547,8 +547,7 @@ export class SessionManager {
 
   /** Invalidate backend snapshots now, or immediately after active turns settle. */
   async refreshIdleBackends(): Promise<void> {
-    const sessions = await this.deps.store.list();
-    await Promise.all(sessions.map((session) => this.runtimeKernel.invalidateBackend(session.id)));
+    await this.runtimeKernel.invalidateCachedBackends();
   }
 
   async getMessages(sessionId: string): Promise<StoredMessage[]> {
