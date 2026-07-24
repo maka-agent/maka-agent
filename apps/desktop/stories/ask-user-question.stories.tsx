@@ -80,6 +80,6 @@ export const OtherAnswerSelected: Story = {
     const input = canvas.getByRole('textbox', { name: '其他答案' });
     await userEvent.click(input);
     await expect(input).toHaveFocus();
-    await expect(canvas.getByRole('radio', { name: /其他/ })).toBeChecked();
+    await expect(input.closest('.maka-question-other-field')).toHaveAttribute('data-selected');
   },
 };

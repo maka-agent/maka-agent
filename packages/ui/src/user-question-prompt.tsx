@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import type { UserQuestionRequestEvent, UserQuestionResponse } from '@maka/core';
 import { ChoiceCard, ChoiceCardGroup } from './primitives/choice-card.js';
 import { Input } from './primitives/input.js';
+import { Pencil } from './icons.js';
 import { Button } from './ui.js';
 import { useMountedRef } from './use-mounted-ref.js';
 import {
@@ -12,8 +13,6 @@ import {
 } from './user-question-prompt-state.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
-
-const OTHER_VALUE = '__other__';
 
 export function UserQuestionPrompt(props: {
   request: UserQuestionRequestEvent;
@@ -29,7 +28,6 @@ export function UserQuestionPrompt(props: {
   const responsePendingRef = useRef(false);
   const activeRequestIdRef = useRef(props.request.requestId);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
-  const otherInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useMountedRef();
 
   useEffect(() => {
@@ -48,9 +46,7 @@ export function UserQuestionPrompt(props: {
   const question = props.request.questions[questionIndex];
   if (!question) return null;
   const draft = drafts[questionIndex] ?? null;
-  const selectedValue = draft?.kind === 'option'
-    ? `option:${draft.optionIndex}`
-    : draft?.kind === 'other' ? OTHER_VALUE : '';
+  const selectedValue = draft?.kind === 'option' ? `option:${draft.optionIndex}` : '';
   const interactionDisabled = Boolean(props.stopPending) || responsePending;
   const canContinue = canLeaveQuestion(draft) && !interactionDisabled;
   const isLast = questionIndex === props.request.questions.length - 1;
@@ -60,11 +56,6 @@ export function UserQuestionPrompt(props: {
   }
 
   function select(value: string) {
-    if (value === OTHER_VALUE) {
-      updateDraft(draft?.kind === 'other' ? draft : { kind: 'other', value: '' });
-      otherInputRef.current?.focus();
-      return;
-    }
     const optionIndex = Number(value.slice('option:'.length));
     updateDraft({ kind: 'option', optionIndex });
   }
@@ -120,30 +111,25 @@ export function UserQuestionPrompt(props: {
                 </span>
               </ChoiceCard>
             ))}
-            <ChoiceCard
-              className="maka-question-option maka-question-other-trigger"
-              value={OTHER_VALUE}
-              disabled={interactionDisabled}
-            >
-              <span className="maka-question-radio" aria-hidden="true" />
-              <span className="maka-question-option-copy">
-                <strong>{copy.other}</strong>
-              </span>
-            </ChoiceCard>
           </ChoiceCardGroup>
-          <Input
-            ref={otherInputRef}
-            unstyled
-            aria-label={copy.otherAriaLabel}
-            className="maka-question-other-input"
-            placeholder={copy.otherPlaceholder}
-            value={draft?.kind === 'other' ? draft.value : ''}
-            disabled={interactionDisabled}
-            onFocus={() => {
-              if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
-            }}
-            onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
-          />
+          <label
+            className="maka-question-other-field"
+            data-selected={draft?.kind === 'other' ? '' : undefined}
+          >
+            <Pencil className="maka-question-other-icon" aria-hidden="true" />
+            <Input
+              unstyled
+              aria-label={copy.otherAriaLabel}
+              className="maka-question-other-input"
+              placeholder={copy.otherPlaceholder}
+              value={draft?.kind === 'other' ? draft.value : ''}
+              disabled={interactionDisabled}
+              onFocus={() => {
+                if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
+              }}
+              onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
+            />
+          </label>
         </div>
 
         <footer className="permissionActions maka-question-actions">

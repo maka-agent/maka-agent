@@ -33,9 +33,8 @@
 }
 
 .maka-question-options {
-  --maka-question-other-label-width: clamp(8rem, 24%, 12rem);
-  position: relative;
   display: grid;
+  gap: var(--space-1-5);
 }
 
 .maka-question-choice-group {
@@ -111,30 +110,53 @@
   line-height: var(--leading-normal);
 }
 
-.maka-question-other-trigger {
+.maka-question-other-field {
+  width: 100%;
   min-height: 44px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2-5);
+  cursor: text;
+  border: var(--border-width-hairline) solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--background);
+  transition:
+    background var(--duration-quick) var(--ease-out-strong),
+    border-color var(--duration-quick) var(--ease-out-strong),
+    box-shadow var(--duration-quick) var(--ease-out-strong);
 }
 
-.maka-question-options:not(:has(.maka-question-other-trigger[data-checked])):has(.maka-question-other-input:hover)
-  .maka-question-other-trigger {
+.maka-question-other-field:hover {
   background: var(--state-hover-bg);
 }
 
-.maka-question-options:has(.maka-question-other-input:focus-visible) .maka-question-other-trigger {
+.maka-question-other-field[data-selected] {
+  border-color: var(--ring);
+  background: var(--state-selected-bg);
+  box-shadow: 0 0 0 1px var(--foreground-alpha-10);
+}
+
+.maka-question-other-field:focus-within {
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
+.maka-question-other-field:has(.maka-question-other-input:disabled) {
+  cursor: not-allowed;
+  opacity: var(--opacity-disabled);
+}
+
+.maka-question-other-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--foreground-secondary);
+}
+
 .maka-question-other-input {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: var(--maka-question-other-label-width);
-  width: auto;
-  height: 44px;
+  width: 100%;
   min-width: 0;
-  box-sizing: border-box;
-  padding: var(--space-2) var(--space-2-5) var(--space-2) 0;
   color: var(--foreground);
   font-size: var(--font-size-ui);
   line-height: var(--leading-snug);
