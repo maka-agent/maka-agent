@@ -8,7 +8,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { expect } from '../test-helpers.js';
 import type { RuntimeEvent, RuntimeEventContent } from '@maka/core/runtime-event';
-import type { HistoryCompactSummaryInput } from '../ai-sdk-backend.js';
+import type { HistoryCompactSummaryInput } from '../ai-sdk-compaction-contract.js';
 import {
   buildLlmHistorySummarizer,
   type AiSdkGenerateTextLike,

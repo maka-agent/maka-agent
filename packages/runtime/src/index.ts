@@ -215,6 +215,8 @@ export type {
   ModelFactoryInput,
   RunTraceEvent,
   RunTraceRecorder,
+} from './ai-sdk-backend.js';
+export type {
   HistoryCompactLoader,
   HistoryCompactLoadInput,
   HistoryCompactLoadResult,
@@ -234,7 +236,7 @@ export type {
   ToolResultArchiveRecorder,
   ToolResultArchiveRecorderInput,
   SemanticCompactBlockRecorder,
-} from './ai-sdk-backend.js';
+} from './ai-sdk-compaction-contract.js';
 export { PiAgentBackend, normalizePiAgentFrame } from './pi-agent-backend.js';
 export type {
   PiAgentBackendInput,

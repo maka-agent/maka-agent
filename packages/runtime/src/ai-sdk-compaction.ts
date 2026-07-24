@@ -17,7 +17,7 @@ import type {
 } from '@maka/core/backend-types';
 import type { ContextBudgetDiagnostic, LlmCallRecord } from '@maka/core/usage-stats/types';
 
-import type { AiSdkBackendInput } from './ai-sdk-backend.js';
+import type { AiSdkCompactionCapabilities } from './ai-sdk-compaction-contract.js';
 import {
   compactionDecisionDiagnosticPatch,
   historyCompactBlockToCompactionBoundary,
@@ -95,7 +95,7 @@ import { resolveSelectedModelContextWindow } from './context-budget-policy.js';
 
 /** Constructor dependencies for AiSdkCompaction. */
 export interface AiSdkCompactionDeps {
-  input: AiSdkBackendInput;
+  input: AiSdkCompactionCapabilities;
   sessionId: string;
   now: () => number;
   modelAdapter: ModelAdapter;
@@ -109,7 +109,7 @@ export interface AiSdkCompactionDeps {
 }
 
 export class AiSdkCompaction {
-  private readonly input: AiSdkBackendInput;
+  private readonly input: AiSdkCompactionCapabilities;
   private readonly sessionId: string;
   private readonly now: () => number;
   private readonly modelAdapter: ModelAdapter;

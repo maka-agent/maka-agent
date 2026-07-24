@@ -17,7 +17,7 @@ const STREAM_PARTS: LanguageModelV4StreamPart[] = [
 ];
 
 import { ModelAdapter } from '../model-adapter.js';
-import type { ModelToolSet } from '../model-protocol.js';
+import type { ModelStreamEvent, ModelToolSet } from '../model-protocol.js';
 import { canonicalizeToolSet } from '../request-shape.js';
 import type { MakaTool } from '../tool-runtime.js';
 
@@ -153,7 +153,17 @@ describe('ModelAdapter provider-step boundary', () => {
     assert.equal(providerCalls, 1);
   });
 
-  test('tools cross the AI SDK boundary as schemas without executable behavior', async () => {
+  test('returns provider tool calls without executing tool behavior inside the SDK', async () => {
+    let executeCalls = 0;
+    const toolsWithExecutableBehavior = {
+      Read: {
+        inputSchema: z.object({ q: z.string() }),
+        execute: async () => {
+          executeCalls += 1;
+          return { leaked: true };
+        },
+      },
+    };
     const model = new MockLanguageModelV4({
       doStream: {
         stream: convertArrayToReadableStream<LanguageModelV4StreamPart>([
@@ -175,20 +185,26 @@ describe('ModelAdapter provider-step boundary', () => {
     const result = await newAdapter().startStream({
       model,
       messages: [{ role: 'user', content: 'read it' }],
-      tools: {
-        Read: {
-          inputSchema: z.object({ q: z.string() }),
-        },
-      },
+      tools: toolsWithExecutableBehavior,
       activeTools: ['Read'],
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
 
-    for await (const _event of result.events) {
-      void _event;
-    }
+    const events: ModelStreamEvent[] = [];
+    for await (const event of result.events) events.push(event);
 
-    assert.equal(model.doStreamCalls.length, 1);
+    assert.deepEqual(
+      events.filter((event) => event.kind === 'tool-call').map((event) => event.toolCall),
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'tool-1',
+          toolName: 'Read',
+          input: { q: 'README.md' },
+        },
+      ],
+    );
+    assert.equal(executeCalls, 0, 'ModelAdapter must strip executable behavior before streamText');
   });
 });

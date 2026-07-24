@@ -1,7 +1,7 @@
 import type { ModelMessage } from './model-protocol.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { toolResultOutput } from './tool-result-output.js';
-import type { HistoryCompactSummaryInput } from './ai-sdk-backend.js';
+import type { HistoryCompactSummaryInput } from './ai-sdk-compaction-contract.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
 
 export { HistoryCompactSummarizerError } from './history-compact-error.js';

@@ -54,7 +54,6 @@ import type {
   PermissionDecision,
 } from '@maka/core/backend-types';
 import type { AgentSpec } from '@maka/core/runtime-inputs';
-import type { LlmConnection } from '@maka/core/llm-connections';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import type { UserQuestionResponse } from '@maka/core/user-question';
@@ -110,27 +109,20 @@ import type { RuntimeCommitSink } from './runtime-commit-sink.js';
 import type { SubagentExecutionRef } from './subagent-execution.js';
 import {
   ModelAdapter,
-  type ModelFactory,
   type ModelFactoryInput,
   type NormalizedAiSdkUsage,
   type ModelStreamResult,
   type RepairableAiSdkToolCall,
 } from './model-adapter.js';
-import type {
-  RequestProjection,
-  RequestProjectionContext,
-  RequestProjectionStage,
-} from './request-projection.js';
-import type {
-  ActiveToolResultArchiveCandidate,
-  ActiveToolResultPruneDiagnosticPatch,
-} from './active-tool-result-prune.js';
-import { toolResultOutput } from './tool-result-output.js';
 import {
-  buildActiveCompactionHeadAnchor,
-  type ActiveFullCompactBlock,
-} from './active-full-compact.js';
-import type { SemanticCompactBlock } from './semantic-compact.js';
+  composeRequestProjection,
+  type RequestProjection,
+  type RequestProjectionContext,
+  type RequestProjectionStage,
+} from './request-projection.js';
+import type { ActiveToolResultPruneDiagnosticPatch } from './active-tool-result-prune.js';
+import { toolResultOutput } from './tool-result-output.js';
+import { buildActiveCompactionHeadAnchor } from './active-full-compact.js';
 import { compactionDecisionDiagnosticPatch } from './compaction-boundary.js';
 import {
   AiSdkCompaction,
@@ -138,6 +130,7 @@ import {
   hasActiveToolResultPruneDiagnosticPatch,
   hasBlockingReplayDiagnostics,
 } from './ai-sdk-compaction.js';
+import type { AiSdkCompactionCapabilities } from './ai-sdk-compaction-contract.js';
 import type { ToolArtifactRecorder } from './tool-artifacts.js';
 import { RunTrace, type RunTraceRecorder } from './run-trace.js';
 import {
@@ -192,11 +185,6 @@ import {
   shouldAppendContextCompactedNote,
   shouldAppendContextCompactionFailedOpenNote,
   type ContextBudgetPolicy,
-  type HistoryCompactBlock,
-  type StaleToolResultArchiveCandidate,
-  type SynthesisCacheBlock,
-  type SynthesisSourceRef,
-  type ArchiveRetrievalMode,
   type ToolResultArchiveReader,
 } from './context-budget.js';
 import {
@@ -234,57 +222,6 @@ export type {
 } from '@maka/core/backend-types';
 
 export const INVALID_TOOL_NAME = 'invalid';
-
-/**
- * Deterministic request-projection pipeline over ONE provider-visible request.
- * Order is a contract: mid-turn capacity compaction runs first among the
- * message-shaping hooks so every later mechanism operates on (and re-converges
- * onto) its projection — active tool-result pruning re-archives large tool
- * results in the rebuilt tail, and semantic/active-full compaction sees the
- * already-compacted messages. On a step where the capacity hook replaced the
- * request, semantic/active-full compaction yields (see send()) so two
- * summarizers never run for one step.
- *
- * Every hook here only SHAPES the projection. The pass/terminate capacity
- * verdict is issued once, after the whole pipeline, by the final-request
- * estimate owner (buildMidTurnFinalRequestVerdict) over the actual outgoing
- * (messages, tools) payload — never by an individual hook over an intermediate
- * projection that a later hook could still rescue.
- */
-export function composeRequestProjection(
-  toolAvailability: RequestProjectionStage | undefined,
-  midTurnCapacityCompact: RequestProjectionStage | undefined,
-  activeToolResultPrune: RequestProjectionStage | undefined,
-  activeFullCompact?: RequestProjectionStage | undefined,
-): RequestProjectionStage | undefined {
-  const hooks = [
-    toolAvailability,
-    midTurnCapacityCompact,
-    activeToolResultPrune,
-    activeFullCompact,
-  ].filter(Boolean) as RequestProjectionStage[];
-  if (hooks.length === 0) return undefined;
-  return async (context: RequestProjectionContext): Promise<RequestProjection | undefined> => {
-    let result: RequestProjection | undefined;
-    let messages = context.messages;
-    for (const hook of hooks) {
-      const hookOptions = {
-        ...context,
-        messages,
-        ...(result?.activeTools ? { activeTools: result.activeTools } : {}),
-      } as RequestProjectionContext;
-      const hookResult = await Promise.resolve(hook(hookOptions));
-      if (!hookResult) continue;
-      result = {
-        ...(result ?? {}),
-        ...hookResult,
-        activeTools: hookResult.activeTools ?? result?.activeTools,
-      };
-      if (hookResult.messages) messages = hookResult.messages;
-    }
-    return result;
-  };
-}
 
 function joinPromptFragments(fragments: readonly (string | undefined)[]): string | undefined {
   const joined = fragments
@@ -329,142 +266,42 @@ function formatSandboxCapability(capability: SandboxDiagnosticCapability): strin
  * Allows callers to inject a custom queueing/buffering strategy if needed.
  */
 export type AppendMessageFn = (m: StoredMessage) => Promise<void>;
-export type LlmTelemetryRecorder = (record: LlmCallRecord) => void;
 export type ToolTelemetryRecorder = (record: ToolInvocationRecord) => void;
-export type ToolResultArchiveRecorderInput = (
-  | StaleToolResultArchiveCandidate
-  | (ActiveToolResultArchiveCandidate & { runtimeEventId: string })
-) & {
-  sessionId: string;
-  bodySha256: string;
-};
-export type ToolResultArchiveRecorder = (
-  input: ToolResultArchiveRecorderInput,
-) => Promise<{ artifactId: string } | void> | { artifactId: string } | void;
-export interface SynthesisCacheLoadInput {
-  sessionId: string;
-  maxBlocks?: number;
-  maxBytes?: number;
-  maxEstimatedTokens?: number;
-}
-export interface SynthesisCacheLoadResult {
-  blocks: SynthesisCacheBlock[];
-  skipped?: number;
-  skippedReasonCounts?: Record<string, number>;
-  evicted?: number;
-  evictionReasonCounts?: Record<string, number>;
-}
-export interface SynthesisCacheWriteInput {
-  sessionId: string;
-  turnId: string;
-  source: {
-    createdFrom: 'gated_archive_retrieval' | 'eager_archive_retrieval';
-    query: string;
-    hydratedRuntimeEvents: RuntimeEvent[];
-    retrievedArchiveRefs: SynthesisSourceRef[];
-    archiveRetrievalMode: ArchiveRetrievalMode;
-  };
-  limits: {
-    maxBlocks: number;
-    maxBlockEstimatedTokens: number;
-    maxEstimatedTokens: number;
-    charsPerToken: number;
-  };
-  requestShapeHashBefore?: string;
-  requestShapeHashAfter?: string;
-}
-export interface SynthesisCacheWriteResult {
-  blocks: SynthesisCacheBlock[];
-  skipped?: number;
-  skippedReasonCounts?: Record<string, number>;
-}
-export type SynthesisCacheLoader = (
-  input: SynthesisCacheLoadInput,
-) => Promise<SynthesisCacheLoadResult> | SynthesisCacheLoadResult;
-export type SynthesisCacheWriter = (
-  input: SynthesisCacheWriteInput,
-) => Promise<SynthesisCacheWriteResult | void> | SynthesisCacheWriteResult | void;
-export interface HistoryCompactLoadInput {
-  sessionId: string;
-  maxBlocks?: number;
-  maxBytes?: number;
-  maxEstimatedTokens?: number;
-}
-export interface HistoryCompactLoadResult {
-  blocks: HistoryCompactBlock[];
-  skipped?: number;
-  skippedReasonCounts?: Record<string, number>;
-}
-export interface HistoryCompactWriteInput {
-  sessionId: string;
-  turnId: string;
-  source: {
-    draftBlock: HistoryCompactBlock;
-    foldedRuntimeEvents: RuntimeEvent[];
-  };
-  limits: {
-    maxBlocks: number;
-    maxBlockEstimatedTokens: number;
-    maxEstimatedTokens: number;
-    charsPerToken: number;
-  };
-  requestShapeHashBefore?: string;
-  requestShapeHashAfter?: string;
-  abortSignal?: AbortSignal;
-}
-export interface HistoryCompactWriteResult {
-  blocks: HistoryCompactBlock[];
-  skipped?: number;
-  skippedReasonCounts?: Record<string, number>;
-}
-export type HistoryCompactLoader = (
-  input: HistoryCompactLoadInput,
-) => Promise<HistoryCompactLoadResult> | HistoryCompactLoadResult;
-export type HistoryCompactWriter = (
-  input: HistoryCompactWriteInput,
-) => Promise<HistoryCompactWriteResult | void> | HistoryCompactWriteResult | void;
-export interface HistoryCompactSummaryInput {
-  sessionId: string;
-  turnId: string;
-  source: { foldedRuntimeEvents: RuntimeEvent[] };
-  previousCheckpoint?: HistoryCompactCheckpoint;
-  newlyFoldedRuntimeEvents?: RuntimeEvent[];
-  requestShapeHashBefore?: string;
-  abortSignal?: AbortSignal;
-}
-export type HistoryCompactSummarizer = (
-  input: HistoryCompactSummaryInput,
-) => Promise<string | undefined> | string | undefined;
-export type HistoryCompactCheckpointLoader = () =>
-  | Promise<HistoryCompactCheckpoint | undefined>
-  | HistoryCompactCheckpoint
-  | undefined;
-export type HistoryCompactCheckpointRecorder = (
-  checkpoint: HistoryCompactCheckpoint,
-  turnId: string,
-) => void | Promise<void>;
-export type ActiveFullCompactBlockRecorder = (
-  block: ActiveFullCompactBlock,
-) => void | Promise<void>;
-export type SemanticCompactBlockRecorder = (block: SemanticCompactBlock) => void | Promise<void>;
+export type {
+  ActiveFullCompactBlockRecorder,
+  HistoryCompactCheckpointLoader,
+  HistoryCompactCheckpointRecorder,
+  HistoryCompactLoader,
+  HistoryCompactLoadInput,
+  HistoryCompactLoadResult,
+  HistoryCompactSummarizer,
+  HistoryCompactSummaryInput,
+  HistoryCompactWriter,
+  HistoryCompactWriteInput,
+  HistoryCompactWriteResult,
+  LlmTelemetryRecorder,
+  SemanticCompactBlockRecorder,
+  SynthesisCacheLoader,
+  SynthesisCacheLoadInput,
+  SynthesisCacheLoadResult,
+  SynthesisCacheWriter,
+  SynthesisCacheWriteInput,
+  SynthesisCacheWriteResult,
+  ToolResultArchiveRecorder,
+  ToolResultArchiveRecorderInput,
+} from './ai-sdk-compaction-contract.js';
 
-export interface AiSdkBackendInput {
+export interface AiSdkBackendInput extends AiSdkCompactionCapabilities {
   // ── Session context ────────────────────────────────────────────────────
   sessionId: string;
   header: SessionHeader;
   /** Append-message function bound to this session (e.g. SessionStore wrapper). */
   appendMessage: AppendMessageFn;
 
-  // ── Provider / model resolution (resolved by BackendRegistry) ──────────
-  connection: LlmConnection;
-  apiKey: string;
-  modelId: string;
-
   // ── Process-singleton deps ─────────────────────────────────────────────
   permissionEngine: PermissionEngine;
   /** Optional override for execute-mode automatic permission review. */
   autoApprovalReviewer?: AutoApprovalReviewer;
-  modelFactory: ModelFactory;
   /** Canonical-named tools available this session. Backend wraps each with
    *  permission gating before passing to ai-sdk. */
   tools: MakaTool[];
@@ -520,10 +357,7 @@ export interface AiSdkBackendInput {
   shellRunContextSummary?: () => string | undefined | Promise<string | undefined>;
   /** Provider-native options passed through to ai-sdk. */
   providerOptions?: Record<string, unknown>;
-  /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
-  contextBudget?: ContextBudgetPolicy;
-  /** Optional fire-and-forget telemetry hooks. Tool implementations remain unaware. */
-  recordLlmCall?: LlmTelemetryRecorder;
+  /** Optional fire-and-forget telemetry hook. Tool implementations remain unaware. */
   recordToolInvocation?: ToolTelemetryRecorder;
   /** Optional Phase 2 SQLite T1/T2 boundary for real tool execution. */
   runtimeCommitSink?: RuntimeCommitSink;
@@ -594,50 +428,11 @@ export interface AiSdkBackendInput {
   supportsVision?: boolean;
   maxProviderImageRequestBytes?: number;
   /**
-   * Optional archive writer for replay-only stale tool-result pruning. The
-   * runtime rewrites only candidates whose original body has been durably
-   * archived by this callback.
-   */
-  archiveToolResult?: ToolResultArchiveRecorder;
-  /**
    * Optional archive reader for replay-only stale tool-result retrieval. The
    * runtime never mutates persisted RuntimeEvents; successful reads hydrate
    * the current model request only.
    */
   readToolResultArchive?: ToolResultArchiveReader;
-  /** Optional best-effort source-bearing synthesis cache loader. */
-  loadSynthesisCache?: SynthesisCacheLoader;
-  /** Optional best-effort source-bearing synthesis cache writer. */
-  writeSynthesisCache?: SynthesisCacheWriter;
-  /** Optional best-effort source-bearing history compact block loader. */
-  loadHistoryCompact?: HistoryCompactLoader;
-  /** Optional best-effort source-bearing history compact block writer/summarizer. */
-  writeHistoryCompact?: HistoryCompactWriter;
-  /** Preferred bounded V2 checkpoint loader. Legacy artifact blocks remain a read-only fallback. */
-  loadHistoryCompactCheckpoint?: HistoryCompactCheckpointLoader;
-  /** Produces a checkpoint summary from the prior summary plus newly evicted RuntimeEvents. */
-  summarizeHistoryCompact?: HistoryCompactSummarizer;
-  /** Best-effort durable recorder for accepted V2 checkpoints. */
-  recordHistoryCompactCheckpoint?: HistoryCompactCheckpointRecorder;
-  /**
-   * Durable read of the given turn's persisted RuntimeEvents from the
-   * authoritative run ledger (same injection seam as the checkpoint
-   * loader/recorder). Mid-turn capacity compaction derives its coverage pool
-   * from this read: covered events are persisted by construction before the
-   * checkpoint that folds them, and their bytes are exactly what recovery
-   * replays. A lagging read is NOT fail-safe here — the replacement
-   * projection replaces the whole message list, so a missing completed-step
-   * event would be silently dropped from the next request; the capacity hook
-   * therefore reads only after its seq-ack durability boundary (all enqueued
-   * session events processed by the consumer) is satisfied.
-   */
-  loadTurnRuntimeEvents?: (turnId: string) => Promise<RuntimeEvent[]>;
-  /** Explicit capability for folding current-run events into session-scoped history. */
-  allowMidTurnHistoryCompaction?: boolean;
-  /** Optional best-effort durable recorder for accepted active full compact blocks. */
-  recordActiveFullCompactBlock?: ActiveFullCompactBlockRecorder;
-  /** Optional best-effort durable recorder for accepted semantic compact blocks. */
-  recordSemanticCompactBlock?: SemanticCompactBlockRecorder;
 }
 
 export interface SystemPromptContext {

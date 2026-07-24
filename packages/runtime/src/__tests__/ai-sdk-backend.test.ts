@@ -2271,12 +2271,14 @@ describe('AiSdkBackend model history', () => {
       now: monotonicClock(),
     });
 
+    const emitted: SessionEvent[] = [];
     for await (const event of backend.send({
       turnId: 'turn-1',
       text: 'run both tools',
       context: [],
       headAnchorRuntimeEvent: anchor,
     })) {
+      emitted.push(event);
       const mapped = mapSessionEventToRuntimeEvent(event, mappingContext, mappingMemory);
       if (mapped.partial !== true && mapped.content?.kind !== 'error') ledger.push(mapped);
     }
@@ -2309,6 +2311,39 @@ describe('AiSdkBackend model history', () => {
     const toolResults = JSON.stringify(nextPrompt.filter((message) => message.role === 'tool'));
     assert.match(toolResults, /"ok"/);
     assert.match(toolResults, /tool failed/i);
+    assert.deepEqual(
+      ledger
+        .filter((event) => event.content?.kind === 'function_response')
+        .map((event) => {
+          assert.equal(event.content?.kind, 'function_response');
+          return {
+            id: event.content.id,
+            isError: event.content.isError === true,
+          };
+        }),
+      [
+        { id: 'call-success', isError: false },
+        { id: 'call-failure', isError: true },
+      ],
+    );
+    assert.ok(
+      emitted.some((event) => event.type === 'text_complete' && event.text === 'Done.'),
+      'the terminal provider step emits its final assistant text',
+    );
+    assert.ok(
+      ledger.some(
+        (event) =>
+          event.partial !== true &&
+          event.role === 'model' &&
+          event.content?.kind === 'text' &&
+          event.content.text === 'Done.',
+      ),
+      'the terminal assistant text becomes a durable RuntimeEvent fact',
+    );
+    const complete = emitted.find(
+      (event): event is Extract<SessionEvent, { type: 'complete' }> => event.type === 'complete',
+    );
+    assert.equal(complete?.stopReason, 'end_turn');
   });
 
   test('does not read image bytes for a non-vision model', async () => {
@@ -10686,12 +10721,24 @@ describe('AiSdkBackend thinking persistence', () => {
     );
 
     // The reasoning block + text + Anthropic signature must reach the AI SDK
-    // request. This fails if signature forwarding regresses or replay degrades
-    // to text-only.
-    const prompt = JSON.stringify(compactPrompt(secondModel));
-    assert.match(prompt, /"type":"reasoning"/);
-    assert.match(prompt, /deep thought/);
-    assert.match(prompt, /sig-replay/);
+    // request in the same order emitted by the prior turn. This fails if
+    // signature forwarding regresses, text disappears, or replay degrades to
+    // an unstructured transcript.
+    const prompt = compactPrompt(secondModel) as ModelMessage[];
+    const replayedAssistant = prompt.find(
+      (message) => message.role === 'assistant' && Array.isArray(message.content),
+    );
+    assert.ok(replayedAssistant && Array.isArray(replayedAssistant.content));
+    assert.deepEqual(
+      replayedAssistant.content.map((part) => part.type),
+      ['reasoning', 'text'],
+    );
+    const [reasoningPart, textPart] = replayedAssistant.content;
+    assert.equal(reasoningPart?.type, 'reasoning');
+    assert.equal(reasoningPart.text, 'deep thought');
+    assert.match(JSON.stringify(reasoningPart.providerOptions), /sig-replay/);
+    assert.equal(textPart?.type, 'text');
+    assert.equal(textPart.text, 'the answer');
   });
 
   test('signed thinking from a per-step tool-calling turn IS replayed, merged with its tool call', async () => {

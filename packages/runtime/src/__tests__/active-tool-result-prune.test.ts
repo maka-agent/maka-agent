@@ -7,7 +7,7 @@ import {
   activeToolResultLineageIdentity,
   rewriteActiveToolResultsInMessages,
 } from '../active-tool-result-prune.js';
-import { composeRequestProjection } from '../ai-sdk-backend.js';
+import { composeRequestProjection } from '../request-projection.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
