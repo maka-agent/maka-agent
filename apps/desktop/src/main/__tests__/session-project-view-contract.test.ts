@@ -86,6 +86,16 @@ describe('sidebar project view mode', () => {
     );
   });
 
+  it('keeps module-selected conversation controls out of the flexible list track', async () => {
+    const css = await readRepo('apps/desktop/src/renderer/styles/sidebar.css');
+
+    assert.doesNotMatch(
+      css,
+      /\.maka-session-panel\[data-content="module"\]\s*\{[^}]*grid-template-rows:/s,
+      'module selection must not replace the shared five-row sidebar grid',
+    );
+  });
+
   it('renders project groups as folder headers with an initial four-session preview', () => {
     const sessions = Array.from({ length: 5 }, (_, index) => makeSessionSummary({
       id: `project-session-${index + 1}`,

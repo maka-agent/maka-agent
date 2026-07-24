@@ -31,13 +31,11 @@ describe('sidebar module hubs contract', () => {
     assert.doesNotMatch(shell, /navSelection\.section === '(?:skills|mcp|daily-review)'/);
   });
 
-  it('hides only session grouping on module pages and preserves history', async () => {
+  it('keeps conversation grouping and history visible on module pages', async () => {
     const source = await readSource('packages/ui/src/session-list-panel.tsx');
 
-    assert.match(source, /showSessionNavigation\s*=\s*props\.selection\.section\s*===\s*'sessions'/);
-    assert.match(source, /showSessionNavigation\s*&&\s*onViewModeChange/);
+    assert.match(source, /\{onViewModeChange\s*&&\s*\(/);
     assert.match(source, /<SessionHistoryList/);
-    assert.doesNotMatch(source, /showSessionNavigation\s*\?\s*\(\s*<SessionHistoryList/s);
-    assert.match(source, /data-content=\{showSessionNavigation\s*\?\s*'sessions'\s*:\s*'module'\}/);
+    assert.doesNotMatch(source, /showSessionNavigation|data-content=/);
   });
 });

@@ -326,6 +326,24 @@ export const StatusGroups: Story = {
   ),
 };
 
+export const ExtensionSelected: Story = {
+  render: () => (
+    <StoryFrame>
+      <SessionListPanel
+        {...panelProps({
+          sessions: coreSessions,
+          activeId: 'session-active',
+          streamingSessionIds: new Set(['session-running']),
+          staleSessionIds: new Set(['session-stale']),
+        })}
+        selection={{ section: 'extensions', module: 'skills' }}
+        viewMode="status"
+        onViewModeChange={noop}
+      />
+    </StoryFrame>
+  ),
+};
+
 export const RowActions: Story = {
   render: () => (
     <StoryFrame focusActiveRow>

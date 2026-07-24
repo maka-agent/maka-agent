@@ -35,14 +35,12 @@ export function SessionListPanel(props: {
     onViewModeChange,
     statusGroups,
   } = props;
-  const showSessionNavigation = props.selection.section === 'sessions';
 
   return (
     <aside
       className="maka-session-panel agents-sidebar"
       aria-label={copy.listAriaLabel}
       data-collapsed={props.sidebarCollapsed ? 'true' : undefined}
-      data-content={showSessionNavigation ? 'sessions' : 'module'}
     >
       <header className="maka-session-panel-header">
         <div className="maka-sidebar-drag-strip" />
@@ -54,7 +52,7 @@ export function SessionListPanel(props: {
         onSelect={props.onSelect}
         onNew={props.onNew}
       />
-      {showSessionNavigation && onViewModeChange && (
+      {onViewModeChange && (
         <div className="maka-session-list-toolbar">
           <span className="maka-session-list-heading">{copy.title}</span>
           <Menu>

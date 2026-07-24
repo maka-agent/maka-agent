@@ -20,10 +20,6 @@
   grid-template-rows: auto auto minmax(0, 1fr) auto;
 }
 
-.maka-session-panel[data-content="module"] {
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-}
-
 .maka-session-panel-header {
   display: grid;
   gap: var(--space-1);
