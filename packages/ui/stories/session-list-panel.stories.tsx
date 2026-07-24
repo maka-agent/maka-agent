@@ -16,7 +16,6 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 type SessionListPanelProps = Parameters<typeof SessionListPanel>[0];
-type StatusGroup = NonNullable<SessionListPanelProps['statusGroups']>[number];
 
 const noop = () => undefined;
 
@@ -63,7 +62,6 @@ const rowActions: NonNullable<SessionListPanelProps['rowActions']> = {
 function panelProps(input: {
   sessions: SessionSummary[];
   activeId?: string;
-  statusGroups?: StatusGroup[];
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
   sidebarCollapsed?: boolean;
@@ -72,7 +70,6 @@ function panelProps(input: {
     selection: { section: 'sessions', filter: 'chats' },
     sessions: input.sessions,
     ...(input.activeId ? { activeId: input.activeId } : {}),
-    ...(input.statusGroups ? { statusGroups: input.statusGroups } : {}),
     ...(input.streamingSessionIds ? { streamingSessionIds: input.streamingSessionIds } : {}),
     ...(input.staleSessionIds ? { staleSessionIds: input.staleSessionIds } : {}),
     ...(input.sidebarCollapsed ? { sidebarCollapsed: input.sidebarCollapsed } : {}),
@@ -80,6 +77,8 @@ function panelProps(input: {
     onSelect: noop,
     onOpenSettings: noop,
     onNew: noop,
+    viewMode: 'conversation',
+    onViewModeChange: noop,
     rowActions,
   };
 }
@@ -203,58 +202,6 @@ const statusSessions = [
   }),
 ];
 
-const statusGroups: StatusGroup[] = [
-  {
-    id: 'running',
-    label: '进行中',
-    sessions: statusSessions.filter((session) => session.status === 'running'),
-    collapsible: false,
-    defaultExpanded: true,
-  },
-  {
-    id: 'waiting_for_user',
-    label: '等待你',
-    sessions: statusSessions.filter((session) => session.status === 'waiting_for_user'),
-    collapsible: false,
-    defaultExpanded: true,
-  },
-  {
-    id: 'blocked',
-    label: '需要处理',
-    sessions: statusSessions.filter((session) => session.status === 'blocked'),
-    collapsible: false,
-    defaultExpanded: true,
-  },
-  {
-    id: 'review',
-    label: '待审核',
-    sessions: statusSessions.filter((session) => session.status === 'review'),
-    collapsible: false,
-    defaultExpanded: true,
-  },
-  {
-    id: 'done',
-    label: '已完成',
-    sessions: statusSessions.filter((session) => session.status === 'done'),
-    collapsible: false,
-    defaultExpanded: true,
-  },
-  {
-    id: 'archived',
-    label: '归档',
-    sessions: statusSessions.filter((session) => session.status === 'archived'),
-    collapsible: true,
-    defaultExpanded: false,
-  },
-  {
-    id: 'aborted',
-    label: '已中止',
-    sessions: statusSessions.filter((session) => session.status === 'aborted'),
-    collapsible: true,
-    defaultExpanded: false,
-  },
-];
-
 const longListSessions = Array.from({ length: 36 }, (_, index) => makeSession({
   id: `long-list-${index + 1}`,
   name: `${index % 6 === 0 ? '已置顶 ' : ''}会话 ${String(index + 1).padStart(2, '0')} · ${
@@ -312,13 +259,12 @@ export const LongList: Story = {
   ),
 };
 
-export const StatusGroups: Story = {
+export const ConversationStates: Story = {
   render: () => (
     <StoryFrame>
       <SessionListPanel {...panelProps({
         sessions: statusSessions,
         activeId: 'status-waiting',
-        statusGroups,
         streamingSessionIds: new Set(['status-running']),
         staleSessionIds: new Set(['status-blocked']),
       })} />
@@ -337,7 +283,7 @@ export const ExtensionSelected: Story = {
           staleSessionIds: new Set(['session-stale']),
         })}
         selection={{ section: 'extensions', module: 'skills' }}
-        viewMode="status"
+        viewMode="conversation"
         onViewModeChange={noop}
       />
     </StoryFrame>

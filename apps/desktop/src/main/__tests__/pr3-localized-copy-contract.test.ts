@@ -24,7 +24,6 @@ const PR3_PRESENTATION_FILES = [
   'apps/desktop/src/renderer/derive-turn-lineage-badges.ts',
   'apps/desktop/src/renderer/model-connection-errors.ts',
   'apps/desktop/src/renderer/session-health-notice.ts',
-  'apps/desktop/src/renderer/session-status-grouping.ts',
   'apps/desktop/src/renderer/session-status-presentation.ts',
   'apps/desktop/src/renderer/session-workbar.tsx',
   'apps/desktop/src/renderer/turn-footer-actions.ts',

@@ -106,7 +106,7 @@ describe('sidebar subtraction', () => {
         <SessionListPanel
           selection={{ section: 'sessions', filter: 'chats' }}
           sessions={[session]}
-          viewMode="status"
+          viewMode="conversation"
           onViewModeChange={() => {}}
           onSelectSession={() => {}}
           onSelect={() => {}}
@@ -128,7 +128,7 @@ describe('sidebar subtraction', () => {
         <SessionListPanel
           selection={{ section: 'extensions', module: 'skills' }}
           sessions={[]}
-          viewMode="status"
+          viewMode="conversation"
           onViewModeChange={() => {}}
           onSelectSession={() => {}}
           onSelect={() => {}}
@@ -140,5 +140,72 @@ describe('sidebar subtraction', () => {
 
     assert.match(markup, /class="maka-session-list-heading"[^>]*>会话</);
     assert.match(markup, /aria-label="会话分组方式"/);
+  });
+
+  it('renders a flat pinned and recent conversation list in recency order', () => {
+    const makeSession = (
+      session: Pick<SessionSummary, 'id' | 'name' | 'status' | 'isFlagged' | 'lastMessageAt'>,
+    ): SessionSummary => ({
+      ...session,
+      isArchived: false,
+      labels: [],
+      hasUnread: false,
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'anthropic-main',
+      connectionLocked: false,
+      model: 'claude-sonnet-4-5',
+      permissionMode: 'ask',
+    });
+    const sessions = [
+      makeSession({
+        id: 'recent-older',
+        name: '较早会话',
+        status: 'done',
+        isFlagged: false,
+        lastMessageAt: 100,
+      }),
+      makeSession({
+        id: 'pinned-older',
+        name: '较早置顶',
+        status: 'blocked',
+        isFlagged: true,
+        lastMessageAt: 200,
+      }),
+      makeSession({
+        id: 'recent-newer',
+        name: '最近会话',
+        status: 'active',
+        isFlagged: false,
+        lastMessageAt: 400,
+      }),
+      makeSession({
+        id: 'pinned-newer',
+        name: '最近置顶',
+        status: 'running',
+        isFlagged: true,
+        lastMessageAt: 300,
+      }),
+    ];
+    const markup = renderToStaticMarkup(
+      <LocaleProvider locale="zh">
+        <SessionListPanel
+          selection={{ section: 'sessions', filter: 'chats' }}
+          sessions={sessions}
+          viewMode="conversation"
+          onViewModeChange={() => {}}
+          onSelectSession={() => {}}
+          onSelect={() => {}}
+          onOpenSettings={() => {}}
+          onNew={() => {}}
+        />
+      </LocaleProvider>,
+    );
+
+    const groupLabels = [...markup.matchAll(/class="maka-list-group-label"[^>]*><span>([^<]+)<\/span>/g)]
+      .map((match) => match[1]);
+    assert.deepEqual(groupLabels, ['置顶', '最近']);
+    assert.ok(markup.indexOf('最近置顶') < markup.indexOf('较早置顶'));
+    assert.ok(markup.indexOf('最近会话') < markup.indexOf('较早会话'));
+    assert.doesNotMatch(markup, /maka-list-group-toggle|maka-list-group-count|aria-expanded=/);
   });
 });

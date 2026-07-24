@@ -154,14 +154,14 @@ describe('Storybook baseline contract', () => {
     for (const storyName of [
       'Empty',
       'LongList',
-      'StatusGroups',
+      'ConversationStates',
       'RowActions',
       'LongTitlesAndNarrow',
       'Collapsed',
     ]) {
       assert.match(src, new RegExp(`export const ${storyName}\\b`));
     }
-    assert.match(src, /statusGroups/);
+    assert.doesNotMatch(src, /StatusGroups|statusGroups/);
     assert.doesNotMatch(src, /app-shell/, 'Sidebar stories must not import the desktop app shell.');
   });
 

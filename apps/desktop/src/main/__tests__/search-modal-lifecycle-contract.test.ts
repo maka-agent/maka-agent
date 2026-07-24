@@ -467,11 +467,11 @@ describe('SearchModal lifecycle contract (PR-SIDEBAR-IA-0 Phase 3 P0 fixup)', ()
     assert.doesNotMatch(searchModal, /搜索暂时不可用，请稍后重试。/, 'Search modal fallback error should not read like a generic unavailable feature');
   });
 
-  it('session time buckets use product labels without unfinished-state wording', async () => {
+  it('sessions without messages stay in the flat recent list', async () => {
     const markup = renderSessionListPanel({ session: { lastMessageAt: undefined } });
 
-    assert.match(markup, /待发送/, 'Sessions with no messages should live in the concise pending-send bucket');
-    assert.doesNotMatch(markup, /尚未发送/, 'Session group labels should not read like unfinished implementation copy');
+    assert.match(markup, />最近</, 'Sessions without messages still belong to the recent conversation list');
+    assert.doesNotMatch(markup, /待发送|尚未发送/, 'The flat conversation list must not create an unfinished-state group');
   });
 });
 

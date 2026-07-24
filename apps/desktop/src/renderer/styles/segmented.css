@@ -1,7 +1,6 @@
 /* Segmented — chrome for the shared `Segmented` primitive (@maka/ui,
-   Base UI ToggleGroup). One home for every consumer: the sidebar
-   view-mode toggle (按状态 / 按项目), the daily-review range tabs
-   (今日 / 本周 / 本月), and the usage + appearance settings pages.
+   Base UI ToggleGroup). One home for every consumer: the daily-review
+   range tabs (今日 / 本周 / 本月), and the usage + appearance settings pages.
    Moved out of settings/bot.css, which cross-surface consumers could
    only reach by cascade accident under a settings-scoped name. */
 

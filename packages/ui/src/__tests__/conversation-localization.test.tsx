@@ -253,19 +253,11 @@ describe('localized conversation journey', () => {
     assert.doesNotMatch(en, /分钟|小时/);
   });
 
-  it('formats collapsed session-group counts with locale-correct punctuation', () => {
-    const group = (label: string) => ({
-      id: 'archived',
-      label,
-      sessions: [archivedSession],
-      collapsible: true,
-      defaultExpanded: false,
-    });
+  it('localizes the flat recent-conversation heading without disclosure chrome', () => {
     const zh = render(
       'zh',
       <SessionHistoryList
         sessions={[archivedSession]}
-        statusGroups={[group('已归档')]}
         onSelectSession={() => {}}
       />,
     );
@@ -273,14 +265,13 @@ describe('localized conversation journey', () => {
       'en',
       <SessionHistoryList
         sessions={[archivedSession]}
-        statusGroups={[group('Archived')]}
         onSelectSession={() => {}}
       />,
     );
 
-    assert.match(zh, /已归档[\s\S]*（1）/);
-    assert.match(en, /Archived[\s\S]*\(1\)/);
-    assert.doesNotMatch(en, /Archived[\s\S]*（1）/);
+    assert.match(zh, />最近</);
+    assert.match(en, />Recent</);
+    assert.doesNotMatch(`${zh}${en}`, /maka-list-group-toggle|maka-list-group-count|aria-expanded/);
   });
 
   it('localizes live tool activity without rewriting tool-owned text', () => {

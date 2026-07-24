@@ -7,19 +7,23 @@ async function expandedSidebar(page: Page) {
   return page.getByRole('complementary', { name: '对话列表' });
 }
 
-test('session grouping menu applies and retains the selected mode', async ({ window: page }) => {
+test('session grouping menu switches between flat conversations and project disclosures', async ({
+  sidebarLongSessionsWindow: page,
+}) => {
   const sidebar = await expandedSidebar(page);
   const grouping = sidebar.getByRole('button', { name: '会话分组方式' });
 
+  await expect(sidebar.getByText('最近', { exact: true })).toBeVisible();
   await grouping.click();
-  const byStatus = page.getByRole('menuitemradio', { name: '按状态' });
+  const byConversation = page.getByRole('menuitemradio', { name: '按会话' });
   const byProject = page.getByRole('menuitemradio', { name: '按项目' });
-  await expect(byStatus).toHaveAttribute('aria-checked', 'true');
+  await expect(byConversation).toHaveAttribute('aria-checked', 'true');
   await byProject.click();
+  await expect(sidebar.locator('.maka-list-project-heading').first()).toBeVisible();
 
   await grouping.click();
   await expect(page.getByRole('menuitemradio', { name: '按项目' })).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByRole('menuitemradio', { name: '按状态' })).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('menuitemradio', { name: '按会话' })).toHaveAttribute('aria-checked', 'false');
 });
 
 test('session heading stays singular and uses the shared sidebar type tier', async ({
@@ -27,14 +31,14 @@ test('session heading stays singular and uses the shared sidebar type tier', asy
 }) => {
   const sidebar = await expandedSidebar(page);
   const panelHeading = sidebar.locator('.maka-session-list-heading');
-  const activeGroupHeading = sidebar.getByText('可继续', { exact: true });
+  const recentGroupHeading = sidebar.getByText('最近', { exact: true });
   const navLabel = sidebar.locator('.maka-nav-row span:nth-child(2)').first();
 
   await expect(sidebar.getByText('会话', { exact: true })).toHaveCount(1);
-  await expect(activeGroupHeading).toBeVisible();
+  await expect(recentGroupHeading).toBeVisible();
 
   const fontSizes = await Promise.all(
-    [navLabel, panelHeading, activeGroupHeading].map((locator) =>
+    [navLabel, panelHeading, recentGroupHeading].map((locator) =>
       locator.evaluate((element) => getComputedStyle(element).fontSize),
     ),
   );
