@@ -63,6 +63,19 @@ export type {
   ProjectAgentGraphRecordsInput,
   ReadCommittedAgentGraphProjectionInput,
 } from './stream-graph-projection.js';
+export {
+  AGENT_GRAPH_TRACE_SCHEMA_VERSION,
+  buildAgentGraphTraceSnapshot,
+} from './stream-graph-trace.js';
+export type {
+  AgentGraphTraceEdge,
+  AgentGraphTraceEdgeState,
+  AgentGraphTraceOperatorState,
+  AgentGraphTraceRoute,
+  AgentGraphTraceSnapshot,
+  AgentGraphTraceTopology,
+  BuildAgentGraphTraceSnapshotInput,
+} from './stream-graph-trace.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
