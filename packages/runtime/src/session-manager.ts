@@ -63,6 +63,7 @@ import {
   SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION,
   SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION,
   childSessionsForParent,
+  decodeAgentGraphIntentClaim,
   failureClassFromCompleteStopReason,
   isDeepResearchSession,
   isPermissionModeWithinCeiling,
@@ -70,6 +71,8 @@ import {
   subagentSessionRuntimeSummary,
 } from '@maka/core';
 import type {
+  AgentGraphIntentClaim,
+  AgentGraphIntentClaimStore,
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
@@ -190,6 +193,41 @@ export interface SpawnChildSessionResult extends SpawnChildAgentResult {
   runId: string;
   profile: string;
 }
+
+export interface RunClaimedAgentGraphIntentInput {
+  claimStore: AgentGraphIntentClaimStore;
+  graphId: string;
+  intentId: string;
+  prompt: string;
+  abortSignal?: AbortSignal;
+  onReady?: (input: {
+    claimId: string;
+    graphId: string;
+    intentId: string;
+    operatorId: string;
+    childSessionId: string;
+    turnId: string;
+    runId: string;
+    agentId: string;
+    agentName: string;
+  }) => void | Promise<void>;
+  /** Presentation-only observer for the newly started runtime stream. */
+  onEvent?: (event: SessionEvent) => void;
+}
+
+export interface ClaimedAgentGraphIntentResult extends SpawnChildSessionResult {
+  claimId: string;
+  graphId: string;
+  intentId: string;
+  operatorId: string;
+}
+
+type ResolvedClaimedAgentGraphIntentInput = Omit<
+  RunClaimedAgentGraphIntentInput,
+  'claimStore' | 'graphId' | 'intentId'
+> & {
+  claim: AgentGraphIntentClaim;
+};
 
 export interface PrepareChildAgentResumeResult {
   sourceRunId: string;
@@ -495,6 +533,10 @@ export class SessionManager {
   private readonly childSessionSpawns = new Map<
     string,
     { requestFingerprint: string; promise: Promise<SpawnChildSessionResult> }
+  >();
+  private readonly claimedAgentGraphIntentRuns = new Map<
+    string,
+    { requestFingerprint: string; promise: Promise<ClaimedAgentGraphIntentResult> }
   >();
 
   constructor(private readonly deps: SessionManagerDeps) {
@@ -1345,6 +1387,243 @@ export class SessionManager {
       if (this.childSessionSpawns.get(spawnKey)?.promise === promise) {
         this.childSessionSpawns.delete(spawnKey);
       }
+    }
+  }
+
+  /**
+   * Execute one durably claimed graph intent through the existing
+   * session-inline child runtime primitive.
+   *
+   * The graph claim is admission authority only. Once its exact run identity
+   * exists, the AgentRun/RuntimeEvent ledgers are execution authority and a
+   * retry observes or recovers that run instead of invoking the backend again.
+   */
+  async runClaimedAgentGraphIntent(
+    input: RunClaimedAgentGraphIntentInput,
+  ): Promise<ClaimedAgentGraphIntentResult> {
+    const claim = await input.claimStore.readAgentGraphIntentClaim(input.graphId, input.intentId);
+    if (!claim) {
+      throw new Error(`Graph intent ${input.graphId}/${input.intentId} has not been claimed`);
+    }
+    decodeAgentGraphIntentClaim(claim);
+    if (claim.graphId !== input.graphId || claim.intentId !== input.intentId) {
+      throw new Error('Graph intent claim store returned a mismatched identity');
+    }
+    if (!input.prompt.trim()) {
+      throw new Error('Claimed graph intent prompt must not be empty');
+    }
+    const resolved: ResolvedClaimedAgentGraphIntentInput = {
+      claim,
+      prompt: input.prompt,
+      ...(input.abortSignal ? { abortSignal: input.abortSignal } : {}),
+      ...(input.onReady ? { onReady: input.onReady } : {}),
+      ...(input.onEvent ? { onEvent: input.onEvent } : {}),
+    };
+    const requestFingerprint = claimedAgentGraphIntentRequestFingerprint(resolved);
+    const inFlight = this.claimedAgentGraphIntentRuns.get(claim.claimId);
+    if (inFlight) {
+      if (inFlight.requestFingerprint !== requestFingerprint) {
+        throw new Error('Graph intent claim identity was reused for different execution input');
+      }
+      return await inFlight.promise;
+    }
+    const promise = this.runClaimedAgentGraphIntentOnce(resolved);
+    this.claimedAgentGraphIntentRuns.set(claim.claimId, {
+      requestFingerprint,
+      promise,
+    });
+    try {
+      return await promise;
+    } finally {
+      if (this.claimedAgentGraphIntentRuns.get(claim.claimId)?.promise === promise) {
+        this.claimedAgentGraphIntentRuns.delete(claim.claimId);
+      }
+    }
+  }
+
+  private async runClaimedAgentGraphIntentOnce(
+    input: ResolvedClaimedAgentGraphIntentInput,
+  ): Promise<ClaimedAgentGraphIntentResult> {
+    if (!this.deps.runStore || !this.deps.runtimeEventStore) {
+      throw new Error('Claimed graph execution requires AgentRunStore and RuntimeEventStore');
+    }
+    if (input.abortSignal?.aborted) {
+      throw new Error('Claimed graph execution was cancelled before runtime admission');
+    }
+
+    const { claim } = input;
+    const child = await this.deps.store.readHeader(claim.targetSessionId);
+    const snapshot = child.subagentRuntime;
+    if (
+      child.id !== claim.targetSessionId ||
+      child.subagentParent?.kind !== 'subagent' ||
+      !snapshot
+    ) {
+      throw new Error('Claimed graph execution target must be a linked child session');
+    }
+    const readyInfo = {
+      claimId: claim.claimId,
+      graphId: claim.graphId,
+      intentId: claim.intentId,
+      operatorId: claim.targetOperatorId,
+      childSessionId: child.id,
+      turnId: claim.targetTurnId,
+      runId: claim.targetRunId,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+    };
+    let readyNotification: Promise<void> | undefined;
+    const notifyReady = (): Promise<void> => {
+      readyNotification ??= Promise.resolve().then(() => input.onReady?.(readyInfo));
+      return readyNotification;
+    };
+
+    let run = await this.deps.runStore.readRun(child.id, claim.targetRunId).catch((error) => {
+      if (isNotFoundError(error)) return undefined;
+      throw error;
+    });
+    if (run) {
+      this.assertClaimedAgentGraphRun(child, snapshot, claim, run);
+      await this.assertClaimedAgentGraphPrompt(child.id, claim.targetTurnId, input.prompt);
+      await notifyReady();
+      while (
+        !isTerminalRunStatus(run.status) &&
+        this.runtimeKernel.hasActiveRun?.(child.id, run.runId, run.turnId)
+      ) {
+        await delay(25, undefined, input.abortSignal ? { signal: input.abortSignal } : undefined);
+        run = await this.deps.runStore.readRun(child.id, claim.targetRunId);
+      }
+      if (!isTerminalRunStatus(run.status)) {
+        await this.recoverAgentRunsFromLedger(child.id);
+        run = await this.deps.runStore.readRun(child.id, claim.targetRunId);
+      }
+      this.assertClaimedAgentGraphRun(child, snapshot, claim, run);
+      await this.assertClaimedAgentGraphPrompt(child.id, claim.targetTurnId, input.prompt);
+      return claimedAgentGraphIntentResult(claim, await this.projectExistingChildSpawn(child, run));
+    }
+
+    const [runs, messages] = await Promise.all([
+      this.deps.runStore.listSessionRuns(child.id),
+      this.deps.store.readMessages(child.id),
+    ]);
+    const turnOwner = runs.find((candidate) => candidate.turnId === claim.targetTurnId);
+    if (turnOwner) {
+      throw new Error(
+        `Claimed graph turn ${claim.targetTurnId} is already owned by run ${turnOwner.runId}`,
+      );
+    }
+    if (messages.some((message) => 'turnId' in message && message.turnId === claim.targetTurnId)) {
+      throw new Error(`Claimed graph turn ${claim.targetTurnId} already has durable messages`);
+    }
+    if (input.abortSignal?.aborted) {
+      throw new Error('Claimed graph execution was cancelled before runtime admission');
+    }
+
+    const startedAt = this.deps.now();
+    const summary = new ChildAgentSummaryAccumulator();
+    let aborted = false;
+    let stopPromise: Promise<void> | undefined;
+    const iterator = this.sendMessage(
+      child.id,
+      {
+        turnId: claim.targetTurnId,
+        text: input.prompt,
+        agentId: snapshot.agentId,
+        agentName: snapshot.agentName,
+      },
+      {
+        runId: claim.targetRunId,
+        durability: 'required',
+        onRunStarted: notifyReady,
+      },
+    )[Symbol.asyncIterator]();
+    const onAbort = () => {
+      aborted = true;
+      stopPromise ??= this.stopSession(child.id, { source: 'stop_button' });
+    };
+    if (input.abortSignal) {
+      input.abortSignal.addEventListener('abort', onAbort, { once: true });
+      if (input.abortSignal.aborted) onAbort();
+    }
+    try {
+      while (!aborted) {
+        const next = await iterator.next();
+        if (next.done) break;
+        summary.add(next.value);
+        try {
+          input.onEvent?.(next.value);
+        } catch {
+          // A presentation observer must not change graph execution.
+        }
+        if (aborted) break;
+      }
+    } finally {
+      input.abortSignal?.removeEventListener('abort', onAbort);
+      if (aborted) {
+        await stopPromise;
+        await iterator.return?.();
+      }
+    }
+
+    const completedAt = this.deps.now();
+    const completedRun = await this.deps.runStore.readRun(child.id, claim.targetRunId);
+    this.assertClaimedAgentGraphRun(child, snapshot, claim, completedRun);
+    const failureClass = completedRun.failureClass ?? summary.failureClass;
+    const artifacts = this.deps.listArtifactsForTurn
+      ? await this.deps.listArtifactsForTurn(child.id, claim.targetTurnId)
+      : [];
+    return {
+      claimId: claim.claimId,
+      graphId: claim.graphId,
+      intentId: claim.intentId,
+      operatorId: claim.targetOperatorId,
+      childSessionId: child.id,
+      agentId: snapshot.agentId,
+      agentName: snapshot.agentName,
+      profile: snapshot.profile,
+      turnId: claim.targetTurnId,
+      runId: claim.targetRunId,
+      status: agentRunStatusForSpawnResult(completedRun.status),
+      permissionMode: child.permissionMode,
+      summary: summary.text(),
+      artifactIds: artifacts.map((artifact) => artifact.id),
+      startedAt,
+      completedAt,
+      durationMs: Math.max(0, completedAt - startedAt),
+      eventCount: summary.eventCount,
+      ...(failureClass ? { failureClass } : {}),
+    };
+  }
+
+  private assertClaimedAgentGraphRun(
+    child: SessionHeader,
+    snapshot: NonNullable<SessionHeader['subagentRuntime']>,
+    claim: AgentGraphIntentClaim,
+    run: AgentRunHeader,
+  ): void {
+    if (
+      run.sessionId !== child.id ||
+      run.runId !== claim.targetRunId ||
+      run.turnId !== claim.targetTurnId ||
+      !isSessionInlineRun(run) ||
+      run.agentId !== snapshot.agentId ||
+      (run.agentName !== undefined && run.agentName !== snapshot.agentName)
+    ) {
+      throw new Error('Existing AgentRun does not match the claimed graph activation identity');
+    }
+  }
+
+  private async assertClaimedAgentGraphPrompt(
+    sessionId: string,
+    turnId: string,
+    prompt: string,
+  ): Promise<void> {
+    const messages = await this.deps.store.readMessages(sessionId);
+    const userMessages = messages.filter(
+      (message): message is UserMessage => message.type === 'user' && message.turnId === turnId,
+    );
+    if (userMessages.length > 1 || (userMessages[0] && userMessages[0].text !== prompt)) {
+      throw new Error('Graph intent claim identity was reused for different execution input');
     }
   }
 
@@ -3220,6 +3499,27 @@ function childSessionRequestFingerprint(
       ]),
     )
     .digest('hex');
+}
+
+function claimedAgentGraphIntentRequestFingerprint(
+  input: Pick<ResolvedClaimedAgentGraphIntentInput, 'claim' | 'prompt'>,
+): string {
+  return createHash('sha256')
+    .update(JSON.stringify([1, input.claim, input.prompt]))
+    .digest('hex');
+}
+
+function claimedAgentGraphIntentResult(
+  claim: AgentGraphIntentClaim,
+  result: SpawnChildSessionResult,
+): ClaimedAgentGraphIntentResult {
+  return {
+    claimId: claim.claimId,
+    graphId: claim.graphId,
+    intentId: claim.intentId,
+    operatorId: claim.targetOperatorId,
+    ...result,
+  };
 }
 
 export function changesBackendConfig(patch: Partial<SessionHeader>): boolean {
