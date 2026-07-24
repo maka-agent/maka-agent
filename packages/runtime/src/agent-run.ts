@@ -476,6 +476,7 @@ export class AgentRun {
       return;
     }
     await this.recordSessionEvent(sessionEvent);
+    if (sessionEvent.type === 'provider_retry') return;
     if (!isNonTerminalErrorRuntimeEvent(runtimeEvent)) {
       // A steered user message is fail-CLOSED: the backend's delivery ack
       // waits on this consume, and the provider must never execute a

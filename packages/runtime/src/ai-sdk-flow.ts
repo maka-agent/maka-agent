@@ -470,6 +470,26 @@ function mapBackendSessionEvent(
     // drops a backend-yielded one at the ingress — see run() — so it is
     // excluded from this function's input vocabulary.)
 
+    // ── Transient provider retry progress ────────────────────────────────
+    case 'provider_retry':
+      return {
+        ...base,
+        partial: true,
+        role: 'system',
+        author: 'system',
+        actions: {
+          stateDelta: {
+            providerRetry: {
+              phase: event.phase,
+              attempt: event.attempt,
+              maxAttempts: event.maxAttempts,
+              ...(event.phase === 'scheduled' ? { delayMs: event.delayMs } : {}),
+              reason: event.reason,
+            },
+          },
+        },
+      };
+
     // ── Plan handoff (placeholder; Phase 5/7 refines) ─────────────────────
     case 'plan_submitted':
       return {

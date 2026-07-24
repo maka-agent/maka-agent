@@ -1,6 +1,7 @@
 import { Markdown } from '@earendil-works/pi-tui';
 import type {
   AnyPermissionRequestEvent,
+  ProviderRetryEvent,
   UserQuestionRequestEvent,
   SessionEvent,
   ToolOutputStream,
@@ -96,6 +97,8 @@ export interface MakaPiTranscriptState {
    * Rendered in the pending bar alongside the mirror.
    */
   pendingFallback: Array<{ text: string; enqueue: 'steer' | 'queue' }>;
+  /** Current non-durable provider retry progress for the activity strip. */
+  providerRetry?: ProviderRetryEvent;
 }
 
 export type MakaPiPendingInteraction = AnyPermissionRequestEvent | UserQuestionRequestEvent;
@@ -184,6 +187,7 @@ export interface MakaPiTranscriptMetadata {
   modelContextWindow?: number;
   /** Elapsed milliseconds of the running agent turn, for the activity strip. */
   turnElapsedMs?: number;
+  providerRetry?: ProviderRetryEvent;
 }
 
 export function createMakaPiTranscriptState(): MakaPiTranscriptState {
@@ -466,6 +470,18 @@ export function applyMakaSessionEventToTranscript(
   state: MakaPiTranscriptState,
   event: SessionEvent,
 ): void {
+  if (
+    event.type === 'text_delta' ||
+    event.type === 'text_complete' ||
+    event.type === 'thinking_delta' ||
+    event.type === 'thinking_complete' ||
+    event.type === 'tool_start' ||
+    event.type === 'error' ||
+    event.type === 'abort' ||
+    event.type === 'complete'
+  ) {
+    state.providerRetry = undefined;
+  }
   switch (event.type) {
     case 'text_delta':
       state.sawTextDeltaMessageIds.add(event.messageId);
@@ -682,6 +698,10 @@ export function applyMakaSessionEventToTranscript(
       // Authoritative snapshot from the runtime; mirror it for the pending bar.
       state.steering = [...event.steering];
       state.followup = [...event.followup];
+      break;
+
+    case 'provider_retry':
+      state.providerRetry = event;
       break;
 
     case 'token_usage': {
@@ -1300,6 +1320,14 @@ export function renderMakaPiActivityStrip(
   width: number,
 ): string {
   const safeWidth = Math.max(1, width);
+  if (metadata.providerRetry) {
+    const retry = metadata.providerRetry;
+    const text =
+      retry.phase === 'scheduled'
+        ? `Retrying in ${Math.max(1, Math.ceil(retry.delayMs / 1_000))}s (${retry.attempt}/${retry.maxAttempts})`
+        : `Retrying (${retry.attempt}/${retry.maxAttempts})`;
+    return fitLine(ansi.dim(text), safeWidth);
+  }
   if (metadata.turnElapsedMs === undefined) return '';
   const seconds = Math.floor(metadata.turnElapsedMs / 1000);
   return fitLine(ansi.dim(`Working… ${seconds}s`), safeWidth);

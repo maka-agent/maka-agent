@@ -16,6 +16,7 @@ import { SessionHistoryList } from '../session-history-list.js';
 import { ToolTrow } from '../tool-activity.js';
 import { summarizeTrowTools } from '../tool-activity/trow-summary.js';
 import { UserQuestionPrompt } from '../user-question-prompt.js';
+import { ModelProviderRetryIndicator } from '../chat-turn.js';
 
 function render(locale: UiLocale, children: ReactNode): string {
   return renderToStaticMarkup(<LocaleProvider locale={locale}>{children}</LocaleProvider>);
@@ -62,6 +63,23 @@ const archivedSession = {
 } satisfies SessionSummary;
 
 describe('localized conversation journey', () => {
+  it('renders provider retry attempts without exposing provider error details', () => {
+    const retry = {
+      type: 'provider_retry',
+      id: 'retry-1',
+      turnId: 'turn-1',
+      ts: 1,
+      phase: 'scheduled',
+      attempt: 3,
+      maxAttempts: 10,
+      delayMs: 4_000,
+      reason: 'rate_limit',
+    } as const;
+
+    assert.match(render('zh', <ModelProviderRetryIndicator retry={retry} />), /4 秒后重试（3\/10）/);
+    assert.match(render('en', <ModelProviderRetryIndicator retry={retry} />), /Retrying in 4s \(3\/10\)/);
+  });
+
   it('renders coherent empty and composer states in Chinese and English', () => {
     const surface = (
       <>

@@ -5675,6 +5675,41 @@ describe('Maka Pi TUI status line', () => {
 });
 
 describe('Maka Pi TUI activity strip', () => {
+  test('shows transient provider retry progress and clears it on model output', () => {
+    const state = createMakaPiTranscriptState();
+    applyMakaSessionEventToTranscript(state, {
+      type: 'provider_retry',
+      id: 'retry-1',
+      turnId: 'turn-1',
+      ts: 1,
+      phase: 'scheduled',
+      attempt: 3,
+      maxAttempts: 10,
+      delayMs: 4_000,
+      reason: 'rate_limit',
+    });
+
+    assert.equal(
+      stripAnsi(
+        renderMakaPiActivityStrip(
+          { ...meta(), turnElapsedMs: 5_500, providerRetry: state.providerRetry },
+          100,
+        ),
+      ),
+      'Retrying in 4s (3/10)',
+    );
+
+    applyMakaSessionEventToTranscript(state, {
+      type: 'text_delta',
+      id: 'text-1',
+      turnId: 'turn-1',
+      ts: 2,
+      messageId: 'message-1',
+      text: 'recovered',
+    });
+    assert.equal(state.providerRetry, undefined);
+  });
+
   test('shows Working… Ns when turnElapsedMs is set', () => {
     const line = stripAnsi(
       renderMakaPiActivityStrip(

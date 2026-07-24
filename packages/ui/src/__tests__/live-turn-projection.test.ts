@@ -25,6 +25,53 @@ describe('applyLiveTurnEvent', () => {
     assert.equal(streamed.phase, 'streamed');
   });
 
+  it('projects transient provider retry progress until the next model output', () => {
+    const scheduled = applyLiveTurnEvent(armLiveTurn('turn-1'), {
+      type: 'provider_retry',
+      id: 'retry-1',
+      turnId: 'turn-1',
+      ts: 100,
+      phase: 'scheduled',
+      attempt: 2,
+      maxAttempts: 10,
+      delayMs: 4_000,
+      reason: 'rate_limit',
+    });
+    assert.deepEqual(scheduled?.providerRetry, {
+      type: 'provider_retry',
+      id: 'retry-1',
+      turnId: 'turn-1',
+      ts: 100,
+      phase: 'scheduled',
+      attempt: 2,
+      maxAttempts: 10,
+      delayMs: 4_000,
+      reason: 'rate_limit',
+    });
+
+    const started = applyLiveTurnEvent(scheduled, {
+      type: 'provider_retry',
+      id: 'retry-2',
+      turnId: 'turn-1',
+      ts: 101,
+      phase: 'started',
+      attempt: 2,
+      maxAttempts: 10,
+      reason: 'rate_limit',
+    });
+    assert.equal(started?.providerRetry?.phase, 'started');
+
+    const streamed = applyLiveTurnEvent(started, {
+      type: 'text_delta',
+      id: 'event-1',
+      turnId: 'turn-1',
+      messageId: 'step-1',
+      ts: 102,
+      text: '恢复',
+    });
+    assert.equal(streamed?.providerRetry, undefined);
+  });
+
   it('keeps the thinking message id as the live step identity', () => {
     const projection = applyLiveTurnEvent(undefined, {
       type: 'thinking_delta',

@@ -106,6 +106,7 @@ export type SessionEvent =
   | TokenUsageEvent
   | SteeringMessageEvent
   | QueueUpdateEvent
+  | ProviderRetryEvent
   | ErrorEvent
   | CompleteEvent
   | AbortEvent;
@@ -576,6 +577,39 @@ export interface QueueUpdateEvent extends BaseEvent {
   type: 'queue_update';
   steering: string[];
   followup: string[];
+}
+
+export type ProviderRetryReason =
+  | 'network'
+  | 'provider_unavailable'
+  | 'rate_limit'
+  | 'timeout'
+  | 'unknown';
+
+/**
+ * Transient progress for a provider request that Runtime will retry.
+ *
+ * This event is intentionally not a durable conversation fact. `attempt`
+ * names the next/current physical request (2–10), while `maxAttempts`
+ * includes the first request.
+ */
+export type ProviderRetryEvent = ProviderRetryScheduledEvent | ProviderRetryStartedEvent;
+
+export interface ProviderRetryScheduledEvent extends BaseEvent {
+  type: 'provider_retry';
+  phase: 'scheduled';
+  attempt: number;
+  maxAttempts: number;
+  delayMs: number;
+  reason: ProviderRetryReason;
+}
+
+export interface ProviderRetryStartedEvent extends BaseEvent {
+  type: 'provider_retry';
+  phase: 'started';
+  attempt: number;
+  maxAttempts: number;
+  reason: ProviderRetryReason;
 }
 
 export interface ErrorEvent extends BaseEvent {

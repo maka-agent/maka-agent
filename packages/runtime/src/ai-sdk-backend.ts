@@ -29,6 +29,8 @@ import type {
   TokenUsageEvent,
   TextDeltaEvent,
   ThinkingDeltaEvent,
+  ProviderRetryEvent,
+  ProviderRetryReason,
   StorageRef,
   AttachmentRef,
   QuoteRef,
@@ -78,6 +80,7 @@ import type {
   ModelMessage,
   ModelToolSet,
   NormalizedUsage,
+  ModelFailureKind,
   ToolCallPart,
   ToolResultOutput,
 } from './model-protocol.js';
@@ -678,6 +681,18 @@ function providerRetryDelayMs(failedAttempt: number, retryAfterMs?: number): num
     PROVIDER_RETRY_MAX_DELAY_MS,
   );
   return Math.ceil(base + Math.random() * PROVIDER_RETRY_JITTER_FACTOR * base);
+}
+
+function providerRetryReason(kind: ModelFailureKind): ProviderRetryReason {
+  switch (kind) {
+    case 'network':
+    case 'provider_unavailable':
+    case 'rate_limit':
+    case 'timeout':
+      return kind;
+    default:
+      return 'unknown';
+  }
 }
 
 function sleepForProviderRetry(delayMs: number, signal: AbortSignal): Promise<void> {
@@ -1635,13 +1650,36 @@ export class AiSdkBackend implements AgentBackend {
                 // effectiveness recoverable, but fail final metering closed.
                 sawUnusableStepUsage = true;
                 const delayMs = providerRetryDelayMs(providerAttempt, failure.retryAfterMs);
-                providerAttempt += 1;
+                const nextAttempt = providerAttempt + 1;
+                const reason = providerRetryReason(failure.kind);
+                queue.push({
+                  type: 'provider_retry',
+                  id: this.newId(),
+                  turnId,
+                  ts: this.now(),
+                  phase: 'scheduled',
+                  attempt: nextAttempt,
+                  maxAttempts: MAX_PROVIDER_ATTEMPTS_PER_STEP,
+                  delayMs,
+                  reason,
+                } satisfies ProviderRetryEvent);
                 watchdog.pause();
                 try {
                   await this.providerRetrySleep(delayMs, turnAbortController.signal);
                 } finally {
                   watchdog.resume();
                 }
+                providerAttempt = nextAttempt;
+                queue.push({
+                  type: 'provider_retry',
+                  id: this.newId(),
+                  turnId,
+                  ts: this.now(),
+                  phase: 'started',
+                  attempt: providerAttempt,
+                  maxAttempts: MAX_PROVIDER_ATTEMPTS_PER_STEP,
+                  reason,
+                } satisfies ProviderRetryEvent);
                 continue;
               }
               // Unrecoverable (not context-length, latch spent, no seam, or no

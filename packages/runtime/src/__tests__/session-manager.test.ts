@@ -12571,6 +12571,43 @@ describe('SessionManager steering and followup queues', () => {
     ).toBe(false);
   });
 
+  test('provider retry progress reaches observers without becoming a durable runtime fact', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new ProviderRetryProgressBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(1_000),
+    });
+    const session = await manager.createSession(
+      makeInput({ backend: 'fake', permissionMode: 'bypass' }),
+    );
+
+    const events = await drainAll(
+      manager.sendMessage(session.id, { turnId: 'turn-1', text: 'go' }),
+    );
+    expect(
+      events.filter((event) => event.type === 'provider_retry').map((event) => event.phase),
+    ).toEqual(['scheduled', 'started']);
+
+    const runs = await runStore.listSessionRuns(session.id);
+    const runtimeEvents = (
+      await Promise.all(runs.map((run) => runStore.readRuntimeEvents(session.id, run.runId)))
+    ).flat();
+    expect(
+      runtimeEvents.some(
+        (event) =>
+          (event.actions?.stateDelta as { providerRetry?: unknown } | undefined)?.providerRetry !==
+          undefined,
+      ),
+    ).toBe(false);
+  });
+
   test('an append error after the write landed settles by the ledger read-back, not a duplicate nack', async () => {
     // Round-6 R5: appendRuntimeEvent can fail AFTER the bytes landed (e.g. a
     // close error). Treating every append error as not-durable would nack a
@@ -14763,6 +14800,60 @@ class ForgingQueueBackend implements AgentBackend {
       id: `${input.turnId}-complete`,
       turnId: input.turnId,
       ts: 3,
+      stopReason: 'end_turn',
+    };
+  }
+
+  async stop(): Promise<void> {}
+
+  async respondToPermission(_decision: PermissionDecision): Promise<void> {}
+
+  async dispose(): Promise<void> {}
+}
+
+class ProviderRetryProgressBackend implements AgentBackend {
+  readonly kind = 'fake' as const;
+  readonly sessionId: string;
+
+  constructor(ctx: BackendFactoryContext) {
+    this.sessionId = ctx.sessionId;
+  }
+
+  async *send(input: BackendSendInput): AsyncIterable<SessionEvent> {
+    yield {
+      type: 'provider_retry',
+      id: 'retry-scheduled',
+      turnId: input.turnId,
+      ts: 1,
+      phase: 'scheduled',
+      attempt: 2,
+      maxAttempts: 10,
+      delayMs: 1_000,
+      reason: 'rate_limit',
+    };
+    yield {
+      type: 'provider_retry',
+      id: 'retry-started',
+      turnId: input.turnId,
+      ts: 2,
+      phase: 'started',
+      attempt: 2,
+      maxAttempts: 10,
+      reason: 'rate_limit',
+    };
+    yield {
+      type: 'text_complete',
+      id: `${input.turnId}-final`,
+      turnId: input.turnId,
+      ts: 3,
+      messageId: `${input.turnId}-m`,
+      text: 'ok',
+    };
+    yield {
+      type: 'complete',
+      id: `${input.turnId}-complete`,
+      turnId: input.turnId,
+      ts: 4,
       stopReason: 'end_turn',
     };
   }

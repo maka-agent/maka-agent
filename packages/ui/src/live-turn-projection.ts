@@ -1,4 +1,4 @@
-import type { SessionEvent, StoredMessage, UiLocale } from '@maka/core';
+import type { ProviderRetryEvent, SessionEvent, StoredMessage, UiLocale } from '@maka/core';
 import { applyAssistantComplete, applyAssistantDelta } from './assistant-stream.js';
 import { projectToolActivityArgs, toolResultActivityStatus } from '@maka/core';
 import type { ToolActivityItem } from './materialize.js';
@@ -33,6 +33,7 @@ export interface LiveTurnProjection {
   turnId: string;
   phase: 'waiting' | 'streamed';
   terminal?: true;
+  providerRetry?: ProviderRetryEvent;
   steps: LiveTurnStepProjection[];
 }
 
@@ -84,16 +85,28 @@ export function applyLiveTurnEvent(
   event: SessionEvent,
   locale: UiLocale = 'zh',
 ): LiveTurnProjection | undefined {
+  if (event.type === 'provider_retry') {
+    const prior = current?.turnId === event.turnId
+      ? current
+      : { turnId: event.turnId, phase: 'waiting' as const, steps: [] };
+    return { ...prior, providerRetry: event };
+  }
   if (event.type === 'error' || event.type === 'abort') {
     if (!current || current.turnId !== event.turnId) return current;
     const steps = terminalizeLiveSteps(current.steps);
-    return steps.length > 0 ? { ...current, terminal: true, steps } : undefined;
+    if (steps.length === 0) return undefined;
+    const { providerRetry: _providerRetry, ...withoutRetry } = current;
+    return { ...withoutRetry, terminal: true, steps };
   }
   if (event.type === 'complete') {
     if (event.stopReason === 'permission_handoff' || !current || current.turnId !== event.turnId) return current;
-    return current.steps.length > 0
-      ? { ...current, terminal: true, steps: terminalizeLiveSteps(current.steps) }
-      : undefined;
+    if (current.steps.length === 0) return undefined;
+    const { providerRetry: _providerRetry, ...withoutRetry } = current;
+    return {
+      ...withoutRetry,
+      terminal: true,
+      steps: terminalizeLiveSteps(current.steps),
+    };
   }
   if (
     event.type !== 'thinking_delta'
@@ -111,6 +124,7 @@ export function applyLiveTurnEvent(
   const prior = current?.turnId === event.turnId
     ? current
     : { turnId: event.turnId, phase: 'streamed' as const, steps: [] };
+  const { providerRetry: _providerRetry, ...priorWithoutRetry } = prior;
   const messageEvent = event.type === 'thinking_delta'
     || event.type === 'thinking_complete'
     || event.type === 'text_delta'
@@ -294,7 +308,7 @@ export function applyLiveTurnEvent(
       ? prior.steps.map((candidate, index) => index === stepIndex ? nextStep : candidate)
       : [...prior.steps, nextStep];
   }
-  return { ...prior, phase: 'streamed', steps };
+  return { ...priorWithoutRetry, phase: 'streamed', steps };
 }
 
 /**

@@ -272,6 +272,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     usage: state.usage,
     modelContextWindow,
     turnElapsedMs: turnStartedAt !== undefined ? Date.now() - turnStartedAt : undefined,
+    providerRetry: state.providerRetry,
   });
 
   const transcript = new MakaTranscriptComponent(state, metadata);

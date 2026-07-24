@@ -8,7 +8,7 @@ import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from '
 import { prepareSmoothStreamText, useSmoothStreamContent } from './smooth-stream.js';
 import { tokenizeFade, useStreamFade, type StreamFade } from './stream-fade.js';
 import { Button as UiButton, cn, DialogContent, DialogRoot } from './ui.js';
-import type { AttachmentRef, QuoteRef } from '@maka/core';
+import type { AttachmentRef, ProviderRetryEvent, QuoteRef } from '@maka/core';
 import type { TurnTimelineItem, TurnViewModel } from './materialize.js';
 import { foldTimeline, type FoldedTimelineChild } from './timeline-fold.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
@@ -354,6 +354,7 @@ export const TurnView = memo(function TurnView(props: {
     onStreamingSettled?: (messageId?: string) => void;
     processingIndicator?: boolean;
     continuingIndicator?: boolean;
+    providerRetry?: ProviderRetryEvent;
   };
   /**
    * Injected host reader for image attachment bytes. Threaded down to the user
@@ -542,8 +543,14 @@ export const TurnView = memo(function TurnView(props: {
             )}
             {props.liveStreaming && (
               <>
-                {props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelProcessingIndicator />}
-                {props.liveStreaming.continuingIndicator && !props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelContinuingIndicator />}
+                {props.liveStreaming.providerRetry ? (
+                  <ModelProviderRetryIndicator retry={props.liveStreaming.providerRetry} />
+                ) : (
+                  <>
+                    {props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelProcessingIndicator />}
+                    {props.liveStreaming.continuingIndicator && !props.liveStreaming.processingIndicator && !hasLiveTimelineContent && <ModelContinuingIndicator />}
+                  </>
+                )}
               </>
             )}
           </div>
@@ -819,6 +826,28 @@ export function ModelContinuingIndicator() {
       aria-live="polite"
     >
       <span className="min-w-0 truncate">{copy.continuing}</span>
+    </div>
+  );
+}
+
+export function ModelProviderRetryIndicator(props: { retry: ProviderRetryEvent }) {
+  const copy = getConversationCopy(useUiLocale()).messages;
+  const text =
+    props.retry.phase === 'scheduled'
+      ? copy.providerRetryScheduled(
+          Math.max(1, Math.ceil(props.retry.delayMs / 1_000)),
+          props.retry.attempt,
+          props.retry.maxAttempts,
+        )
+      : copy.providerRetryStarted(props.retry.attempt, props.retry.maxAttempts);
+  return (
+    <div
+      className="flex items-center gap-2 py-0.5 text-[length:var(--font-size-base)] text-[color:var(--muted-foreground)]"
+      role="status"
+      aria-live="polite"
+    >
+      <RefreshCcw size={16} aria-hidden="true" className="shrink-0" />
+      <span className="min-w-0 truncate">{text}</span>
     </div>
   );
 }

@@ -729,6 +729,31 @@ describe('AiSdkFlow seam', () => {
     assert.equal(out.length, 2);
     assert.equal(isTerminalRuntimeEvent(out[out.length - 1]), true);
   });
+
+  test('maps provider retry progress as a partial non-terminal runtime fact', () => {
+    const retry = ev({
+      type: 'provider_retry',
+      phase: 'scheduled',
+      attempt: 2,
+      maxAttempts: 10,
+      delayMs: 4_000,
+      reason: 'rate_limit',
+    });
+
+    const mapped = mapSessionEventToRuntimeEvent(retry, ctx);
+
+    assert.equal(mapped.partial, true);
+    assert.equal(isTerminalRuntimeEvent(mapped), false);
+    assert.deepEqual(mapped.actions?.stateDelta, {
+      providerRetry: {
+        phase: 'scheduled',
+        attempt: 2,
+        maxAttempts: 10,
+        delayMs: 4_000,
+        reason: 'rate_limit',
+      },
+    });
+  });
 });
 
 // ============================================================================

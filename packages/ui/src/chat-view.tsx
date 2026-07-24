@@ -32,6 +32,7 @@ import { Message } from './primitives/chat.js';
 import { EmptyState } from './empty-state.js';
 import {
   ModelContinuingIndicator,
+  ModelProviderRetryIndicator,
   ModelProcessingIndicator,
   TurnView,
   type ReadAttachmentBytes,
@@ -509,6 +510,7 @@ export function ChatView(props: {
                           onStreamingSettled: props.onStreamingSettled,
                           processingIndicator: props.processingIndicator,
                           continuingIndicator: props.continuingIndicator,
+                          providerRetry: props.liveTurn?.providerRetry,
                         }
                       : undefined
                   }
@@ -529,8 +531,14 @@ export function ChatView(props: {
             <section className="maka-turn" data-live-streaming="true">
               <Message variant="assistant" className="group/answer">
                 <div className="flex flex-col gap-2">
-                  {props.processingIndicator && <ModelProcessingIndicator />}
-                  {props.continuingIndicator && !props.processingIndicator && <ModelContinuingIndicator />}
+                  {props.liveTurn?.providerRetry ? (
+                    <ModelProviderRetryIndicator retry={props.liveTurn.providerRetry} />
+                  ) : (
+                    <>
+                      {props.processingIndicator && <ModelProcessingIndicator />}
+                      {props.continuingIndicator && !props.processingIndicator && <ModelContinuingIndicator />}
+                    </>
+                  )}
                 </div>
                 <div aria-hidden="true" className="mt-0.5 h-8" />
               </Message>

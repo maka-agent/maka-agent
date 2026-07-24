@@ -587,6 +587,30 @@ describe('reactive overflow recovery in the streaming backend', () => {
       false,
     );
     assert.deepEqual(fixture.retryDelays, [1]);
+    assert.deepEqual(
+      fixture.events
+        .filter((event) => event.type === 'provider_retry')
+        .map(({ phase, attempt, maxAttempts, reason }) => ({
+          phase,
+          attempt,
+          maxAttempts,
+          reason,
+        })),
+      [
+        {
+          phase: 'scheduled',
+          attempt: 2,
+          maxAttempts: 10,
+          reason: 'rate_limit',
+        },
+        {
+          phase: 'started',
+          attempt: 2,
+          maxAttempts: 10,
+          reason: 'rate_limit',
+        },
+      ],
+    );
   });
 
   test('applies a fresh provider retry budget to each completed step', async () => {
