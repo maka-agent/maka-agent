@@ -152,6 +152,13 @@ describe('deriveSessionStatusGroups', () => {
     }
   });
 
+  it('labels active sessions as a lifecycle state instead of repeating the list title', () => {
+    const activeSession = session({ id: 'active', status: 'active' });
+
+    assert.equal(deriveSessionStatusGroups([activeSession], { locale: 'zh' })[0]?.label, '可继续');
+    assert.equal(deriveSessionStatusGroups([activeSession], { locale: 'en' })[0]?.label, 'Ready');
+  });
+
   describe('pinFirst option', () => {
     it('without pinFirst (default), flagged sessions stay in their status group', () => {
       const groups = deriveSessionStatusGroups([

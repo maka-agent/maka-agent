@@ -5,6 +5,7 @@ import { describe, it } from 'node:test';
 import { filterLinkedSessionTree, projectLinkedSessionTree } from '@maka/core';
 import { sessionMatchesNavSelection } from '../../renderer/session-nav-filter.js';
 import { deriveProjectGroups } from '../../renderer/session-project-grouping.js';
+import { deriveSessionStatusGroups } from '../../renderer/session-status-grouping.js';
 import { makeSessionSummary, renderSessionListPanel } from './session-list-render-helpers.js';
 
 const REPO_ROOT = resolve(process.cwd(), '..', '..');
@@ -56,6 +57,33 @@ describe('sidebar project view mode', () => {
     assert.match(panel, /<MenuRadioGroup value=\{viewMode\}/);
     assert.match(panel, /<MenuRadioItem value="status">\{copy\.groupByStatus\}/);
     assert.match(panel, /<MenuRadioItem value="project">\{copy\.groupByProject\}/);
+  });
+
+  it('renders the panel title once and gives active sessions their lifecycle heading', () => {
+    const sessions = [
+      makeSessionSummary({
+        id: 'active-session',
+        name: 'Active session',
+        status: 'active',
+      }),
+    ];
+    const markup = renderSessionListPanel({
+      sessions,
+      statusGroups: deriveSessionStatusGroups(sessions),
+      viewMode: 'status',
+    });
+
+    assert.equal((markup.match(/>会话</g) ?? []).length, 1);
+    assert.match(markup, />可继续</);
+  });
+
+  it('uses the sidebar UI type tier for the session-list heading', async () => {
+    const css = await readRepo('apps/desktop/src/renderer/styles/sidebar.css');
+
+    assert.match(
+      css,
+      /\.maka-session-list-heading\s*\{[^}]*font-size:\s*var\(--font-size-ui\)/s,
+    );
   });
 
   it('renders project groups as folder headers with an initial four-session preview', () => {

@@ -457,7 +457,7 @@
 .maka-session-list-heading {
   padding-left: var(--space-1-5);
   color: var(--muted-foreground);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-ui);
   font-weight: var(--font-weight-semibold);
 }
 
