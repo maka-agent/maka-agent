@@ -370,6 +370,11 @@ const TROW_KIND_ICON: Record<TrowActivityKind, ComponentType<LucideProps>> = {
   tool: Settings,
 };
 
+export function ToolKindIcon({ kind, ...props }: LucideProps & { kind: TrowActivityKind }) {
+  const Icon = TROW_KIND_ICON[kind];
+  return <Icon {...props} />;
+}
+
 // #646 run→done seam: the one-shot settle "landing" for the group summary line.
 // Reuses the whitelisted `maka-stream-fade-in` keyframe (opacity 0→1, one-shot
 // `both`) — no new keyframe (design-406 governance) — and rides
@@ -419,7 +424,6 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   // #tool-jitter: the group icon stays on the first bucket's kind (the same
   // first-seen order the summary clauses use), not the active tool's kind — so
   // a mixed-kind group's icon doesn't flip as the active tool changes mid-run.
-  const SummaryIcon = TROW_KIND_ICON[firstPresentation.kind];
   // Multi-tool running group shows the whole-group bucket aggregation with a
   // "正在" prefix instead of the active tool's description, so the summary line
   // stops cycling through each tool's intent as tools start/finish in
@@ -432,7 +436,7 @@ function ToolTrowGroup({ items }: { items: ToolActivityItem[] }) {
   return (
     <Collapsible className="flex flex-col" data-trow="group" data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
-        <SummaryIcon size={16} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
+        <ToolKindIcon kind={firstPresentation.kind} size={16} aria-hidden="true" className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')} />
         {running ? (
           <TextShimmer active delayed className="min-w-0 truncate text-[length:var(--font-size-base)]">{summary}</TextShimmer>
         ) : (
@@ -478,7 +482,6 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   const running = isToolRowRunning(item.status);
   const settled = isToolRowSettled(item.status);
   const errored = item.status === 'errored';
-  const RowIcon = TROW_KIND_ICON[presentation.kind];
   // One row language with the multi-tool summary row: a kind icon + a
   // user-language phrase, never the old status-dot + mono tool-name + status
   // word. Running shimmers the model's intent (or the friendly tool name);
@@ -490,7 +493,8 @@ function ToolTrowRow({ item }: { item: ToolActivityItem }) {
   return (
     <Collapsible className="flex flex-col" data-trow="row" data-status={item.status} data-settled={settled ? 'true' : undefined} open={disclosure.open} onOpenChange={disclosure.setOpen}>
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
-        <RowIcon
+        <ToolKindIcon
+          kind={presentation.kind}
           size={16}
           aria-hidden="true"
           className={cn('shrink-0', errored ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}

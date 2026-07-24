@@ -51,4 +51,16 @@ describe('ProcessingBlock disclosure wiring (#1307)', () => {
     assert.match(markup, /data-processing="block"/);
     assert.doesNotMatch(markup, /data-trow="group"/);
   });
+
+  it('uses the first summarized tool kind for the collapsed block icon', () => {
+    const markup = renderToStaticMarkup(createElement(TurnView, {
+      turn: turnWithTools([
+        { toolUseId: 'b1', toolName: 'Bash', activityKind: 'command', status: 'completed', args: {} },
+        { toolUseId: 'r1', toolName: 'Read', activityKind: 'read', status: 'completed', args: {} },
+      ]),
+    }));
+
+    assert.match(markup, /lucide-terminal/);
+    assert.doesNotMatch(markup, /lucide-cpu/);
+  });
 });

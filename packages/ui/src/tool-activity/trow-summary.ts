@@ -159,6 +159,14 @@ function processingTools(children: readonly FoldedTimelineChild[]): ToolActivity
   return children.flatMap((child) => (child.kind === 'tools' ? child.items : []));
 }
 
+/** The first tool bucket represented by a processing block's summary and icon. */
+export function processingActivityKind(
+  children: readonly FoldedTimelineChild[],
+): TrowActivityKind {
+  const firstTool = processingTools(children)[0];
+  return firstTool ? trowActivityKind(firstTool.toolName, firstTool.activityKind) : 'tool';
+}
+
 /** True while any tool is in flight or any reasoning block is still streaming. */
 export function isProcessingRunning(children: readonly FoldedTimelineChild[]): boolean {
   return children.some((child) =>
