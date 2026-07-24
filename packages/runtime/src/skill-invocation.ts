@@ -1,12 +1,11 @@
 import {
   gateSkillsByHostCapabilities,
   loadSkillInstructionsFromScan,
-  scanSkills,
   type HostCapabilities,
   type LoadedSkillInstructions,
   type LoadSkillInstructionsResult,
-  type SkillSource,
-} from './skills.js';
+} from './skills-context.js';
+import { scanSkills, type SkillSource } from './skills-discovery.js';
 import {
   boundSkillInvocationRequest,
   failedSkillInvocationReceipt,

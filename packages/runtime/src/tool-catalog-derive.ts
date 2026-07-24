@@ -10,7 +10,7 @@ import {
   unknownBoundToolNames,
   type ToolHostId,
 } from '@maka/core/tool-catalog';
-import type { HostCapabilities } from './skills.js';
+import type { HostCapabilities } from './skills-context.js';
 import type { ToolGroup } from './tool-availability.js';
 
 /** Build skill-host capability surface from the tools this process actually bound. */
