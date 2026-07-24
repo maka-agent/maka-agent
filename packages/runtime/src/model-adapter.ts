@@ -109,11 +109,10 @@ export class ModelAdapter {
   constructor(private readonly input: ModelAdapterInput) {}
 
   runtimeEventReplaySupport(): ModelAdapterRuntimeEventReplaySupport {
-    const { adapter } = resolveModelRuntime(this.input.connection, this.input.modelId);
     return {
       toolCalls: true,
       toolResults: true,
-      signedThinking: adapter.kind === 'anthropic' || adapter.kind === 'claude-subscription',
+      signedThinking: usesAnthropicMessages(this.input.connection, this.input.modelId),
     };
   }
 
@@ -318,17 +317,21 @@ function selectedModelMaxOutputTokens(
   modelId: string,
   providerOptions: Record<string, unknown> | undefined,
 ): number | undefined {
-  const { adapter, apiProtocol } = resolveModelRuntime(connection, modelId);
-  const usesAnthropicMessages =
-    adapter.kind === 'anthropic' ||
-    adapter.kind === 'claude-subscription' ||
-    (adapter.kind === 'github-copilot' && apiProtocol === 'anthropic-messages');
-  if (!usesAnthropicMessages) return undefined;
+  if (!usesAnthropicMessages(connection, modelId)) return undefined;
   const wireOutputLimit =
     connection.models?.find((model) => model.id === modelId)?.maxOutputTokens ??
     lookupModelMetadata(connection.providerType, modelId).maxOutputTokens;
   if (wireOutputLimit === undefined) return undefined;
   return wireOutputLimit - fixedAnthropicThinkingBudget(providerOptions);
+}
+
+function usesAnthropicMessages(connection: LlmConnection, modelId: string): boolean {
+  const { adapter, apiProtocol } = resolveModelRuntime(connection, modelId);
+  return (
+    adapter.kind === 'anthropic' ||
+    adapter.kind === 'claude-subscription' ||
+    (adapter.kind === 'github-copilot' && apiProtocol === 'anthropic-messages')
+  );
 }
 
 function fixedAnthropicThinkingBudget(

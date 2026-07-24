@@ -33,6 +33,28 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(observedApiKey, '');
   });
 
+  test('supports signed-thinking replay on Copilot models using the Anthropic wire', () => {
+    const adapter = new ModelAdapter({
+      connection: {
+        slug: 'github-copilot',
+        name: 'GitHub Copilot',
+        providerType: 'github-copilot',
+        defaultModel: 'claude-sonnet',
+        models: [{ id: 'claude-sonnet', apiProtocol: 'anthropic-messages' }],
+        enabled: true,
+        createdAt: 1,
+        updatedAt: 1,
+      },
+      apiKey: 'github-token',
+      modelId: 'claude-sonnet',
+      modelFactory: () => ({}),
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    assert.equal(adapter.runtimeEventReplaySupport().signedThinking, true);
+  });
+
   test('translates provider text, reasoning, tool calls, and errors into ModelStreamEvents', () => {
     const adapter = newAdapter();
     type Chunk = Parameters<typeof adapter.translateChunk>[0];
