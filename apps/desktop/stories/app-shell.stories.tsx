@@ -137,7 +137,18 @@ const baseComposerProps: ComposerProps = {
   modelChoices,
   permissionMode: 'ask',
   onPermissionModeChange: noop,
-	  workspacePicker: {
+  // Fidelity: production app-shell always wires these (app-shell.tsx
+  // ~1851-1960), so the daily composer renders the ＋ menu, the Plan
+  // switch, and the Swarm switch. Omitting them here understated the
+  // persistent element count in every shell story. expertTeams stays
+  // empty — most users have none configured; the ＋ menu shows just the
+  // attachment item then, as it does for them.
+  onPickAttachments: noop,
+  planModeActive: false,
+  onPlanModeChange: noop,
+  swarmModeActive: false,
+  onSwarmModeChange: noop,
+  workspacePicker: {
 	    label: 'maka-agent',
 	    branch: 'opencode/storybook-surface-coverage',
 	    onOpen: noop,
