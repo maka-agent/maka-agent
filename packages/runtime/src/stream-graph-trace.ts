@@ -74,6 +74,7 @@ export interface AgentGraphTraceOperatorState {
 export interface AgentGraphTraceSnapshot {
   schemaVersion: typeof AGENT_GRAPH_TRACE_SCHEMA_VERSION;
   graphId: string;
+  topologyFingerprint: string;
   topologicalOrder: string[];
   rootOperatorIds: string[];
   sinkOperatorIds: string[];
@@ -100,6 +101,7 @@ export function buildAgentGraphTraceSnapshot(
   input: BuildAgentGraphTraceSnapshotInput,
 ): AgentGraphTraceSnapshot {
   const validated = validateTopology(input.topology);
+  const topologyFingerprint = fingerprintTopology(input.topology.graphId, validated);
   const replay =
     input.records.length > 0
       ? replayAgentGraphRecords(input.records)
@@ -198,6 +200,7 @@ export function buildAgentGraphTraceSnapshot(
   return {
     schemaVersion: AGENT_GRAPH_TRACE_SCHEMA_VERSION,
     graphId: input.topology.graphId,
+    topologyFingerprint,
     topologicalOrder: [...validated.topologicalOrder],
     rootOperatorIds: validated.topologicalOrder.filter(
       (operatorId) => (validated.incoming.get(operatorId) ?? []).length === 0,
@@ -210,6 +213,17 @@ export function buildAgentGraphTraceSnapshot(
     edges: Object.fromEntries(edges),
     routes,
   };
+}
+
+function fingerprintTopology(graphId: string, topology: ValidatedTopology): string {
+  return stableHash({
+    schemaVersion: AGENT_GRAPH_TRACE_SCHEMA_VERSION,
+    graphId,
+    operators: [...topology.operatorsById.values()].sort((a, b) =>
+      a.operatorId.localeCompare(b.operatorId),
+    ),
+    edges: topology.edges,
+  });
 }
 
 function validateTopology(topology: AgentGraphTraceTopology): ValidatedTopology {

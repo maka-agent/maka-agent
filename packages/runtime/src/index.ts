@@ -76,6 +76,22 @@ export type {
   AgentGraphTraceTopology,
   BuildAgentGraphTraceSnapshotInput,
 } from './stream-graph-trace.js';
+export {
+  AGENT_GRAPH_READINESS_SCHEMA_VERSION,
+  buildAgentGraphReadinessSnapshot,
+} from './stream-graph-readiness.js';
+export type {
+  AgentGraphAllSettledReadinessPolicy,
+  AgentGraphMapReadinessPolicy,
+  AgentGraphOperatorReadinessState,
+  AgentGraphReadinessPolicy,
+  AgentGraphReadinessSnapshot,
+  AgentGraphReadinessWait,
+  AgentGraphRunnableIntent,
+  AgentGraphSealedActivationInput,
+  AgentGraphSupervisorReadinessObservation,
+  BuildAgentGraphReadinessSnapshotInput,
+} from './stream-graph-readiness.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';

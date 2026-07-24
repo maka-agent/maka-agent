@@ -54,7 +54,8 @@
     "./agent-flow": "./dist/agent-flow.js",
     "./ai-sdk-flow": "./dist/ai-sdk-flow.js",
     "./stream-graph-projection": "./dist/stream-graph-projection.js",
-    "./stream-graph-trace": "./dist/stream-graph-trace.js"
+    "./stream-graph-trace": "./dist/stream-graph-trace.js",
+    "./stream-graph-readiness": "./dist/stream-graph-readiness.js"
   },
   "scripts": {
     "clean": "node ../../scripts/clean-paths.mjs dist tsconfig.tsbuildinfo",
