@@ -170,6 +170,59 @@ describe('prepared provider request capture', () => {
     assert.ok(result.segments.every((segment) => /^sha256:[a-f0-9]{64}$/.test(segment.hash)));
   });
 
+  test('hashes non-provider-options request parameters for cross-protocol comparison', () => {
+    const base = requestShape.capturePreparedProviderRequest({
+      providerId: 'anthropic',
+      modelId: 'k3',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { anthropic: { effort: 'max' } },
+      requestPayload: {
+        prompt: [{ role: 'user', content: 'hello' }],
+        tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+        providerOptions: { anthropic: { effort: 'max' } },
+        maxOutputTokens: 131_072,
+      },
+    });
+    const changed = requestShape.capturePreparedProviderRequest({
+      providerId: 'openai',
+      modelId: 'k3',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { kimiCodingPlan: { reasoningEffort: 'max' } },
+      requestPayload: {
+        prompt: [{ role: 'user', content: 'hello' }],
+        tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+        providerOptions: { kimiCodingPlan: { reasoningEffort: 'max' } },
+      },
+    });
+    const onlyProviderOptionsChanged = requestShape.capturePreparedProviderRequest({
+      providerId: 'openai',
+      modelId: 'k3',
+      instructions: 'system',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+      providerOptions: { kimiCodingPlan: { reasoningEffort: 'max' } },
+      requestPayload: {
+        prompt: [{ role: 'user', content: 'hello' }],
+        tools: [{ name: 'Read', inputSchema: { type: 'object' } }],
+        providerOptions: { kimiCodingPlan: { reasoningEffort: 'max' } },
+        maxOutputTokens: 131_072,
+      },
+    });
+
+    assert.notEqual(
+      base.requestPayloadWithoutProviderOptionsHash,
+      changed.requestPayloadWithoutProviderOptionsHash,
+    );
+    assert.equal(
+      base.requestPayloadWithoutProviderOptionsHash,
+      onlyProviderOptionsChanged.requestPayloadWithoutProviderOptionsHash,
+    );
+  });
+
   test('finds the first changed cacheable segment by exact content hash', () => {
     const capture = requestShape.capturePreparedProviderRequest;
     const findFirstChanged = Reflect.get(requestShape, 'findFirstChangedCacheableSegment') as

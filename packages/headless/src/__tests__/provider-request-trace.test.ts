@@ -29,6 +29,7 @@ test('derives the first changed cacheable segment from the existing AgentRun tra
       providerId: 'openai',
       modelId: 'gpt-test',
       requestHash: `sha256:request-${step}`,
+      requestPayloadWithoutProviderOptionsHash: `sha256:shared-request-${step}`,
       requestBytes: 100 + step,
       segments: [
         {
@@ -49,11 +50,45 @@ test('derives the first changed cacheable segment from the existing AgentRun tra
       ],
     },
   });
+  const attempt = {
+    ...base,
+    type: 'provider_request_attempt_recorded',
+    id: 'attempt-1',
+    ts: 4,
+    data: {
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-1',
+      turnId: 'turn-1',
+      step: 0,
+      attempt: 1,
+      captureId: 'capture-1',
+      captureArtifactId: 'artifact-capture-1',
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      requestHash: 'sha256:request-0',
+      requestBytes: 100,
+      segments: [],
+      startedAt: 2,
+      completedAt: 4,
+      status: 'completed',
+      finishReason: 'stop',
+      latencyMs: 2,
+      timeToFirstTokenMs: 1,
+      inputTokens: 12,
+      cacheReadInputTokens: 4,
+      cacheReadInputSource: 'provider',
+      cacheMissInputTokens: 8,
+      cacheMissInputSource: 'derived',
+      outputTokens: 3,
+      reasoningTokens: 2,
+    },
+  };
   await writeFile(
     traceEventsPath,
     `${[
       capture('capture-1', 0, ['sha256:user']),
       capture('capture-2', 1, ['sha256:user', 'sha256:assistant']),
+      attempt,
     ]
       .map((event) => JSON.stringify(event))
       .join('\n')}\n`,
@@ -68,6 +103,34 @@ test('derives the first changed cacheable segment from the existing AgentRun tra
     index: 1,
     role: 'assistant',
   });
+  assert.deepEqual(result.attempts, [
+    {
+      traceId: 'provider-trace-1',
+      attemptId: 'attempt-1',
+      turnId: 'turn-1',
+      step: 0,
+      attempt: 1,
+      captureId: 'capture-1',
+      captureArtifactId: 'artifact-capture-1',
+      providerId: 'openai',
+      modelId: 'gpt-test',
+      requestHash: 'sha256:request-0',
+      requestBytes: 100,
+      startedAt: 2,
+      completedAt: 4,
+      status: 'completed',
+      finishReason: 'stop',
+      latencyMs: 2,
+      timeToFirstTokenMs: 1,
+      inputTokens: 12,
+      cacheReadInputTokens: 4,
+      cacheReadInputSource: 'provider',
+      cacheMissInputTokens: 8,
+      cacheMissInputSource: 'derived',
+      outputTokens: 3,
+      reasoningTokens: 2,
+    },
+  ]);
 });
 
 test('keeps complete provider captures when the AgentRun trace ends with a torn record', async () => {
@@ -91,6 +154,7 @@ test('keeps complete provider captures when the AgentRun trace ends with a torn 
         providerId: 'openai',
         modelId: 'gpt-test',
         requestHash: 'sha256:request-1',
+        requestPayloadWithoutProviderOptionsHash: 'sha256:shared-request-1',
         requestBytes: 100,
         segments: [],
       },
@@ -103,4 +167,5 @@ test('keeps complete provider captures when the AgentRun trace ends with a torn 
     result.captures.map((capture) => capture.captureId),
     ['capture-1'],
   );
+  assert.deepEqual(result.attempts, []);
 });

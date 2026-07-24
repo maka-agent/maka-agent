@@ -2424,6 +2424,33 @@ describe('createHarborTaskRunner timeout', () => {
     });
   });
 
+  test('derives the outer Harbor timeout from a configured cell budget above the task limit', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      let seenTimeout: number | undefined;
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'kimi-coding-plan/k3',
+        provider: 'kimi-coding-plan',
+        agentEnv: { MAKA_CELL_TIMEOUT_SEC: '7200' },
+        runHarbor: async (request) => {
+          seenTimeout = request.timeoutMs;
+          return fakeRunner({ reward: '1\n' })(request);
+        },
+      });
+      await runner(
+        runInput({
+          task: {
+            id: 'task-1',
+            path: '/tasks/task-1',
+            metadata: { agentTimeoutSec: 600, verifierTimeoutSec: 600 },
+          },
+        }),
+      );
+      assert.equal(seenTimeout, (7_200 + 1_320 + 15 * 60) * 1_000);
+    });
+  });
+
   test('puts the adapter dir on PYTHONPATH so harbor can import maka_agent', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       let seenEnv: Record<string, string> | undefined;

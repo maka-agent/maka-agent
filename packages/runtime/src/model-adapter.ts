@@ -117,6 +117,7 @@ export class ModelAdapter {
       toolCalls: true,
       toolResults: true,
       signedThinking: usesAnthropicMessages(this.input.connection, this.input.modelId),
+      unsignedThinking: usesKimiOpenAiChat(this.input.connection, this.input.modelId),
     };
   }
 
@@ -325,12 +326,16 @@ function selectedModelMaxOutputTokens(
   modelId: string,
   providerOptions: Record<string, unknown> | undefined,
 ): number | undefined {
-  if (!usesAnthropicMessages(connection, modelId)) return undefined;
+  const anthropicMessages = usesAnthropicMessages(connection, modelId);
+  const kimiOpenAiChat = usesKimiOpenAiChat(connection, modelId);
+  if (!anthropicMessages && !kimiOpenAiChat) return undefined;
   const wireOutputLimit =
     connection.models?.find((model) => model.id === modelId)?.maxOutputTokens ??
     lookupModelMetadata(connection.providerType, modelId).maxOutputTokens;
   if (wireOutputLimit === undefined) return undefined;
-  return wireOutputLimit - fixedAnthropicThinkingBudget(providerOptions);
+  return anthropicMessages
+    ? wireOutputLimit - fixedAnthropicThinkingBudget(providerOptions)
+    : wireOutputLimit;
 }
 
 function usesAnthropicMessages(connection: LlmConnection, modelId: string): boolean {
@@ -339,6 +344,13 @@ function usesAnthropicMessages(connection: LlmConnection, modelId: string): bool
     adapter.kind === 'anthropic' ||
     adapter.kind === 'claude-subscription' ||
     (adapter.kind === 'github-copilot' && apiProtocol === 'anthropic-messages')
+  );
+}
+
+function usesKimiOpenAiChat(connection: LlmConnection, modelId: string): boolean {
+  return (
+    connection.providerType === 'kimi-coding-plan' &&
+    resolveModelRuntime(connection, modelId).apiProtocol === 'openai-chat'
   );
 }
 
@@ -357,6 +369,7 @@ export interface ModelAdapterRuntimeEventReplaySupport {
   toolCalls: boolean;
   toolResults: boolean;
   signedThinking: boolean;
+  unsignedThinking: boolean;
 }
 
 /**
