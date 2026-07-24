@@ -1,5 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -146,6 +155,55 @@ test('exports one session only and excludes credential/config canaries', async (
       await readFile(join(configRoot, 'credentials.json'), 'utf8'),
       'config-secret-canary',
     );
+  });
+});
+
+test('exports while the session metadata WAL remains open and protects its sidecars', async () => {
+  await withBundleRoots(async ({ stateRoot, configRoot, destinationRoot }) => {
+    const sessions = createSessionStore(stateRoot);
+    try {
+      const selected = await sessions.create(sessionInput('Selected'));
+      await sessions.appendMessage(selected.id, {
+        type: 'user',
+        id: 'message-1',
+        turnId: 'turn-1',
+        ts: 10,
+        text: 'selected transcript',
+      });
+
+      const sidecars = ['sessions.sqlite-wal', 'sessions.sqlite-shm'];
+      const liveEntries = await readdir(stateRoot);
+      for (const sidecar of sidecars) {
+        assert.ok(liveEntries.includes(sidecar), liveEntries.join(', '));
+      }
+
+      const planned = await planSessionBundleExport({
+        stateRoot,
+        configRoot,
+        destinationRoot,
+        sessionId: selected.id,
+      });
+      for (const sidecar of sidecars) {
+        assert.ok(planned.excludedEntries.includes(sidecar), JSON.stringify(planned));
+      }
+
+      const exported = await exportSessionBundleState({
+        stateRoot,
+        configRoot,
+        destinationRoot,
+        sessionId: selected.id,
+      });
+      for (const sidecar of sidecars) {
+        assert.ok(exported.excludedEntries.includes(sidecar), JSON.stringify(exported));
+        await assert.rejects(readFile(join(destinationRoot, sidecar)));
+      }
+      assert.match(
+        await readFile(join(destinationRoot, 'sessions', selected.id, 'session.jsonl'), 'utf8'),
+        /selected transcript/,
+      );
+    } finally {
+      await sessions.close?.();
+    }
   });
 });
 
