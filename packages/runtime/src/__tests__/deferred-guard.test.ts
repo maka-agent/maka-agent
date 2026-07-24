@@ -96,8 +96,16 @@ function tool(name: string, implCalls: string[]): MakaTool {
 }
 
 function run(h: Harness, t: MakaTool, args: unknown = {}) {
-  const exec = h.runtime.wrapToolExecute(t, 'turn-1', { push: (e) => h.pushed.push(e) });
-  return exec(args, { toolCallId: 'tc1', abortSignal: new AbortController().signal });
+  return h.runtime
+    .settleToolCall({
+      tool: t,
+      turnId: 'turn-1',
+      toolCallId: 'tc1',
+      input: args,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => h.pushed.push(event) },
+    })
+    .then((settlement) => settlement.result);
 }
 
 describe('tool-availability execute-boundary guard', () => {

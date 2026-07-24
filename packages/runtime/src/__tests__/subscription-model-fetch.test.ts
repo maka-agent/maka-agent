@@ -47,7 +47,9 @@ describe('subscription model fetch', () => {
     );
     assert.equal(body.system[0].text.startsWith('x-anthropic-billing-header:'), true);
     assert.equal(body.system[1].text, "You are Claude Code, Anthropic's official CLI for Claude.");
+    assert.deepEqual(body.system[1].cache_control, { type: 'ephemeral' });
     assert.equal(body.system[2].text, 'Use the Maka system prompt.');
+    assert.equal(body.cache_control, undefined);
   });
 
   test('leaves Claude subscription requests untouched when the cloak opt-out is disabled', async () => {

@@ -62,6 +62,7 @@ describe('AppShell quick-entry failure copy', () => {
             skillInvocation: {
               loaded: [],
               failed: [{ request: 'missing-skill', reason: 'not_found' }],
+              receipts: [],
             },
           };
         },

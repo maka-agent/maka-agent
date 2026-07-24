@@ -150,9 +150,11 @@ function baseEvents(): RuntimeEvent[] {
           cacheRead: 10,
           costUsd: 0.002,
           systemPromptHash: 'sys-hash',
+          runtimeSteps: 3,
           contextRemaining: 9000,
         },
       },
+      refs: { providerRequestTraceId: 'provider-trace-1' },
     }),
     ev({
       id: 'evt-complete',
@@ -223,6 +225,9 @@ function equivalentLegacyMessages(): StoredMessage[] {
       cacheRead: 10,
       costUsd: 0.002,
       systemPromptHash: 'sys-hash',
+      runtimeSteps: 3,
+      contextRemaining: 9000,
+      providerRequestTraceId: 'provider-trace-1',
     },
     {
       type: 'turn_state',
@@ -320,7 +325,7 @@ describe('projectRuntimeEventsToStoredMessages', () => {
       parentTurnId: 'parent-turn',
       partialOutputRetained: true,
     });
-    expect(out.diagnostics.map((diag) => diag.code)).toEqual(['context_remaining_unsupported']);
+    expect(out.diagnostics).toEqual([]);
   });
 
   test('projects an AskUserQuestion round trip without a legacy row for the live request', () => {
@@ -668,10 +673,7 @@ describe('projectRuntimeEventsToStoredMessages', () => {
         reason: 'stale_tool_result_pruned_before_compact',
       },
     });
-    expect(out.diagnostics.map((diag) => diag.code)).toEqual([
-      'archived_tool_result_placeholder',
-      'context_remaining_unsupported',
-    ]);
+    expect(out.diagnostics.map((diag) => diag.code)).toEqual(['archived_tool_result_placeholder']);
   });
 
   test('archive status wrapper can project missing and corrupt rows without changing sync defaults', () => {
@@ -1211,6 +1213,33 @@ describe('compareRuntimeReadModelMessages', () => {
     ];
 
     expect(compareRuntimeReadModelMessages(projected, legacy).compatible).toBe(false);
+  });
+
+  test('rejects mismatched replay-critical token usage fields', () => {
+    const usage: Extract<StoredMessage, { type: 'token_usage' }> = {
+      type: 'token_usage',
+      id: 'usage-1',
+      turnId,
+      ts,
+      input: 100,
+      output: 25,
+      runtimeSteps: 3,
+      contextRemaining: 9000,
+      providerRequestTraceId: 'provider-trace-1',
+    };
+
+    expect(
+      compareRuntimeReadModelMessages([usage], [{ ...usage, runtimeSteps: 4 }]).compatible,
+    ).toBe(false);
+    expect(
+      compareRuntimeReadModelMessages([usage], [{ ...usage, contextRemaining: 8000 }]).compatible,
+    ).toBe(false);
+    expect(
+      compareRuntimeReadModelMessages(
+        [usage],
+        [{ ...usage, providerRequestTraceId: 'provider-trace-2' }],
+      ).compatible,
+    ).toBe(false);
   });
 
   test('rejects missing tool result and assistant text cases', () => {

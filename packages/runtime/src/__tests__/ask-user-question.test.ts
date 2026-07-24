@@ -50,28 +50,30 @@ describe('AskUserQuestion runtime round trip', () => {
       getPermissionPauseTarget: () => null,
     });
     runtime.beginTurn('turn-1');
-    const execute = runtime.wrapToolExecute(buildAskUserQuestionTool(), 'turn-1', {
-      push: (event) => events.push(event),
-    });
-
-    const resultPromise = execute(
-      {
-        questions: [
-          {
-            question: 'Choose an approach',
-            options: [
-              { label: 'Extend', description: 'Reuse the runtime seam' },
-              { label: 'Separate' },
-            ],
-          },
-          {
-            question: 'Keep the default?',
-            options: [{ label: 'Yes' }, { label: 'No' }],
-          },
-        ],
-      },
-      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
-    );
+    const resultPromise = runtime
+      .settleToolCall({
+        tool: buildAskUserQuestionTool(),
+        turnId: 'turn-1',
+        toolCallId: 'tool-1',
+        input: {
+          questions: [
+            {
+              question: 'Choose an approach',
+              options: [
+                { label: 'Extend', description: 'Reuse the runtime seam' },
+                { label: 'Separate' },
+              ],
+            },
+            {
+              question: 'Keep the default?',
+              options: [{ label: 'Yes' }, { label: 'No' }],
+            },
+          ],
+        },
+        abortSignal: new AbortController().signal,
+        eventSink: { push: (event) => events.push(event) },
+      })
+      .then((settlement) => settlement.result);
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     const request = events.find((event) => event.type === 'user_question_request');
@@ -121,20 +123,23 @@ describe('AskUserQuestion runtime round trip', () => {
       getPermissionPauseTarget: () => null,
     });
     runtime.beginTurn('turn-1');
-    const execute = runtime.wrapToolExecute(buildAskUserQuestionTool(), 'turn-1', {
-      push: (event) => events.push(event),
-    });
-    const resultPromise = execute(
-      {
-        questions: [
-          {
-            question: 'Continue?',
-            options: [{ label: 'Yes' }, { label: 'No' }],
-          },
-        ],
-      },
-      { toolCallId: 'tool-1', abortSignal: new AbortController().signal },
-    );
+    const resultPromise = runtime
+      .settleToolCall({
+        tool: buildAskUserQuestionTool(),
+        turnId: 'turn-1',
+        toolCallId: 'tool-1',
+        input: {
+          questions: [
+            {
+              question: 'Continue?',
+              options: [{ label: 'Yes' }, { label: 'No' }],
+            },
+          ],
+        },
+        abortSignal: new AbortController().signal,
+        eventSink: { push: (event) => events.push(event) },
+      })
+      .then((settlement) => settlement.result);
 
     await new Promise<void>((resolve) => setImmediate(resolve));
     const request = events.find((event) => event.type === 'user_question_request');

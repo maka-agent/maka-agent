@@ -46,14 +46,12 @@ import {
 import type { MakaCliSkillSurface, SessionRecapGenerator } from './runtime-bootstrap.js';
 import { AUTO_RECAP_DISPLAY_LIMIT_BYTES, shouldAutoRecap } from './session-recap.js';
 import {
-  composeSkillInvocationMessage,
   listInvocableSkills,
-  resolveSkillInvocations,
+  prepareSkillInvocationMessage,
   type InvocableSkillEntry,
-  type LoadedSkillInstructions,
 } from '@maka/runtime';
 import { MakaSkillHighlightEditor } from './skill-highlight-editor.js';
-import { parseSkillInvocationTokens, stripSkillInvocationTokens } from './skill-token.js';
+import { parseSkillInvocationTokens } from './skill-token.js';
 import { parseSwarmCommand, type ParsedSwarmCommand } from '@maka/core';
 import type { CliGoalTurnHost } from './cli-goal-continuation.js';
 import {
@@ -384,61 +382,50 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     disabled: '已禁用',
     host_incompatible: '当前主机缺少其依赖的工具',
     invalid_name: '名称无效',
+    too_many_requests: '调用请求过多',
   };
 
   interface PreparedSkillPrompt {
-    sendText: string;
+    disposition: 'passthrough' | 'ready' | 'blocked';
+    sendText?: string;
     loadedNames: string[];
     warnings: string[];
   }
 
-  // Resolve `/skill:<name>` tokens and compose the injectable message. Fully
-  // fail-soft: zero resolved tokens or any thrown error returns the untouched
-  // prompt — skill resolution must never block a send (issue decision: warn at
-  // most; failed tokens stay as literal text).
+  // Resolve `/skill:<name>` tokens through the shared Runtime contract. Failed
+  // invocation tokens never reach the model; when all requests fail, Runtime
+  // returns a bounded receipt and the TUI does not create a provider turn.
   const prepareSkillInvocation = async (prompt: string): Promise<PreparedSkillPrompt> => {
-    const passthrough: PreparedSkillPrompt = { sendText: prompt, loadedNames: [], warnings: [] };
-    if (!input.skills) return passthrough;
-    const tokens = parseSkillInvocationTokens(prompt);
-    if (tokens.length === 0) return passthrough;
-    try {
-      const resolved = await resolveSkillInvocations(
-        input.skills.source(cwd),
-        input.skills.host,
-        tokens.map((token) => token.name),
-      );
-      const loaded: LoadedSkillInstructions[] = [];
-      const okRequests: string[] = [];
-      const failed: Array<{ request: string; reason: string }> = [];
-      for (const entry of resolved) {
-        if (entry.result.ok) {
-          loaded.push(entry.result.skill);
-          okRequests.push(entry.request);
-        } else {
-          failed.push({ request: entry.request, reason: entry.result.reason });
-        }
-      }
-      const warnings =
-        failed.length > 0
-          ? [
-              `未能加载技能 ${failed.map((entry) => `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`).join('、')}，已按原文发送。`,
-            ]
-          : [];
-      if (loaded.length === 0) {
-        return { ...passthrough, warnings };
-      }
-      const stripped = stripSkillInvocationTokens(
-        prompt,
-        new Set(okRequests.map((request) => request.toLowerCase())),
-      );
-      return {
-        sendText: composeSkillInvocationMessage({ userText: stripped, skills: loaded }),
-        loadedNames: loaded.map((skill) => skill.name),
-        warnings,
-      };
-    } catch {
-      return passthrough;
+    if (!input.skills) {
+      return { disposition: 'passthrough', sendText: prompt, loadedNames: [], warnings: [] };
     }
+    const prepared = await prepareSkillInvocationMessage({
+      text: prompt,
+      source: input.skills.source(cwd),
+      host: input.skills.host,
+    });
+    const failed = prepared.skillInvocation.failed;
+    const failedLabels = failed.map((entry) =>
+      entry.reason === 'too_many_requests'
+        ? `请求超过 ${entry.requestLimit} 个上限（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason]}）`
+        : `/skill:${entry.request}（${SKILL_INVOCATION_FAILURE_REASON_LABEL[entry.reason] ?? entry.reason}）`,
+    );
+    const warnings =
+      failed.length > 0
+        ? [
+            `未能加载技能 ${failedLabels.join('、')}；${
+              prepared.disposition === 'blocked'
+                ? '未发起模型请求。'
+                : '失败的调用标记未发送给模型。'
+            }`,
+          ]
+        : [];
+    return {
+      disposition: prepared.disposition,
+      ...('sendText' in prepared ? { sendText: prepared.sendText } : {}),
+      loadedNames: prepared.skillInvocation.loaded.map((skill) => skill.name),
+      warnings,
+    };
   };
 
   // 1-second heartbeat that re-renders the activity strip's elapsed counter
@@ -793,6 +780,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
           text: `已加载技能：${prepared.loadedNames.join('、')}`,
         });
       }
+      if (prepared.disposition === 'blocked') return;
       // Hand off to the turn: runAgentTurn re-asserts busy and re-enables
       // submit so mid-turn Enter can steer. Clearing disableSubmit only there
       // keeps the prep window closed until the turn owns the flags.
@@ -800,7 +788,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
         kind: 'external',
         prompt,
         sessionId: input.driver.getSessionId(),
-        ...(prepared.sendText !== prompt ? { sendText: prepared.sendText } : {}),
+        ...(prepared.sendText !== undefined && prepared.sendText !== prompt
+          ? { sendText: prepared.sendText }
+          : {}),
       });
       handedOff = true;
     } catch (error) {

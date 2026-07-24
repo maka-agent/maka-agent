@@ -212,7 +212,6 @@
 
 /* --- provider list panel (scrolls vertically as the list grows) --- */
 .maka-firstrun-list {
-  position: relative;
   border: var(--border-width-hairline) solid var(--border);
   border-radius: var(--radius-surface);
   overflow: hidden;
@@ -221,21 +220,12 @@
 
 /* Designer audit P2-15: the height clamp cut the last visible provider row
    in half with no cue that the list scrolls — it read as broken clipping.
-   A bottom fade signals "more below" (the provider count always exceeds the
-   clamp, so the cue never lies); pointer-events none keeps rows clickable. */
-.maka-firstrun-list::after {
-  content: "";
-  position: absolute;
-  left: var(--border-width-hairline);
-  right: var(--border-width-hairline);
-  bottom: var(--border-width-hairline);
-  /* 56px: tall enough to fully veil a half-clipped row's text — at 28px the
-     cut row stayed half-legible under the fade and still read as broken. */
-  height: 56px;
-  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
-  background: linear-gradient(to bottom, oklch(from var(--background-elevated) l c h / 0), var(--background-elevated));
-  pointer-events: none;
-}
+   A bottom fade signals "more below". The cue must retire at scroll end:
+   an always-on fade veils the last row and reads as broken dimming. The
+   fade therefore lives on the scroller itself as a sticky ::after, and a
+   scroll-state container query (Chromium 133+, Electron 43) drops it once
+   the list can no longer scroll down — including when the list fits and
+   never overflows. */
 .maka-firstrun-list ul {
   margin: 0;
   padding: 0;
@@ -245,6 +235,32 @@
      windows while still bounding growth as more providers are added. */
   max-height: clamp(240px, 42vh, 420px);
   overflow-y: auto;
+  container-type: scroll-state;
+}
+.maka-firstrun-list ul::after {
+  content: "";
+  display: block;
+  /* Sticky pins the fade to the scrollport's bottom edge while more
+     content follows; margin-top pulls the last row back up under it so the
+     pseudo adds no scrollable height. pointer-events none keeps rows
+     clickable. */
+  position: sticky;
+  bottom: 0;
+  /* 56px: tall enough to fully veil a half-clipped row's text — at 28px the
+     cut row stayed half-legible under the fade and still read as broken.
+     margin-top derives from the same local var so the two never drift. */
+  --firstrun-fade-height: 56px;
+  height: var(--firstrun-fade-height);
+  margin-top: calc(-1 * var(--firstrun-fade-height));
+  border-radius: 0 0 var(--radius-surface) var(--radius-surface);
+  background: linear-gradient(to bottom, oklch(from var(--background-elevated) l c h / 0), var(--background-elevated));
+  pointer-events: none;
+  transition: opacity var(--duration-quick) var(--ease-out-strong);
+}
+@container not scroll-state(scrollable: bottom) {
+  .maka-firstrun-list ul::after {
+    opacity: 0;
+  }
 }
 .maka-firstrun-list li + li {
   border-top: var(--border-width-hairline) solid var(--border);

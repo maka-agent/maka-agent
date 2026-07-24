@@ -15,6 +15,11 @@ import { parseDocument } from 'yaml';
 import { z } from 'zod';
 import { isPathInside, isSafeSkillId } from './path-containment.js';
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
+import {
+  failedSkillInvocationReceipt,
+  loadedSkillInvocationReceipt,
+  skillInvocationReceiptTraceData,
+} from './skill-invocation-receipt.js';
 
 /**
  * Workspace skill read path shared by the desktop app and the CLI.
@@ -103,6 +108,15 @@ export interface SkillScanDiagnostic {
   issues: SkillValidationIssue[];
 }
 
+/** A configured discovery root that could not be inspected safely. */
+export interface SkillDiscoveryDiagnostic {
+  path: string;
+  scope: SkillScope;
+  source: SkillDiscoverySource;
+  precedence: number;
+  reason: 'blocked_path' | 'read_failed';
+}
+
 export interface SkillScanResult {
   skills: ScannedSkill[];
   /** Every valid discovered skill, including lower-precedence shadowed copies. */
@@ -110,6 +124,8 @@ export interface SkillScanResult {
   /** Discovered SKILL.md files rejected by typed metadata validation. */
   rejected: RejectedSkillDefinition[];
   diagnostics: SkillScanDiagnostic[];
+  /** Source-level failures that previously appeared as an empty catalog. */
+  discoveryDiagnostics: SkillDiscoveryDiagnostic[];
 }
 
 export interface RejectedSkillDefinition {
@@ -446,10 +462,12 @@ export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<Sk
   const out: ScannedSkill[] = [];
   const inventory: ScannedSkill[] = [];
   const rejected: RejectedSkillDefinition[] = [];
+  const discoveryDiagnostics: SkillDiscoveryDiagnostic[] = [];
   const diagnostics = new Map<string, SkillScanDiagnostic>();
   for (const [precedence, entry] of entries.entries()) {
     const found = await scanSkillDir(entry, runtimeState, precedence);
     rejected.push(...found.rejected);
+    discoveryDiagnostics.push(...found.discoveryDiagnostics);
     for (const diagnostic of found.diagnostics) {
       appendSkillDiagnostic(diagnostics, diagnostic.id, diagnostic.path, diagnostic.issues);
     }
@@ -491,7 +509,13 @@ export async function scanSkillsWithDiagnostics(source: SkillSource): Promise<Sk
       out.push(skill);
     }
   }
-  return { skills: out, inventory, rejected, diagnostics: [...diagnostics.values()] };
+  return {
+    skills: out,
+    inventory,
+    rejected,
+    diagnostics: [...diagnostics.values()],
+    discoveryDiagnostics,
+  };
 }
 
 /** Backward-compatible scan API. Use scanSkillsWithDiagnostics for inspection. */
@@ -533,22 +557,43 @@ async function scanSkillDir(
   precedence: number,
 ): Promise<SkillScanResult> {
   const { dir, containmentRoot } = discovery;
+  const scope = discovery.scope ?? 'custom';
+  const source = discovery.source ?? 'custom';
+  const empty = (discoveryDiagnostics: SkillDiscoveryDiagnostic[] = []): SkillScanResult => ({
+    skills: [],
+    inventory: [],
+    rejected: [],
+    diagnostics: [],
+    discoveryDiagnostics,
+  });
+  const sourceDiagnostic = (
+    reason: SkillDiscoveryDiagnostic['reason'],
+  ): SkillDiscoveryDiagnostic => ({
+    path: dir,
+    scope,
+    source,
+    precedence,
+    reason,
+  });
   let entries: import('node:fs').Dirent[];
   try {
     const dirStat = await lstat(dir);
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) {
-      return { skills: [], inventory: [], rejected: [], diagnostics: [] };
+      return empty([sourceDiagnostic('blocked_path')]);
     }
     // Verify the resolved directory has not escaped its containment root via
     // an ancestor symlink (e.g. `repo/.agents -> /outside`).
     const [rootReal, dirReal] = await Promise.all([realpath(containmentRoot), realpath(dir)]);
     if (!isPathInside(rootReal, dirReal)) {
-      return { skills: [], inventory: [], rejected: [], diagnostics: [] };
+      return empty([sourceDiagnostic('blocked_path')]);
     }
     entries = await readdir(dir, { withFileTypes: true });
     entries.sort((a, b) => a.name.localeCompare(b.name));
-  } catch {
-    return { skills: [], inventory: [], rejected: [], diagnostics: [] };
+  } catch (error) {
+    // An absent optional discovery root is normal. A configured path that
+    // exists but cannot be inspected is not: expose it to governance clients.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty();
+    return empty([sourceDiagnostic('read_failed')]);
   }
 
   const out: ScannedSkill[] = [];
@@ -564,8 +609,7 @@ async function scanSkillDir(
       const bytes = read.bytes;
       const text = bytes.toString('utf8');
       const validation = validateSkillMetadata(text);
-      const scope = discovery.scope ?? 'custom';
-      const discoverySource = discovery.source ?? 'custom';
+      const discoverySource = source;
       const ref = `${discovery.refPrefix ?? `${scope}:${discoverySource}`}:${dirEntry.name}`;
       if (validation.issues.length > 0) {
         diagnostics.push({ id: dirEntry.name, path: skillPath, issues: validation.issues });
@@ -620,7 +664,7 @@ async function scanSkillDir(
     }
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
-  return { skills: out, inventory: out, rejected, diagnostics };
+  return { skills: out, inventory: out, rejected, diagnostics, discoveryDiagnostics: [] };
 }
 
 /**
@@ -1134,15 +1178,9 @@ export function buildSkillAgentTool(
       );
       if (result.ok) {
         const shadow = options.shadowTracker?.observe(ctx, result.skill.ref);
+        const receipt = loadedSkillInvocationReceipt('model_tool', name, result.skill);
         ctx.emitRunTrace?.('skill_loaded', 'Skill instructions loaded', {
-          skillRef: result.skill.ref,
-          skillId: result.skill.id,
-          skillName: result.skill.name,
-          skillScope: result.skill.scope,
-          skillSource: result.skill.source,
-          invocation: 'model_tool',
-          success: true,
-          truncated: result.skill.truncated,
+          ...skillInvocationReceiptTraceData(receipt),
           declaredTools: result.skill.declaredTools,
           ...(shadow?.rank !== undefined ? { shadowRank: shadow.rank } : {}),
           ...(shadow
@@ -1155,11 +1193,9 @@ export function buildSkillAgentTool(
             : {}),
         });
       } else {
+        const receipt = failedSkillInvocationReceipt('model_tool', name, result.reason);
         ctx.emitRunTrace?.('skill_load_failed', 'Skill instructions were not loaded', {
-          requestChars: name.slice(0, 512).length,
-          invocation: 'model_tool',
-          success: false,
-          reason: result.reason,
+          ...skillInvocationReceiptTraceData(receipt),
         });
       }
       return result;

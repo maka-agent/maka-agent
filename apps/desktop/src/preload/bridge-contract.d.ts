@@ -79,7 +79,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
-import type { Result } from '@maka/core/settings/result';
+import type { Result } from '@maka/core/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
   McpConfigFile,

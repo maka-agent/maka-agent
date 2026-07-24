@@ -248,7 +248,12 @@ export function backfillRuntimeEventsFromStoredMessages(
             stateDelta: recoveryState(now, message),
             tokenUsage: tokenUsageFromMessage(message),
           },
-          refs: { storedMessageId: message.id },
+          refs: {
+            storedMessageId: message.id,
+            ...(message.providerRequestTraceId !== undefined
+              ? { providerRequestTraceId: message.providerRequestTraceId }
+              : {}),
+          },
         });
         break;
 
@@ -417,9 +422,13 @@ function tokenUsageFromMessage(
     ...(message.reasoning !== undefined ? { reasoning: message.reasoning } : {}),
     ...(message.total !== undefined ? { total: message.total } : {}),
     ...(message.rawFinishReason !== undefined ? { rawFinishReason: message.rawFinishReason } : {}),
+    ...(message.runtimeSteps !== undefined ? { runtimeSteps: message.runtimeSteps } : {}),
     ...(message.cacheRead !== undefined ? { cacheRead: message.cacheRead } : {}),
     ...(message.cacheCreation !== undefined ? { cacheCreation: message.cacheCreation } : {}),
     ...(message.costUsd !== undefined ? { costUsd: message.costUsd } : {}),
+    ...(message.contextRemaining !== undefined
+      ? { contextRemaining: message.contextRemaining }
+      : {}),
     ...(message.systemPromptHash !== undefined
       ? { systemPromptHash: message.systemPromptHash }
       : {}),

@@ -265,12 +265,14 @@ function AppShellContent({
     settingsRequestedSection,
     settingsProviderCatalogOpen,
     settingsConnectionDetailSlug,
+    settingsCreateProviderType,
     setSettingsOpen,
     setSettingsProviderCatalogOpen,
     openSettings,
     openSettingsSection,
     openProviderCatalog,
     openConnectionDetail,
+    openProviderCreate,
   } = useSettingsModal();
   const {
     themePref,
@@ -1182,8 +1184,8 @@ function AppShellContent({
       return ok;
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
-    const expectedRevisionSessionId = revisionSend
-      ? revisionDraftRef.current?.draftSessionId
+    const expectedRevisionDraft = revisionSend
+      ? revisionDraftRef.current
       : undefined;
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
     const ok = await send(text, pending, {
@@ -1193,8 +1195,11 @@ function AppShellContent({
     if (ok !== false && pending) clearSubmittedAttachments(pending);
     if (ok !== false && quotes) clearQuotes();
     if (ok !== false && revisionSend) {
-      if (expectedRevisionSessionId) {
-        composerRef.current?.clearDraft(expectedRevisionSessionId);
+      if (expectedRevisionDraft) {
+        composerRef.current?.clearDraft(expectedRevisionDraft.draftSessionId);
+        if (expectedRevisionDraft.sourceSessionId !== expectedRevisionDraft.draftSessionId) {
+          composerRef.current?.clearDraft(expectedRevisionDraft.sourceSessionId);
+        }
       }
       commitRevisionDraft(null);
     }
@@ -1763,6 +1768,7 @@ function AppShellContent({
                   if (section) openSettingsSection(section);
                   else openSettings();
                 }}
+                onAddProvider={openProviderCreate}
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
                 mentionSkills={mentionSkills}
@@ -1988,6 +1994,7 @@ function AppShellContent({
         settingsRequestedSection={settingsRequestedSection}
         settingsProviderCatalogOpen={settingsProviderCatalogOpen}
         settingsConnectionDetailSlug={settingsConnectionDetailSlug}
+        settingsCreateProviderType={settingsCreateProviderType}
         onOpenDailyReview={() => {
           closeSettings();
           setNavSelection({ section: 'daily-review' });

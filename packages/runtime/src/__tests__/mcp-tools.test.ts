@@ -49,6 +49,8 @@ test('buildMcpTools projects discovery, permissions, abort, and rich model outpu
     signal: controller.signal,
   });
   const model = await tools[0]?.toModelOutput?.({ toolCallId: 'call', input: {}, output: result });
+  assert.equal(model?.type, 'content');
+  if (model?.type !== 'content') throw new Error('expected content tool output');
   assert.deepEqual(model?.value.slice(0, 2), [
     { type: 'text', text: 'ok' },
     {
@@ -88,6 +90,8 @@ test('MCP annotations cannot lower permissions and model output has aggregate bo
     },
   );
   const model = await tool?.toModelOutput?.({ toolCallId: 'call', input: {}, output });
+  assert.equal(model?.type, 'content');
+  if (model?.type !== 'content') throw new Error('expected content tool output');
   const text =
     model?.value
       .filter((item) => item.type === 'text')

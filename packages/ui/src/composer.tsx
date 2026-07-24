@@ -19,7 +19,10 @@ import { type ChatModelChoice, modelChoiceValue } from './chat-model-helpers.js'
 import { appendPromptContextDraft, isReferenceSizedPaste } from './composer-helpers.js';
 import { useComposerDraft } from './use-composer-draft.js';
 import { useComposerHistory } from './use-composer-history.js';
-import { useComposerSkillDraft } from './use-composer-skill-draft.js';
+import {
+  useComposerSkillDraft,
+  type ComposerSkillSelection,
+} from './use-composer-skill-draft.js';
 import {
   createChatInputActionOwner,
   fileTransferContainsFiles,
@@ -58,14 +61,21 @@ export interface ComposerHandle {
   appendText(text: string): void;
   /** Read the current uncontrolled textarea value. */
   getText(): string;
-  /** Clear one persisted draft without affecting a different active session. */
+  /** Snapshot the structured Skills owned by the active draft. */
+  getSkills(): ComposerSkillSelection[];
+  /** Clear one persisted text and Skill draft without affecting another session. */
   clearDraft(draftKey: string): void;
   /** Write a specific session draft before navigation changes the active key. */
   setDraft(draftKey: string, text: string): void;
+  /** Replace structured Skills under an explicit session draft key. */
+  setSkillDraft(
+    draftKey: string,
+    skills: readonly ComposerSkillSelection[],
+  ): void;
   /** Move focus to the textarea without changing its content. */
   focus(): void;
   /** Fixture/integration seam for the same structured selection state used by `/`. */
-  setSkills(skills: ReadonlyArray<{ id: string; name: string }>): void;
+  setSkills(skills: ReadonlyArray<{ ref?: string; id: string; name: string }>): void;
 }
 
 type ComposerImportActionId = 'pick' | 'attach';
@@ -221,7 +231,7 @@ export const Composer = forwardRef<
      *   - `onSearchMentionFiles` powers the `@` popup — the composer debounces
      *     the query, and selecting a file inserts `@<relativePath> `.
      */
-    mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+    mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
     onSearchMentionFiles?(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
   }
 >(function Composer(props, ref) {
@@ -330,8 +340,12 @@ export const Composer = forwardRef<
       getText() {
         return textareaRef.current?.value ?? '';
       },
+      getSkills() {
+        return skillDraft.get(skillDraft.activeDraftKey());
+      },
       clearDraft(draftKey: string) {
         clearDraft(draftKey);
+        skillDraft.clear(draftKey);
         if (activeDraftKey() !== draftKey) return;
         const el = textareaRef.current;
         if (el) el.value = '';
@@ -348,12 +362,17 @@ export const Composer = forwardRef<
         autoResize();
         focusTextInputAtEnd(el);
       },
+      setSkillDraft(
+        draftKey: string,
+        skills: readonly ComposerSkillSelection[],
+      ) {
+        skillDraft.replace(draftKey, skills);
+      },
       focus() {
         textareaRef.current?.focus();
       },
       setSkills(skills) {
-        skillDraft.clear(skillDraft.activeDraftKey());
-        for (const skill of skills) skillDraft.add(skill);
+        skillDraft.replace(skillDraft.activeDraftKey(), skills);
       },
     }),
     [],
@@ -364,7 +383,10 @@ export const Composer = forwardRef<
     const textarea = textareaRef.current;
     const form = formRef.current;
     const text = (textarea?.value ?? '').trim();
-    const skillIds = skillDraft.skills.map((skill) => skill.id);
+    // `skillIds` is the legacy wire field name. New selections submit the
+    // stable scope-aware ref so send-time re-resolution cannot drift to a
+    // same-id skill discovered at a different precedence.
+    const skillIds = skillDraft.skills.map((skill) => skill.ref ?? skill.id);
     if (!text && skillIds.length === 0) return;
     const submittedDraftKey = activeDraftKey();
     const submittedSkillDraftKey = skillDraft.activeDraftKey();
@@ -383,11 +405,11 @@ export const Composer = forwardRef<
     // survives page reloads and is shared across all input surfaces.
     if (text) rememberSentEntry(text);
     clearDraft(submittedDraftKey);
+    skillDraft.clear(submittedSkillDraftKey);
     // The owner may have changed while onSend awaited (new-session creation,
     // revision branch, or user navigation). Never erase a foreign draft.
     if (activeDraftKey() !== submittedDraftKey) return;
     saveCurrentDraft('');
-    skillDraft.clear(submittedSkillDraftKey);
     skillDraft.clear(skillDraft.activeDraftKey());
     form?.reset();
     // form.reset() empties the textarea but doesn't fire input — collapse
@@ -685,7 +707,7 @@ export const Composer = forwardRef<
             aria-label={copy.selectedSkillsAriaLabel}
           >
             {skillDraft.skills.map((skill) => (
-              <li className="maka-composer-skill-chip" key={skill.id}>
+              <li className="maka-composer-skill-chip" key={skill.ref ?? skill.id}>
                 <span>{skill.name}</span>
                 <UiButton
                   type="button"
@@ -695,7 +717,7 @@ export const Composer = forwardRef<
                   className="maka-composer-skill-chip-remove"
                   aria-label={copy.removeSkillAriaLabel(skill.name)}
                   onClick={() => {
-                    skillDraft.remove(skill.id);
+                    skillDraft.remove(skill.ref ?? skill.id);
                     window.requestAnimationFrame(() => textareaRef.current?.focus());
                   }}
                 >

@@ -18,6 +18,53 @@ import {
 after(closeAllJsonServers);
 
 describe('models.dev provider conformance', () => {
+  test('native Anthropic sends automatic prompt caching on the Messages wire', async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const server = await startJsonServer(async (request, response) => {
+      assert.equal(request.method, 'POST');
+      assert.equal(request.url, '/v1/messages');
+      assert.equal(request.headers['x-api-key'], 'anthropic-test-key');
+      requestBody = JSON.parse(await readBody(request)) as Record<string, unknown>;
+      respondJson(response, 200, {
+        id: 'msg_anthropic_cache',
+        type: 'message',
+        role: 'assistant',
+        model: 'claude-opus-4-8',
+        content: [{ type: 'text', text: 'Cached.' }],
+        stop_reason: 'end_turn',
+        stop_sequence: null,
+        usage: {
+          input_tokens: 4,
+          output_tokens: 1,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      });
+    });
+    const connection: LlmConnection = {
+      slug: 'anthropic',
+      name: 'Anthropic',
+      providerType: 'anthropic',
+      baseUrl: server.url,
+      defaultModel: 'claude-opus-4-8',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+
+    await generateText({
+      model: getAIModel({
+        connection,
+        apiKey: 'anthropic-test-key',
+        modelId: connection.defaultModel,
+      }),
+      prompt: 'Hello.',
+      providerOptions: buildProviderOptions(connection, connection.defaultModel),
+    });
+
+    assert.deepEqual(requestBody?.cache_control, { type: 'ephemeral' });
+  });
+
   test('GitHub Copilot connection probe validates the selected account model without inference', async () => {
     const server = await startJsonServer((request, response) => {
       assert.equal(request.method, 'GET');

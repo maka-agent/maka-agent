@@ -261,18 +261,21 @@ function makeHarness(sink: RuntimeCommitSink, order?: string[]) {
     events,
     permissionEngine,
     execute: async (target: MakaTool) =>
-      runtime.wrapToolExecute(target, 'turn-1', {
-        push: (event) => {
-          events.push(event);
-          if (event.type === 'tool_result') order?.push('published-result');
-        },
-      })(
-        {},
-        {
+      (
+        await runtime.settleToolCall({
+          tool: target,
+          turnId: 'turn-1',
           toolCallId: 'provider-call-1',
+          input: {},
           abortSignal: new AbortController().signal,
-        },
-      ),
+          eventSink: {
+            push: (event) => {
+              events.push(event);
+              if (event.type === 'tool_result') order?.push('published-result');
+            },
+          },
+        })
+      ).result,
   };
 }
 

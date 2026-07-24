@@ -142,7 +142,12 @@ type ShellCopy = {
     skillInvocationFailedTitle: string;
     skillInvocationFailedDescription(items: readonly string[]): string;
     skillInvocationFailureReason: Record<
-      'invalid_name' | 'not_found' | 'disabled' | 'host_incompatible' | 'resolution_failed',
+      | 'invalid_name'
+      | 'not_found'
+      | 'disabled'
+      | 'host_incompatible'
+      | 'resolution_failed'
+      | 'too_many_requests',
       string
     >;
     responseFailedTitle: string;
@@ -676,6 +681,7 @@ const SHELL_COPY_BY_LOCALE = {
         disabled: '已停用',
         host_incompatible: '当前环境缺少依赖',
         resolution_failed: '解析失败',
+        too_many_requests: 'Skill 调用请求超过 50 个上限',
       },
       responseFailedTitle: '响应失败',
       responseFailedFallback: '会话操作失败，请稍后重试。',
@@ -1133,6 +1139,7 @@ const SHELL_COPY_BY_LOCALE = {
         disabled: 'disabled',
         host_incompatible: 'required tools unavailable',
         resolution_failed: 'resolution failed',
+        too_many_requests: 'more than 50 distinct Skill invocation requests',
       },
       responseFailedTitle: 'Response failed',
       responseFailedFallback: 'The conversation action failed. Try again later.',

@@ -250,8 +250,16 @@ function makeComputerFailureTool(impl: string[], failureClass?: 'ambiguous_targe
 
 let callSeq = 0;
 function call(h: Harness, t: MakaTool, args: unknown, turnId = 'turn-1'): Promise<unknown> {
-  const exec = h.runtime.wrapToolExecute(t, turnId, { push: (e) => h.pushed.push(e) });
-  return exec(args, { toolCallId: `tc-${++callSeq}`, abortSignal: new AbortController().signal });
+  return h.runtime
+    .settleToolCall({
+      tool: t,
+      turnId,
+      toolCallId: `tc-${++callSeq}`,
+      input: args,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => h.pushed.push(event) },
+    })
+    .then((settlement) => settlement.result);
 }
 
 describe('loop-gate for repeated identical FAILING tool calls', () => {

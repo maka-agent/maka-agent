@@ -47,6 +47,8 @@ import { stableHash } from './request-shape.js';
 import { classifyError } from './provider-error-classification.js';
 import type { RunTraceLike } from './run-trace.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
+import { jsonValue } from './tool-result-output.js';
+import type { ToolResultOutput } from './model-protocol.js';
 import {
   AdditionalPermissionError,
   revalidateAdditionalPermissionProposal,
@@ -71,18 +73,19 @@ import type { AgentProfile } from './agent-catalog.js';
 import type { SubagentExecutionRef } from './subagent-execution.js';
 import { serializeSandboxError } from './sandbox/errors.js';
 
-export type ToolModelOutputPart =
-  | { type: 'text'; text: string }
-  | {
-      type: 'file';
-      data: { type: 'data'; data: string | Uint8Array };
-      mediaType: string;
-      filename?: string;
-    };
+export interface ResolvedMakaToolCall {
+  tool: MakaTool;
+  turnId: string;
+  stepId?: string;
+  toolCallId: string;
+  input: unknown;
+  abortSignal: AbortSignal;
+  eventSink: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void };
+}
 
-export interface ToolModelOutput {
-  type: 'content';
-  value: ToolModelOutputPart[];
+export interface ToolSettlement {
+  result: unknown;
+  modelOutput: ToolResultOutput;
 }
 
 export interface MakaTool<P = any, R = unknown> {
@@ -139,7 +142,7 @@ export interface MakaTool<P = any, R = unknown> {
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }) => ToolModelOutput | Promise<ToolModelOutput>;
+  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
 }
 
 export interface MakaToolContext {
@@ -310,13 +313,10 @@ export interface ToolRuntimeInput {
   getCurrentInvocationId?: () => string | undefined;
   getCurrentRunId?: () => string | undefined;
   agentTeam?: AgentTeamExecutionContext;
-  /**
-   * Id of the assistant step currently streaming, stamped onto each tool call's
-   * `tool_start` event so model replay can group a step's reasoning + tool calls
-   * into one provider assistant message. Undefined leaves the step unpaired
-   * (legacy per-turn behavior).
-   */
-  getCurrentStepId?: () => string | undefined;
+  materializeDefaultToolResultOutput?: (options: {
+    toolCallId: string;
+    output: unknown;
+  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
   /** Effective orchestration for the active send; undefined between turns. */
   getCurrentOrchestration?: () => EffectiveOrchestration | undefined;
   spawnChildAgent?: (input: {
@@ -501,15 +501,44 @@ export class ToolRuntime {
     return this.userQuestions.pendingCount(turnId);
   }
 
-  wrapToolExecute(
-    tool: MakaTool,
-    turnId: string,
-    queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
-  ) {
-    return async (
-      args: unknown,
-      ctx: { toolCallId: string; abortSignal: AbortSignal },
-    ): Promise<unknown> => this.executeTool(tool, turnId, queue, args, ctx);
+  hasStepAdmission(stepId: string | null | undefined): boolean {
+    return stepId ? (this.stepAdmissions.get(stepId)?.callCount ?? 0) > 0 : false;
+  }
+
+  /**
+   * Settle one resolved Maka tool call. Tool/business failures resolve with a
+   * provider-facing error output; durable runtime commit failures still reject.
+   */
+  async settleToolCall(call: ResolvedMakaToolCall): Promise<ToolSettlement> {
+    const result = await this.executeTool(
+      call.tool,
+      call.turnId,
+      call.eventSink,
+      call.input,
+      {
+        toolCallId: call.toolCallId,
+        abortSignal: call.abortSignal,
+      },
+      call.stepId,
+    );
+    const providerError = providerToolErrorMessage(result);
+    const modelOutput = providerError
+      ? { type: 'error-text' as const, value: new Error(providerError).toString() }
+      : call.tool.toModelOutput
+        ? await call.tool.toModelOutput({
+            toolCallId: call.toolCallId,
+            input: call.input,
+            output: result,
+          })
+        : this.input.materializeDefaultToolResultOutput
+          ? await this.input.materializeDefaultToolResultOutput({
+              toolCallId: call.toolCallId,
+              output: result,
+            })
+          : typeof result === 'string'
+            ? { type: 'text' as const, value: result }
+            : { type: 'json' as const, value: jsonValue(result) };
+    return { result, modelOutput };
   }
 
   /**
@@ -599,10 +628,10 @@ export class ToolRuntime {
     queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
     args: unknown,
     ctx: { toolCallId: string; abortSignal: AbortSignal },
+    stepId?: string,
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
-    const stepId = this.input.getCurrentStepId?.();
     // Registration is synchronous and happens before the first await, so
     // parallel AI SDK execute callbacks cannot race past exclusive admission.
     const admissionFailure = this.admitToolForStep(tool, stepId);
@@ -2361,6 +2390,19 @@ function isAmbiguousComputerFailure(raw: unknown): boolean {
 
 function durableAttemptKey(turnId: string, toolUseId: string): string {
   return `${turnId}\0${toolUseId}`;
+}
+
+function providerToolErrorMessage(output: unknown): string | undefined {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return undefined;
+  const record = output as Record<string, unknown>;
+  if (typeof record.error !== 'string' || record.error.length === 0) return undefined;
+  if (typeof record.modelText === 'string' && record.modelText.length > 0) {
+    return record.modelText;
+  }
+  if (typeof record.text === 'string' && record.text.length > 0) {
+    return record.text;
+  }
+  return record.error;
 }
 
 function summarizeArgs(toolName: string, args: unknown): string {

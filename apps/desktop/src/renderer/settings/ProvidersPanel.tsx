@@ -42,7 +42,7 @@ type CatalogCategory = ProviderCatalogGroup | 'accounts';
 
 const CATALOG_TABS: CatalogCategory[] = ['recommended', 'accounts', 'plans', 'api', 'aggregators', 'local'];
 
-export function ProvidersPanel({ bridge, initialPage = 'connections', initialConnectionSlug }: {
+export function ProvidersPanel({ bridge, initialPage = 'connections', initialConnectionSlug, initialCreateProviderType, onInitialCreateProviderConsumed }: {
   bridge: ConnectionsBridge;
   initialPage?: 'connections' | 'catalog';
   /**
@@ -52,6 +52,16 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
    * real user reaches the same sheet by clicking the connection row.
    */
   initialConnectionSlug?: string;
+  /**
+   * When set, auto-open the create-connection dialog for this provider once
+   * the panel has loaded. Used by the first-run hero so clicking a provider
+   * row lands directly in that provider's form; a real user reaches the
+   * same dialog by clicking the provider's catalog card. One-shot: the
+   * caller retires the request via onInitialCreateProviderConsumed.
+   */
+  initialCreateProviderType?: ProviderType;
+  /** Called once the auto-opened create dialog has been raised. */
+  onInitialCreateProviderConsumed?: () => void;
 }) {
   const [connections, setConnections] = useState<LlmConnection[]>([]);
   const [defaultSlug, setDefaultSlug] = useState<string | null>(null);
@@ -126,6 +136,12 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
     initialConnectionDetailOpenedRef.current = true;
     setDialogState({ kind: 'manage', slug: initialConnectionSlug });
   }, [loading, initialConnectionSlug, connections]);
+
+  useEffect(() => {
+    if (loading || !initialCreateProviderType) return;
+    setDialogState({ kind: 'create', providerType: initialCreateProviderType });
+    onInitialCreateProviderConsumed?.();
+  }, [loading, initialCreateProviderType, onInitialCreateProviderConsumed]);
 
   const selected = useMemo(
     () => dialogState?.kind === 'manage'

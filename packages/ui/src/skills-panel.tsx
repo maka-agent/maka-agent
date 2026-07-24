@@ -108,7 +108,7 @@ function SkillLibraryPanel(props: {
   const normalizedSkillQuery = props.searchQuery?.trim().toLowerCase() ?? '';
   const filteredSkills = (props.skills ?? []).filter((skill) => {
     if (!normalizedSkillQuery) return true;
-    return `${skill.id} ${skill.name} ${skill.description ?? ''}`.toLowerCase().includes(normalizedSkillQuery);
+    return `${skill.id} ${skill.name} ${skill.description ?? ''} ${skill.path}`.toLowerCase().includes(normalizedSkillQuery);
   });
   // 内置 = the shipped catalog (install-on-demand cards); 已安装 = everything
   // actually present in the workspace, regardless of source. A skill installed
@@ -123,6 +123,7 @@ function SkillLibraryPanel(props: {
   const installedSkills = filteredSkills;
   const contextCounts = (props.skills ?? []).reduce(
     (counts, skill) => {
+      if (skill.kind === 'discovery_diagnostic') return counts;
       counts.discovered += 1;
       const status = skill.contextStatus ?? (skill.enabled ? 'advertised' : 'disabled');
       if (status === 'advertised') counts.advertised += 1;
@@ -138,6 +139,7 @@ function SkillLibraryPanel(props: {
   // the slug inline exactly for those rows.
   const skillNameCounts = new Map<string, number>();
   for (const skill of filteredSkills) {
+    if (skill.kind === 'discovery_diagnostic') continue;
     skillNameCounts.set(skill.name, (skillNameCounts.get(skill.name) ?? 0) + 1);
   }
   const allManagedSources = props.managedSkillSources ?? [];
@@ -443,11 +445,18 @@ function SkillLibraryPanel(props: {
           />
           <ul className="maka-skill-library-list" aria-label={copy.installed.listAriaLabel}>
             {list.map((skill) => {
+              const isDiscoveryDiagnostic = skill.kind === 'discovery_diagnostic';
               const skillRef = skill.ref ?? skill.id;
               const contextStatus = skill.contextStatus ?? (skill.enabled ? 'advertised' : 'disabled');
               const tools = skill.declaredTools ?? [];
               const toolsLabel = tools.length > 0 ? tools.join(', ') : '';
-              const description = formatSkillLibraryDescription(skill, copy);
+              const displayName = isDiscoveryDiagnostic
+                ? copy.context.discoverySource(skill.scope ?? 'custom', skill.source ?? 'custom')
+                : skill.name;
+              const description =
+                isDiscoveryDiagnostic && skill.discoveryDiagnosticReason
+                  ? copy.context.discoveryDiagnostic[skill.discoveryDiagnosticReason]
+                  : formatSkillLibraryDescription(skill, copy);
               const statusLabel = formatSkillStatusLabel(skill, copy);
               const runtimeLabel = formatSkillRuntimeLabel(skill, copy);
               const opening = props.openingSkillId === skillRef;
@@ -458,12 +467,15 @@ function SkillLibraryPanel(props: {
               const confirmingDelete = confirmingDeleteSkillId === skill.id;
               const reviewableManagedUpdate = skill.managedUpdateStatus === 'update_available' || skill.managedUpdateStatus === 'local_modified';
               const canToggleSkill =
+                !isDiscoveryDiagnostic &&
                 Boolean(props.onSetSkillEnabled) &&
                 skill.runtimeStatus !== 'state_error' &&
                 contextStatus !== 'invalid';
-              const hoverText = tools.length > 0
-                ? copy.row.hoverWithTools(skill.id, runtimeLabel, statusLabel, toolsLabel)
-                : copy.row.hover(skill.id, runtimeLabel, statusLabel);
+              const hoverText = isDiscoveryDiagnostic
+                ? `${displayName}\n\n${description}\n${skill.path}`
+                : tools.length > 0
+                  ? copy.row.hoverWithTools(skill.id, runtimeLabel, statusLabel, toolsLabel)
+                  : copy.row.hover(skill.id, runtimeLabel, statusLabel);
               return (
                 <li key={skillRef} className="maka-skill-library-item" data-runtime-status={skill.runtimeStatus} data-context-status={contextStatus}>
                   <div
@@ -475,8 +487,8 @@ function SkillLibraryPanel(props: {
                     </span>
                     <span className="maka-skill-library-copy">
                       <span className="maka-skill-library-name">
-                        {skill.name}
-                        {(skillNameCounts.get(skill.name) ?? 0) > 1 && (
+                        {displayName}
+                        {!isDiscoveryDiagnostic && (skillNameCounts.get(skill.name) ?? 0) > 1 && (
                           <span className="maka-skill-library-slug">{skill.id}</span>
                         )}
                       </span>
@@ -501,23 +513,37 @@ function SkillLibraryPanel(props: {
                           {copy.context.scope[skill.scope]}
                         </Chip>
                       )}
+                      {skill.needsReview && (
+                        <Chip
+                          size="sm"
+                          variant="warning"
+                          className="maka-skill-library-review-label"
+                          title={copy.context.needsReviewTitle}
+                        >
+                          {copy.context.needsReview}
+                        </Chip>
+                      )}
                       <Chip
                         size="sm"
                         variant={contextStatus === 'advertised' ? 'neutral' : 'warning'}
                         className="maka-skill-library-context-label"
                         data-status={contextStatus}
                       >
-                        {copy.context.decision[contextStatus]}
-                        {skill.contextRank ? ` #${skill.contextRank}` : ''}
+                        {isDiscoveryDiagnostic && skill.discoveryDiagnosticReason
+                          ? copy.context.discoveryDiagnostic[skill.discoveryDiagnosticReason]
+                          : copy.context.decision[contextStatus]}
+                        {!isDiscoveryDiagnostic && skill.contextRank ? ` #${skill.contextRank}` : ''}
                       </Chip>
-                      <Chip size="sm" variant={skillStatusChipTone(skill)} className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</Chip>
+                      {!isDiscoveryDiagnostic && (
+                        <Chip size="sm" variant={skillStatusChipTone(skill)} className="maka-skill-library-status-label" data-status={skill.managedUpdateStatus ?? skill.validationStatus ?? skill.sourceType ?? 'workspace'}>{statusLabel}</Chip>
+                      )}
                       {opening && <span>{copy.row.opening}</span>}
                       {updating && <span>{copy.row.updating}</span>}
                       {toggling && <span>{copy.row.toggling}</span>}
                       {reviewing && <span>{copy.row.reviewing}</span>}
                     </span>
                   </div>
-                  {props.onUseSkill && skill.enabled && contextStatus !== 'shadowed' && (
+                  {!isDiscoveryDiagnostic && props.onUseSkill && skill.enabled && contextStatus !== 'shadowed' && (
                     <UiButton
                       type="button"
                       variant="secondary"
@@ -530,27 +556,31 @@ function SkillLibraryPanel(props: {
                       {copy.row.use}
                     </UiButton>
                   )}
-                  <UiButton
-                    type="button"
-                    variant="secondary"
-                    size="icon-sm"
-                    className="maka-skill-library-open-button"
-                    onClick={() => props.onOpenSkill?.(skillRef)}
-                    disabled={props.actionBusy || !props.onOpenSkill}
-                    aria-label={copy.row.openAriaLabel(skill.name)}
-                    title={copy.row.openTitle}
-                  >
-                    {opening ? <Loader2 size={15} aria-hidden="true" /> : <FileEdit size={15} aria-hidden="true" />}
-                  </UiButton>
-                  <Switch
-                    className="maka-skill-library-runtime-switch"
-                    checked={skill.enabled}
-                    disabled={props.actionBusy || !canToggleSkill}
-                    aria-label={skill.enabled ? copy.row.disableAriaLabel(skill.name) : copy.row.enableAriaLabel(skill.name)}
-                    title={skill.runtimeStatus === 'state_error' ? copy.row.stateErrorTitle : skill.enabled ? copy.row.enabledTitle : copy.row.disabledTitle}
-                    onCheckedChange={(next) => props.onSetSkillEnabled?.(skillRef, next === true)}
-                  />
-                  {props.onSetSkillPinned && (
+                  {!isDiscoveryDiagnostic && (
+                    <>
+                      <UiButton
+                        type="button"
+                        variant="secondary"
+                        size="icon-sm"
+                        className="maka-skill-library-open-button"
+                        onClick={() => props.onOpenSkill?.(skillRef)}
+                        disabled={props.actionBusy || !props.onOpenSkill}
+                        aria-label={copy.row.openAriaLabel(skill.name)}
+                        title={copy.row.openTitle}
+                      >
+                        {opening ? <Loader2 size={15} aria-hidden="true" /> : <FileEdit size={15} aria-hidden="true" />}
+                      </UiButton>
+                      <Switch
+                        className="maka-skill-library-runtime-switch"
+                        checked={skill.enabled}
+                        disabled={props.actionBusy || !canToggleSkill}
+                        aria-label={skill.enabled ? copy.row.disableAriaLabel(skill.name) : copy.row.enableAriaLabel(skill.name)}
+                        title={skill.runtimeStatus === 'state_error' ? copy.row.stateErrorTitle : skill.enabled ? copy.row.enabledTitle : copy.row.disabledTitle}
+                        onCheckedChange={(next) => props.onSetSkillEnabled?.(skillRef, next === true)}
+                      />
+                    </>
+                  )}
+                  {!isDiscoveryDiagnostic && props.onSetSkillPinned && (
                     <UiButton
                       type="button"
                       variant="secondary"
@@ -568,7 +598,7 @@ function SkillLibraryPanel(props: {
                       {skill.pinned ? <PinOff size={15} aria-hidden="true" /> : <Pin size={15} aria-hidden="true" />}
                     </UiButton>
                   )}
-                  {reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
+                  {!isDiscoveryDiagnostic && reviewableManagedUpdate && props.onPreviewManagedSkillUpdate && (
                     <UiButton
                       type="button"
                       variant="secondary"
@@ -579,7 +609,7 @@ function SkillLibraryPanel(props: {
                       {reviewing ? copy.row.reviewing : skill.managedUpdateStatus === 'local_modified' ? copy.row.viewDiff : copy.row.viewUpdate}
                     </UiButton>
                   )}
-                  {props.onDeleteSkill && skill.manageable !== false && (
+                  {!isDiscoveryDiagnostic && props.onDeleteSkill && skill.manageable !== false && (
                     <UiButton
                       type="button"
                       variant="secondary"
