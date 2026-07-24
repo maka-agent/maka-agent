@@ -12,7 +12,30 @@ test('answers three questions and continues the same fake-backend turn', async (
   await expect(prompt.getByText('1 / 3', { exact: true })).toBeVisible();
   await expect(prompt.getByText('先验证核心流程，再逐步扩大范围。')).toBeVisible();
 
-  await prompt.getByRole('radio', { name: /邀请制/ }).click();
+  const selectedOption = prompt.getByRole('radio', { name: /邀请制/ });
+  const unselectedOption = prompt.getByRole('radio', { name: /公开测试/ });
+  await selectedOption.click();
+  const selectionStyles = await Promise.all([
+    selectedOption.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderColor: style.borderColor,
+        boxShadow: style.boxShadow,
+      };
+    }),
+    unselectedOption.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backgroundColor: style.backgroundColor,
+        borderColor: style.borderColor,
+        boxShadow: style.boxShadow,
+      };
+    }),
+  ]);
+  expect(selectionStyles[0].backgroundColor).not.toBe(selectionStyles[1].backgroundColor);
+  expect(selectionStyles[0].borderColor).not.toBe(selectionStyles[1].borderColor);
+  expect(selectionStyles[0].boxShadow).not.toBe('none');
   await prompt.getByRole('button', { name: '下一题' }).click();
 
   await expect(prompt.getByText('2 / 3', { exact: true })).toBeVisible();
@@ -21,8 +44,14 @@ test('answers three questions and continues the same fake-backend turn', async (
 
   await expect(prompt.getByText('3 / 3', { exact: true })).toBeVisible();
   await expect(prompt.getByRole('radio', { name: '是' })).toBeFocused();
-  await prompt.getByRole('radio', { name: /其他/ }).click();
   const other = prompt.getByRole('textbox', { name: '其他答案' });
+  await expect(other).toBeVisible();
+  await expect(other).toHaveValue('');
+  await other.focus();
+  await expect(prompt.getByRole('radio', { name: /其他/ })).toBeChecked();
+  expect(
+    await other.evaluate((input) => input.closest('.maka-question-other-option') !== null),
+  ).toBe(true);
   await expect(prompt.getByRole('button', { name: '提交答案' })).toBeDisabled();
   await other.fill('自定义节奏');
   await prompt.getByRole('button', { name: '提交答案' }).click();

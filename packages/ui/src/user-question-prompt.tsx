@@ -29,6 +29,7 @@ export function UserQuestionPrompt(props: {
   const responsePendingRef = useRef(false);
   const activeRequestIdRef = useRef(props.request.requestId);
   const firstOptionRef = useRef<HTMLButtonElement>(null);
+  const otherInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useMountedRef();
 
   useEffect(() => {
@@ -61,6 +62,7 @@ export function UserQuestionPrompt(props: {
   function select(value: string) {
     if (value === OTHER_VALUE) {
       updateDraft(draft?.kind === 'other' ? draft : { kind: 'other', value: '' });
+      otherInputRef.current?.focus();
       return;
     }
     const optionIndex = Number(value.slice('option:'.length));
@@ -117,30 +119,35 @@ export function UserQuestionPrompt(props: {
               </span>
             </ChoiceCard>
           ))}
-          <ChoiceCard
-            className="maka-question-option"
-            value={OTHER_VALUE}
-            disabled={interactionDisabled}
+          <div
+            className="maka-question-other-option"
+            data-checked={draft?.kind === 'other' ? '' : undefined}
           >
-            <span className="maka-question-radio" aria-hidden="true" />
-            <span className="maka-question-option-copy">
-              <strong>{copy.other}</strong>
-              <small>{copy.otherDescription}</small>
-            </span>
-          </ChoiceCard>
+            <ChoiceCard
+              className="maka-question-option maka-question-other-trigger"
+              value={OTHER_VALUE}
+              disabled={interactionDisabled}
+            >
+              <span className="maka-question-radio" aria-hidden="true" />
+              <span className="maka-question-option-copy">
+                <strong>{copy.other}</strong>
+                <small>{copy.otherDescription}</small>
+              </span>
+            </ChoiceCard>
+            <Input
+              ref={otherInputRef}
+              aria-label={copy.otherAriaLabel}
+              className="maka-question-other-input"
+              placeholder={copy.otherPlaceholder}
+              value={draft?.kind === 'other' ? draft.value : ''}
+              disabled={interactionDisabled}
+              onFocus={() => {
+                if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
+              }}
+              onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
+            />
+          </div>
         </ChoiceCardGroup>
-
-        {draft?.kind === 'other' && (
-          <Input
-            autoFocus
-            aria-label={copy.otherAriaLabel}
-            className="maka-question-other-input"
-            placeholder={copy.otherPlaceholder}
-            value={draft.value}
-            disabled={interactionDisabled}
-            onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
-          />
-        )}
 
         <footer className="permissionActions maka-question-actions">
           <Button
