@@ -1,3 +1,5 @@
+import type { AgentRunHeader } from '@maka/core';
+import { failureClassFromCompleteStopReason, type SessionEvent } from '@maka/core/events';
 import type {
   SessionBlockedReason,
   SessionHeader,
@@ -84,4 +86,60 @@ export function normalizeStopSessionSource(
     case undefined:
       return undefined;
   }
+}
+
+export function isTerminalRunStatus(status: AgentRunHeader['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled';
+}
+
+export function statusFromEvent(
+  event: SessionEvent,
+): { status: SessionStatus; blockedReason?: SessionBlockedReason } | undefined {
+  switch (event.type) {
+    case 'permission_request':
+      return { status: 'waiting_for_user', blockedReason: 'permission_required' };
+    case 'permission_decision_ack':
+      return event.decision === 'allow' ? { status: 'running' } : { status: 'aborted' };
+    case 'error':
+      return { status: 'blocked', blockedReason: blockedReasonFromErrorReason(event.reason) };
+    case 'abort':
+      return { status: 'aborted' };
+    case 'complete':
+      if (event.stopReason === 'permission_handoff')
+        return { status: 'waiting_for_user', blockedReason: 'permission_required' };
+      if (event.stopReason === 'user_stop') return { status: 'aborted' };
+      if (event.stopReason === 'error') return { status: 'blocked', blockedReason: 'unknown' };
+      return { status: 'active' };
+    default:
+      return undefined;
+  }
+}
+
+export function turnStatusFromEvent(
+  event: SessionEvent,
+): { status: TurnRecord['status']; errorClass?: string } | undefined {
+  switch (event.type) {
+    case 'abort':
+      return { status: 'aborted' };
+    case 'error':
+      return { status: 'failed', errorClass: event.reason ?? event.code ?? 'unknown' };
+    case 'complete': {
+      if (event.stopReason === 'user_stop') return { status: 'aborted' };
+      const errorClass = failureClassFromCompleteStopReason(event.stopReason);
+      if (errorClass) return { status: 'failed', errorClass };
+      if (event.stopReason === 'permission_handoff') return { status: 'running' };
+      return { status: 'completed' };
+    }
+    default:
+      return undefined;
+  }
+}
+
+function blockedReasonFromErrorReason(reason: string | undefined): SessionBlockedReason {
+  if (!reason) return 'unknown';
+  if (reason === 'permission_required') return 'permission_required';
+  if (reason === 'tool_failed') return 'tool_failed';
+  if (reason === 'auth' || reason.includes('api_key') || reason.includes('connection'))
+    return 'NO_REAL_CONNECTION';
+  return 'unknown';
 }

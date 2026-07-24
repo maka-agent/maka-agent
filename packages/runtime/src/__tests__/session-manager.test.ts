@@ -4290,6 +4290,42 @@ describe('SessionManager permission mode updates', () => {
     expect(repairedRuntimeEvents.at(-1)?.status).toBe('completed');
   });
 
+  test('sendMessage rejects missing prior ledger when legacy message reads fail', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => new TestBackend(ctx));
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(7_025),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    await runStore.createRun(
+      makeRunHeader({
+        sessionId: session.id,
+        runId: 'run-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        createdAt: 100,
+        updatedAt: 103,
+        completedAt: 103,
+      }),
+    );
+    store.failReadMessagesFor.add(session.id);
+
+    await expectRejects(
+      collectSessionEvents(
+        manager.sendMessage(session.id, { turnId: 'turn-2', text: 'follow up' }),
+      ),
+      /RuntimeEvent ledger is missing for prior run run-1/,
+    );
+  });
+
   test('sendMessage rejects prior runtime context without a valid terminal fact', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
