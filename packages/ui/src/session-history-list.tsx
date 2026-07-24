@@ -6,6 +6,7 @@ import {
   Archive,
   ArchiveRestore,
   Ban,
+  Bot,
   ChevronRight,
   CircleCheckBig,
   Eye,
@@ -81,6 +82,8 @@ export function SessionHistoryList(props: {
    * doesn't have to know about Archived being closed by default.
    */
   statusGroups?: ReadonlyArray<SessionHistoryStatusGroup>;
+  /** Linked subagent Sessions keyed by their durable parent Session id. */
+  childSessionsByParentId?: ReadonlyMap<string, readonly SessionSummary[]>;
   groupVariant?: SessionHistoryGroupVariant;
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
@@ -194,6 +197,7 @@ export function SessionHistoryList(props: {
             activeId={props.activeId}
             streamingSessionIds={props.streamingSessionIds}
             staleSessionIds={props.staleSessionIds}
+            childSessionsByParentId={props.childSessionsByParentId}
             onSelectSession={props.onSelectSession}
             rowActions={props.rowActions}
           />
@@ -226,6 +230,7 @@ function SessionListGroups(props: {
   activeId?: string;
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
+  childSessionsByParentId?: ReadonlyMap<string, readonly SessionSummary[]>;
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
 }) {
@@ -266,6 +271,7 @@ function SessionListGroups(props: {
               activeId={props.activeId}
               streamingSessionIds={props.streamingSessionIds}
               staleSessionIds={props.staleSessionIds}
+              childSessionsByParentId={props.childSessionsByParentId}
               onSelectSession={props.onSelectSession}
               rowActions={props.rowActions}
             />
@@ -306,14 +312,15 @@ function SessionListGroups(props: {
             {expanded && (
               <div id={`maka-list-group-body-${group.key}`}>
                 {group.sessions.map((session) => (
-                  <SessionRow
+                  <SessionTreeRow
                     key={session.id}
                     session={session}
-                    active={session.id === props.activeId}
-                    streaming={props.streamingSessionIds?.has(session.id) ?? false}
-                    stale={props.staleSessionIds?.has(session.id) ?? false}
-                    onSelect={props.onSelectSession}
-                    actions={props.rowActions}
+                    activeId={props.activeId}
+                    streamingSessionIds={props.streamingSessionIds}
+                    staleSessionIds={props.staleSessionIds}
+                    childSessionsByParentId={props.childSessionsByParentId}
+                    onSelectSession={props.onSelectSession}
+                    rowActions={props.rowActions}
                   />
                 ))}
               </div>
@@ -332,6 +339,7 @@ function ProjectSessionGroup(props: {
   activeId?: string;
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
+  childSessionsByParentId?: ReadonlyMap<string, readonly SessionSummary[]>;
   onSelectSession(sessionId: string): void;
   rowActions?: SessionRowActions;
 }) {
@@ -363,14 +371,15 @@ function ProjectSessionGroup(props: {
         <>
           <div id={`maka-list-group-body-${props.groupKey}`}>
             {visibleSessions.map((session) => (
-              <SessionRow
+              <SessionTreeRow
                 key={session.id}
                 session={session}
-                active={session.id === props.activeId}
-                streaming={props.streamingSessionIds?.has(session.id) ?? false}
-                stale={props.staleSessionIds?.has(session.id) ?? false}
-                onSelect={props.onSelectSession}
-                actions={props.rowActions}
+                activeId={props.activeId}
+                streamingSessionIds={props.streamingSessionIds}
+                staleSessionIds={props.staleSessionIds}
+                childSessionsByParentId={props.childSessionsByParentId}
+                onSelectSession={props.onSelectSession}
+                rowActions={props.rowActions}
               />
             ))}
           </div>
@@ -385,6 +394,48 @@ function ProjectSessionGroup(props: {
             </BaseButton>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+function SessionTreeRow(props: {
+  session: SessionSummary;
+  activeId?: string;
+  streamingSessionIds?: Set<string>;
+  staleSessionIds?: Set<string>;
+  childSessionsByParentId?: ReadonlyMap<string, readonly SessionSummary[]>;
+  onSelectSession(sessionId: string): void;
+  rowActions?: SessionRowActions;
+  depth?: number;
+}) {
+  const depth = props.depth ?? 0;
+  const children = props.childSessionsByParentId?.get(props.session.id) ?? [];
+  return (
+    <div
+      className="maka-list-session-tree"
+      data-depth={depth > 0 ? String(depth) : undefined}
+    >
+      <SessionRow
+        session={props.session}
+        active={props.session.id === props.activeId}
+        streaming={props.streamingSessionIds?.has(props.session.id) ?? false}
+        stale={props.staleSessionIds?.has(props.session.id) ?? false}
+        nested={depth > 0}
+        onSelect={props.onSelectSession}
+        actions={props.rowActions}
+      />
+      {children.length > 0 && (
+        <div className="maka-list-session-children">
+          {children.map((child) => (
+            <SessionTreeRow
+              key={child.id}
+              {...props}
+              session={child}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
@@ -474,10 +525,12 @@ const SessionRow = memo(function SessionRow(props: {
    * user can spot broken sessions in the list before clicking in.
    */
   stale?: boolean;
+  /** Render this linked child as an indented nested Session row. */
+  nested?: boolean;
   onSelect(sessionId: string): void;
   actions?: SessionRowActions;
 }) {
-  const { session, active, streaming, stale, actions, onSelect } = props;
+  const { session, active, streaming, stale, nested, actions, onSelect } = props;
   const locale = useUiLocale();
   const copy = getConversationCopy(locale).sessions;
   const [editing, setEditing] = useState(false);
@@ -561,6 +614,7 @@ const SessionRow = memo(function SessionRow(props: {
       data-menu-open={menuOpen ? 'true' : undefined}
       data-streaming={streaming ? 'true' : undefined}
       data-stale={stale ? 'true' : undefined}
+      data-subagent={nested ? 'true' : undefined}
       onMouseEnter={() => setActionsVisible(true)}
       onMouseLeave={(event) => {
         if (event.currentTarget.contains(document.activeElement)) return;
@@ -655,6 +709,13 @@ const SessionRow = memo(function SessionRow(props: {
           */}
           <div className="maka-list-row-text">
             <div className="maka-list-row-name">
+              {nested && (
+                <Bot
+                  size={12}
+                  aria-hidden="true"
+                  className="maka-list-row-subagent-icon"
+                />
+              )}
               {streaming && (
                 <span
                   className="maka-list-row-streaming-dot"

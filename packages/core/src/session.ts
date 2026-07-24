@@ -13,7 +13,13 @@ import {
   type ToolActivityKind,
   type ToolResultContent,
 } from './events.js';
-import type { PermissionMode } from './permission.js';
+import {
+  isPermissionMode,
+  isToolCategory,
+  type PermissionMode,
+  type PolicyDecision,
+  type ToolCategory,
+} from './permission.js';
 import type { CollaborationMode } from './collaboration.js';
 import type { OrchestrationMode } from './orchestration.js';
 import type {
@@ -63,6 +69,74 @@ export const TURN_STATUSES = ['running', 'completed', 'aborted', 'failed'] as co
 
 export type TurnStatus = (typeof TURN_STATUSES)[number];
 
+export const SUBAGENT_SESSION_LIFECYCLES = ['foreground'] as const;
+
+export type SubagentSessionLifecycle = (typeof SUBAGENT_SESSION_LIFECYCLES)[number];
+export const SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION = 1 as const;
+export const SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION = 1 as const;
+
+/**
+ * Durable control-plane lineage for a subagent session.
+ *
+ * The relation lives only on the child. Parents do not persist a reciprocal
+ * child-id array; reverse lookup is a read-model concern. Cross-session
+ * provenance deliberately stays out of AgentRun.parentRunId so runs inside the
+ * child session can retain normal session-inline history semantics.
+ */
+export interface SubagentSessionParent {
+  kind: 'subagent';
+  parentSessionId: string;
+  spawnedBy: {
+    parentRunId: string;
+    parentTurnId: string;
+    toolCallId: string;
+  };
+  swarm?: {
+    swarmId: string;
+    itemId: string;
+  };
+  lifecycle: SubagentSessionLifecycle;
+}
+
+/**
+ * Durable execution snapshot for a linked subagent session.
+ *
+ * The snapshot prevents a reopened child session from silently inheriting a
+ * wider tool surface or permission ceiling from a later parent/default
+ * configuration. The concrete SessionHeader continues to own backend/model/
+ * cwd and the active permission mode.
+ */
+export interface SubagentSessionRuntime {
+  schemaVersion: typeof SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION;
+  definitionVersion: number;
+  agentId: string;
+  agentName: string;
+  profile: string;
+  systemPrompt: string;
+  toolNames: string[];
+  categoryPolicy: Partial<Record<ToolCategory, PolicyDecision>>;
+  permissionCeiling: PermissionMode;
+}
+
+/**
+ * Durable identity of the initial child invocation.
+ *
+ * The SQLite metadata control plane derives its unique spawn key from
+ * subagentParent. This block binds that key to the exact requested work and
+ * preallocates the first run identities so a retry can reuse or recover them.
+ */
+export interface SubagentSessionSpawn {
+  schemaVersion: typeof SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION;
+  requestFingerprint: string;
+  initialTurnId: string;
+  initialRunId: string;
+}
+
+export type SubagentSessionRuntimeSummary = Omit<
+  SubagentSessionRuntime,
+  'systemPrompt' | 'categoryPolicy'
+>;
+
 export function isSessionStatus(value: unknown): value is SessionStatus {
   return typeof value === 'string' && (SESSION_STATUSES as readonly string[]).includes(value);
 }
@@ -103,8 +177,15 @@ export interface SessionHeader {
   status: SessionStatus;
   blockedReason?: SessionBlockedReason;
   statusUpdatedAt?: number;
+  /** Ordinary branch lineage. Subagent lineage uses subagentParent instead. */
   parentSessionId?: string;
   branchOfTurnId?: string;
+  /** Immutable control-plane relation for a linked child-agent session. */
+  subagentParent?: SubagentSessionParent;
+  /** Immutable runtime/profile snapshot for child-session execution. */
+  subagentRuntime?: SubagentSessionRuntime;
+  /** Immutable idempotency and initial-run identity for child creation. */
+  subagentSpawn?: SubagentSessionSpawn;
   /** Stable root id for an edit-and-resend version family. */
   revisionRootSessionId?: string;
   /** Immediate previous version in the same conversation slot. */
@@ -156,6 +237,8 @@ export interface SessionSummary {
   statusUpdatedAt?: number;
   parentSessionId?: string;
   branchOfTurnId?: string;
+  subagentParent?: SubagentSessionParent;
+  subagentRuntime?: SubagentSessionRuntimeSummary;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -179,6 +262,266 @@ export interface SessionSummary {
   collaborationMode?: CollaborationMode;
   /** Defaults to `default` when absent on legacy summaries. */
   orchestrationMode?: OrchestrationMode;
+}
+
+/**
+ * Host-facing projection of linked subagent Sessions.
+ *
+ * The flat Session list remains the storage/read authority. Hosts use this
+ * projection to nest a linked child beneath its durable parent without
+ * confusing ordinary branch lineage with subagent ownership. Missing-parent
+ * and cyclic relations fail open into roots so an inspectable child can never
+ * disappear from the product surface.
+ */
+export interface LinkedSessionTree {
+  roots: SessionSummary[];
+  childrenByParentId: ReadonlyMap<string, readonly SessionSummary[]>;
+}
+
+export interface LinkedSessionTreeProjectionOptions {
+  /**
+   * Read-model aliases from durable physical parent ids to visible logical
+   * Session ids. Revision projection uses this to keep a child attached when
+   * its spawning parent revision is no longer the selected representative.
+   */
+  parentSessionIdAliases?: ReadonlyMap<string, string>;
+}
+
+const SUBAGENT_SESSION_PARENT_SHAPE = defineObjectShape<SubagentSessionParent>()(
+  ['kind', 'parentSessionId', 'spawnedBy', 'lifecycle'],
+  ['swarm'],
+);
+const SUBAGENT_SESSION_SPAWN_SHAPE = defineObjectShape<SubagentSessionParent['spawnedBy']>()(
+  ['parentRunId', 'parentTurnId', 'toolCallId'],
+  [],
+);
+const SUBAGENT_SESSION_SWARM_SHAPE = defineObjectShape<
+  NonNullable<SubagentSessionParent['swarm']>
+>()(['swarmId', 'itemId'], []);
+const SUBAGENT_SESSION_RUNTIME_SHAPE = defineObjectShape<SubagentSessionRuntime>()(
+  [
+    'schemaVersion',
+    'definitionVersion',
+    'agentId',
+    'agentName',
+    'profile',
+    'systemPrompt',
+    'toolNames',
+    'categoryPolicy',
+    'permissionCeiling',
+  ],
+  [],
+);
+const SUBAGENT_SESSION_SPAWN_IDENTITY_SHAPE = defineObjectShape<SubagentSessionSpawn>()(
+  ['schemaVersion', 'requestFingerprint', 'initialTurnId', 'initialRunId'],
+  [],
+);
+const SESSION_LINEAGE_ID_MAX_CHARS = 512;
+const SESSION_LINEAGE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+const SUBAGENT_RUNTIME_NAME_MAX_CHARS = 512;
+const SUBAGENT_RUNTIME_SYSTEM_PROMPT_MAX_CHARS = 100_000;
+const SUBAGENT_RUNTIME_TOOL_LIMIT = 128;
+const SUBAGENT_REQUEST_FINGERPRINT_PATTERN = /^[a-f0-9]{64}$/;
+
+/** Strict decoder guard for the persisted child-session relation. */
+export function isSubagentSessionParent(value: unknown): value is SubagentSessionParent {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, SUBAGENT_SESSION_PARENT_SHAPE) ||
+    value.kind !== 'subagent' ||
+    !isSessionLineageId(value.parentSessionId) ||
+    value.lifecycle !== 'foreground' ||
+    !isRecord(value.spawnedBy) ||
+    !hasExactShape(value.spawnedBy, SUBAGENT_SESSION_SPAWN_SHAPE) ||
+    !isSessionLineageId(value.spawnedBy.parentRunId) ||
+    !isSessionLineageId(value.spawnedBy.parentTurnId) ||
+    !isSessionLineageId(value.spawnedBy.toolCallId)
+  ) {
+    return false;
+  }
+  return (
+    value.swarm === undefined ||
+    (isRecord(value.swarm) &&
+      hasExactShape(value.swarm, SUBAGENT_SESSION_SWARM_SHAPE) &&
+      isSessionLineageId(value.swarm.swarmId) &&
+      isSessionLineageId(value.swarm.itemId))
+  );
+}
+
+/** Strict decoder guard for the persisted child execution snapshot. */
+export function isSubagentSessionRuntime(value: unknown): value is SubagentSessionRuntime {
+  if (
+    !isRecord(value) ||
+    !hasExactShape(value, SUBAGENT_SESSION_RUNTIME_SHAPE) ||
+    value.schemaVersion !== SUBAGENT_SESSION_RUNTIME_SCHEMA_VERSION ||
+    !Number.isSafeInteger(value.definitionVersion) ||
+    (value.definitionVersion as number) < 1 ||
+    !isSessionLineageId(value.agentId) ||
+    !isSessionLineageId(value.profile) ||
+    typeof value.agentName !== 'string' ||
+    value.agentName.length === 0 ||
+    value.agentName.length > SUBAGENT_RUNTIME_NAME_MAX_CHARS ||
+    SESSION_LINEAGE_CONTROL_CHARACTERS.test(value.agentName) ||
+    typeof value.systemPrompt !== 'string' ||
+    value.systemPrompt.length === 0 ||
+    value.systemPrompt.length > SUBAGENT_RUNTIME_SYSTEM_PROMPT_MAX_CHARS ||
+    value.systemPrompt.includes('\u0000') ||
+    !Array.isArray(value.toolNames) ||
+    value.toolNames.length > SUBAGENT_RUNTIME_TOOL_LIMIT ||
+    !value.toolNames.every(isSessionLineageId) ||
+    new Set(value.toolNames).size !== value.toolNames.length ||
+    !isSubagentCategoryPolicy(value.categoryPolicy)
+  ) {
+    return false;
+  }
+  return isPermissionMode(value.permissionCeiling);
+}
+
+/** Strict decoder guard for durable child-spawn idempotency metadata. */
+export function isSubagentSessionSpawn(value: unknown): value is SubagentSessionSpawn {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, SUBAGENT_SESSION_SPAWN_IDENTITY_SHAPE) &&
+    value.schemaVersion === SUBAGENT_SESSION_SPAWN_SCHEMA_VERSION &&
+    typeof value.requestFingerprint === 'string' &&
+    SUBAGENT_REQUEST_FINGERPRINT_PATTERN.test(value.requestFingerprint) &&
+    isSessionLineageId(value.initialTurnId) &&
+    isSessionLineageId(value.initialRunId)
+  );
+}
+
+export function subagentSessionRuntimeSummary(
+  value: SubagentSessionRuntime,
+): SubagentSessionRuntimeSummary {
+  const { systemPrompt: _systemPrompt, categoryPolicy: _categoryPolicy, ...summary } = value;
+  return summary;
+}
+
+/** Read-model projection; input order is preserved. */
+export function childSessionsForParent(
+  sessions: readonly SessionSummary[],
+  parentSessionId: string,
+): SessionSummary[] {
+  return sessions.filter(
+    (session) =>
+      isSubagentSessionParent(session.subagentParent) &&
+      session.subagentParent.parentSessionId === parentSessionId,
+  );
+}
+
+/** Read-model projection; input order is preserved at every tree level. */
+export function projectLinkedSessionTree(
+  sessions: readonly SessionSummary[],
+  options: LinkedSessionTreeProjectionOptions = {},
+): LinkedSessionTree {
+  const sessionsById = new Map(sessions.map((session) => [session.id, session]));
+  const nestedParentByChildId = new Map<string, string>();
+  const linkedParentId = (session: SessionSummary): string | undefined => {
+    const relation = session.subagentParent;
+    if (!isSubagentSessionParent(relation)) return undefined;
+    return (
+      options.parentSessionIdAliases?.get(relation.parentSessionId) ?? relation.parentSessionId
+    );
+  };
+
+  for (const session of sessions) {
+    const parentSessionId = linkedParentId(session);
+    if (!parentSessionId) continue;
+    if (!sessionsById.has(parentSessionId)) continue;
+    if (parentSessionId === session.id) continue;
+    if (linkedParentChainContainsCycle(session.id, sessionsById, linkedParentId)) continue;
+    nestedParentByChildId.set(session.id, parentSessionId);
+  }
+
+  const roots: SessionSummary[] = [];
+  const mutableChildren = new Map<string, SessionSummary[]>();
+  for (const session of sessions) {
+    const parentSessionId = nestedParentByChildId.get(session.id);
+    if (!parentSessionId) {
+      roots.push(session);
+      continue;
+    }
+    const children = mutableChildren.get(parentSessionId) ?? [];
+    children.push(session);
+    mutableChildren.set(parentSessionId, children);
+  }
+
+  return {
+    roots,
+    childrenByParentId: mutableChildren,
+  };
+}
+
+/**
+ * Filter a linked tree without leaking non-matching descendants through a
+ * matching parent. Matching descendants whose ancestors do not match are
+ * promoted to the nearest matching ancestor, or to a root when none exists.
+ */
+export function filterLinkedSessionTree(
+  tree: LinkedSessionTree,
+  include: (session: SessionSummary) => boolean,
+): LinkedSessionTree {
+  const roots: SessionSummary[] = [];
+  const mutableChildren = new Map<string, SessionSummary[]>();
+
+  const visit = (session: SessionSummary, visibleParentId?: string): void => {
+    const included = include(session);
+    const nextVisibleParentId = included ? session.id : visibleParentId;
+    if (included) {
+      if (visibleParentId) {
+        const children = mutableChildren.get(visibleParentId) ?? [];
+        children.push(session);
+        mutableChildren.set(visibleParentId, children);
+      } else {
+        roots.push(session);
+      }
+    }
+    for (const child of tree.childrenByParentId.get(session.id) ?? []) {
+      visit(child, nextVisibleParentId);
+    }
+  };
+
+  for (const root of tree.roots) visit(root);
+  return { roots, childrenByParentId: mutableChildren };
+}
+
+function linkedParentChainContainsCycle(
+  startSessionId: string,
+  sessionsById: ReadonlyMap<string, SessionSummary>,
+  linkedParentId: (session: SessionSummary) => string | undefined,
+): boolean {
+  const visited = new Set<string>();
+  let sessionId: string | undefined = startSessionId;
+  while (sessionId) {
+    if (visited.has(sessionId)) return true;
+    visited.add(sessionId);
+    const session = sessionsById.get(sessionId);
+    if (!session) return false;
+    const parentSessionId = linkedParentId(session);
+    if (!parentSessionId || !sessionsById.has(parentSessionId)) return false;
+    sessionId = parentSessionId;
+  }
+  return false;
+}
+
+function isSessionLineageId(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= SESSION_LINEAGE_ID_MAX_CHARS &&
+    !SESSION_LINEAGE_CONTROL_CHARACTERS.test(value)
+  );
+}
+
+function isSubagentCategoryPolicy(
+  value: unknown,
+): value is Partial<Record<ToolCategory, PolicyDecision>> {
+  if (!isRecord(value)) return false;
+  return Object.entries(value).every(
+    ([category, decision]) =>
+      isToolCategory(category) &&
+      (decision === 'allow' || decision === 'prompt' || decision === 'block'),
+  );
 }
 
 export type SessionChangedReason =
@@ -347,6 +690,7 @@ export interface TokenUsageMessage {
   cacheCreation?: number;
   costUsd?: number;
   systemPromptHash?: string;
+  contextRemaining?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;
@@ -443,6 +787,7 @@ const TOKEN_USAGE_MESSAGE_SHAPE = defineObjectShape<TokenUsageMessage>()(
     'cacheCreation',
     'costUsd',
     'systemPromptHash',
+    'contextRemaining',
     'prefixHash',
     'prefixChangeReason',
     'requestShapeHash',

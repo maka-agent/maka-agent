@@ -98,7 +98,7 @@ import {
   type HistoryRewriteGatePolicy,
 } from './history-compact.js';
 
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
 import type {
   CompactionDecisionDiagnostic,

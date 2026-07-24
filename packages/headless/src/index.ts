@@ -250,6 +250,7 @@ export {
   PierInfraError,
   PIER_PROVIDER_PROXY_DEFAULT_PORT,
   type BuildPierRunArgsInput,
+  type PierAgent,
   type PierProcessRunner,
   type PierRunRequest,
   type PierRunResult,

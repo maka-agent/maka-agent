@@ -5,6 +5,7 @@ import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
 
 import { ModelAdapter } from '../model-adapter.js';
+import type { ModelToolSet } from '../model-protocol.js';
 import { ToolAvailabilityRuntime, LOAD_TOOLS_NAME } from '../tool-availability.js';
 import type { MakaTool } from '../tool-runtime.js';
 
@@ -80,9 +81,9 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
 
     // Build the ai-sdk tools dict the backend would build, with a working
     // load_tools execute that returns the thin activation result.
-    const aiSdkTools: Record<string, unknown> = {};
+    const modelTools: ModelToolSet = {};
     for (const t of plan.providerTools) {
-      aiSdkTools[t.name] = {
+      modelTools[t.name] = {
         description: t.description,
         inputSchema: t.parameters,
         execute:
@@ -93,14 +94,14 @@ describe('prepareStep activates a group within the same turn (Codex Δ1)', () =>
     const result = await newAdapter().startStream({
       model,
       messages: [{ role: 'user', content: 'animate it' }],
-      tools: aiSdkTools,
+      tools: modelTools,
       activeTools: plan.activeTools,
       prepareStep: plan.prepareStep,
       system: 'sys',
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    for await (const _chunk of result.stream) {
+    for await (const _chunk of result.events) {
       void _chunk;
     }
 

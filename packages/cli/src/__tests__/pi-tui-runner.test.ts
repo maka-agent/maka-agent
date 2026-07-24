@@ -5455,7 +5455,7 @@ describe('Maka Pi TUI runner', () => {
     await run;
   });
 
-  test('handles /move without sending a prompt and warns about dirty old cwd', async () => {
+  test('handles /move without sending it as a prompt and accepts the next prompt', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver();
     const run = runMakaPiTui({
@@ -5475,6 +5475,11 @@ describe('Maka Pi TUI runner', () => {
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('uncommitted changes'));
     assert.deepEqual(driver.moves, ['/repo/.worktree/feature']);
     assert.deepEqual(driver.prompts, []);
+
+    terminal.input('continue in the moved workspace');
+    terminal.input('\r');
+    await waitFor(() => driver.prompts.length === 1);
+    assert.deepEqual(driver.prompts, ['continue in the moved workspace']);
 
     exitMaka(terminal);
     await Promise.race([
@@ -5750,6 +5755,58 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
+  test('nests linked child sessions in the picker and allows opening one directly', async () => {
+    const terminal = new FakeTerminal();
+    const parent = fakeSessionSummary('parent-session', '/repo', 'Parent chat');
+    const child = {
+      ...fakeSessionSummary('child-session', '/repo', 'Local Read'),
+      subagentParent: {
+        kind: 'subagent' as const,
+        parentSessionId: parent.id,
+        spawnedBy: {
+          parentRunId: 'parent-run',
+          parentTurnId: 'parent-turn',
+          toolCallId: 'tool-call',
+        },
+        lifecycle: 'foreground' as const,
+      },
+      subagentRuntime: {
+        schemaVersion: 1 as const,
+        definitionVersion: 1,
+        agentId: 'local-read',
+        agentName: 'Local Read',
+        profile: 'local_read',
+        toolNames: ['Read', 'Glob', 'Grep'],
+        permissionCeiling: 'ask' as const,
+      },
+    };
+    const driver = new SlashCommandDriver([parent, child]);
+    const run = runMakaPiTui({
+      title: 'Maka',
+      driver,
+      cwd: '/repo',
+      model: 'claude-sonnet-4-5',
+      connectionSlug: 'claude-subscription',
+      permissionMode: 'ask',
+      terminal,
+    });
+
+    terminal.input('/session');
+    terminal.input('\r');
+    await waitFor(() => plainTerminalOutput(terminal.screenOutput()).includes('↳ Local Read'));
+    assert.match(
+      plainTerminalOutput(terminal.screenOutput()),
+      /Local Read.*subagent:local_read active/,
+    );
+
+    terminal.input('\x1b[B');
+    terminal.input('\r');
+    await waitFor(() => driver.sessionIds.includes(child.id));
+
+    exitMaka(terminal);
+    await run;
+  });
+
   test('imports a foreign session from /session into a fresh handoff turn', async () => {
     const terminal = new FakeTerminal();
     // No Maka sessions, so the only picker row is the foreign one.
@@ -5859,7 +5916,7 @@ describe('Maka Pi TUI runner', () => {
     ]);
   });
 
-  test('renders switched session history instead of a session id note', async () => {
+  test('restores switched session state from stored messages', async () => {
     const terminal = new FakeTerminal();
     const driver = new SlashCommandDriver(
       [fakeSessionSummary('session-2', '/repo')],
@@ -5869,6 +5926,28 @@ describe('Maka Pi TUI runner', () => {
           [
             storedUserMessage('user-1', 'turn-1', 'previous question'),
             storedAssistantMessage('assistant-1', 'turn-1', 'previous answer'),
+            {
+              type: 'token_usage',
+              id: 'usage-1',
+              turnId: 'turn-1',
+              ts: 3,
+              input: 100,
+              output: 20,
+              cacheHitInput: 20,
+              cacheMissInput: 80,
+              contextRemaining: 490_000,
+            },
+            {
+              type: 'token_usage',
+              id: 'usage-2',
+              turnId: 'turn-1',
+              ts: 4,
+              input: 100,
+              output: 20,
+              cacheHitInput: 60,
+              cacheMissInput: 40,
+              contextRemaining: 480_000,
+            },
           ],
         ],
       ]),
@@ -5880,6 +5959,7 @@ describe('Maka Pi TUI runner', () => {
       model: 'claude-sonnet-4-5',
       connectionSlug: 'claude-subscription',
       permissionMode: 'ask',
+      modelContextWindow: 500_000,
       terminal,
     });
 
@@ -5888,6 +5968,8 @@ describe('Maka Pi TUI runner', () => {
 
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous question'));
     await waitFor(() => plainTerminalOutput(terminal.output()).includes('previous answer'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('ctx 20k/500k 4%'));
+    await waitFor(() => plainTerminalOutput(terminal.output()).includes('cache 40%'));
     const output = plainTerminalOutput(terminal.output());
     assert.equal(output.includes('Session: session-2'), false);
 
@@ -7747,9 +7829,9 @@ describe('Maka Pi TUI runner', () => {
     });
   });
 
-  // #1148: a token that fails to resolve must never block the send — the raw
-  // prompt goes out untouched and a non-blocking notice explains the skip.
-  test('sends the raw prompt with a notice when a skill token fails to resolve', async () => {
+  // Governance closeout: an all-failed explicit invocation yields a bounded
+  // local diagnostic and must not create a provider turn.
+  test('does not create a turn when every skill token fails to resolve', async () => {
     await withSkillWorkspace(async (workspaceRoot) => {
       const terminal = new FakeTerminal();
       const driver = new SlashCommandDriver();
@@ -7766,18 +7848,51 @@ describe('Maka Pi TUI runner', () => {
 
       terminal.input('/skill:nope hi');
       terminal.input('\r');
-      await waitFor(() => driver.prompts.length === 1);
-
-      assert.equal(
-        driver.prompts[0],
-        '/skill:nope hi',
-        'failed token degrades to the untouched prompt',
-      );
       await waitFor(() =>
         plainTerminalOutput(terminal.output()).includes(
-          '未能加载技能 /skill:nope（未找到），已按原文发送。',
+          '未能加载技能 /skill:nope（未找到）；未发起模型请求。',
         ),
       );
+      assert.equal(driver.prompts.length, 0);
+
+      exitMaka(terminal);
+      await Promise.race([
+        run,
+        delay(50).then(() => {
+          throw new Error('TUI did not close during test cleanup');
+        }),
+      ]);
+    });
+  });
+
+  test('does not create a turn when distinct skill requests exceed the preparation limit', async () => {
+    await withSkillWorkspace(async (workspaceRoot) => {
+      const terminal = new FakeTerminal();
+      const driver = new SlashCommandDriver();
+      const run = runMakaPiTui({
+        title: 'Maka',
+        driver,
+        cwd: '/repo',
+        model: 'claude-sonnet-4-5',
+        connectionSlug: 'claude-subscription',
+        permissionMode: 'ask',
+        terminal,
+        skills: { source: () => workspaceRoot, host: { toolNames: new Set<string>() } },
+      });
+      const prompt = [
+        '/skill:alpha',
+        ...Array.from({ length: 50 }, (_, index) => `/skill:missing-${index}`),
+        '帮我整理',
+      ].join(' ');
+
+      terminal.input(prompt);
+      terminal.input('\r');
+      await waitFor(() =>
+        plainTerminalOutput(terminal.output()).includes(
+          '请求超过 50 个上限（调用请求过多）；未发起模型请求。',
+        ),
+      );
+      assert.equal(driver.prompts.length, 0);
 
       exitMaka(terminal);
       await Promise.race([

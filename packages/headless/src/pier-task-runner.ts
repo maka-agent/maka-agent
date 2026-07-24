@@ -34,6 +34,11 @@ import {
 } from './harbor-task-runner.js';
 import { lenientPositiveIntEnv } from './headless-run-env.js';
 import {
+  CODEX_TOOLCHAIN_CONTAINER_PATH,
+  CODEX_TOOLCHAIN_FINGERPRINT,
+  CODEX_TOOLCHAIN_SPEC,
+} from './codex-toolchain.js';
+import {
   KIMI_CODE_TOOLCHAIN_CONTAINER_PATH,
   KIMI_CODE_TOOLCHAIN_FINGERPRINT,
 } from './kimi-code-toolchain.js';
@@ -52,23 +57,23 @@ const TRIAL_REWARD_JSON = 'verifier/reward.json';
 const TRIAL_RESULT = 'result.json';
 const PROVIDER_REQUEST_TELEMETRY = 'provider-request-telemetry.json';
 
-/** The default port the Kimi arm binds the host provider proxy to. Pier's Squid
- * egress for offline (`allow_internet=false`) tasks only permits destination
- * ports 80/443 (`acl Safe_ports port 80 443`), so a container reaching the host
- * proxy through Squid must present one of those. 443 keeps the model endpoint on
- * the conventional TLS port. */
+/** The default port a container-CLI arm (Kimi/Codex) binds the host provider
+ * proxy to. Pier's Squid egress for offline (`allow_internet=false`) tasks only
+ * permits destination ports 80/443 (`acl Safe_ports port 80 443`), so a
+ * container reaching the host proxy through Squid must present one of those.
+ * 443 keeps the model endpoint on the conventional TLS port. */
 export const PIER_PROVIDER_PROXY_DEFAULT_PORT = 443;
 
-/** The Kimi arm binds ONE fixed proxy port per attempt, and Pier's Squid egress
- * leaves only two usable destination ports (80/443), so concurrent attempts on
- * the same port must hold it one at a time — a second concurrent bind is a
- * guaranteed EADDRINUSE. The lock's owner is the shared host PORT, not a runner
- * instance: two runners in one process (e.g. an A/B with two Kimi arms) compete
- * for the same bind. Hence a module-level per-port queue; cross-PROCESS
- * collisions remain the operator's scheduling concern. Serializing the
- * proxy-holding section (instead of sharing one proxy) keeps usage/telemetry
- * attribution per attempt. A pool over both Squid-legal ports is deferred until
- * concurrency actually needs it. */
+/** A container-CLI arm binds ONE fixed proxy port per attempt, and Pier's Squid
+ * egress leaves only two usable destination ports (80/443), so concurrent
+ * attempts on the same port must hold it one at a time — a second concurrent
+ * bind is a guaranteed EADDRINUSE. The lock's owner is the shared host PORT,
+ * not a runner instance: two runners in one process (e.g. an A/B with two
+ * container-CLI arms) compete for the same bind. Hence a module-level per-port
+ * queue; cross-PROCESS collisions remain the operator's scheduling concern.
+ * Serializing the proxy-holding section (instead of sharing one proxy) keeps
+ * usage/telemetry attribution per attempt. A pool over both Squid-legal ports
+ * is deferred until concurrency actually needs it. */
 const proxyPortQueues = new Map<number, Promise<unknown>>();
 
 function withProxyPortLock<T>(port: number, fn: () => Promise<T>): Promise<T> {
@@ -110,12 +115,18 @@ export interface PierTaskRunnerOptions {
   /** Host path to the maka repo, bind-mounted read-only at /opt/maka-agent. */
   makaRepoPath: string;
   /** Pier adapter under test (default: Maka, host-side LLM + offline container). */
-  agent?: 'maka' | 'kimi-code';
+  agent?: PierAgent;
   /** In-container/host cell backend. Only the Maka arm reads it. `fake` runs the
    * inert cell for zero-cost structural checks; `ai-sdk` is the real run. */
   backend?: 'ai-sdk' | 'fake';
   /** Prepared Kimi Code toolchain bind-mounted read-only into task containers. */
   kimiCodeToolchainPath?: string;
+  /** Prepared Codex toolchain bind-mounted read-only into task containers. */
+  codexToolchainPath?: string;
+  /** Competitor CLI version, forwarded as the adapter's `version` kwarg. The
+   * Codex arm requires it to match the pinned toolchain spec so the fixed
+   * build under test is exactly the one fingerprinted into the manifest. */
+  agentVersion?: string;
   /** Base directory under which each task gets an isolated per-task job dir. */
   jobsDir: string;
   /** MAKA_MODEL / pier `-m`, e.g. "k3" or "deepseek/deepseek-v4-flash". */
@@ -132,17 +143,18 @@ export interface PierTaskRunnerOptions {
   /** Resolves the upstream authority inside the host proxy for every request. */
   resolveProviderCredential?: ProviderUpstreamCredentialResolver;
   /** Route the Maka arm's host cell through the auth proxy instead of reading the
-   * key file directly. The Kimi arm always uses the proxy. */
+   * key file directly. The container-CLI arms (Kimi/Codex) always use the proxy. */
   useProviderProxy?: boolean;
-  /** Explicit host proxy listen port for the Kimi arm (default 443). */
+  /** Explicit host proxy listen port for a container-CLI arm (default 443). */
   providerProxyPort?: number;
-  /** Host the Kimi container should dial to reach the host provider proxy. Only
-   * the Kimi arm honors it; the Maka arm's host cell always uses loopback
-   * (127.0.0.1) since it runs on the host itself. Unset keeps the default
-   * host.docker.internal, which Docker Desktop injects but native Linux Docker
-   * does NOT provide (pier 0.3.0's compose wires no extra_hosts/host-gateway),
-   * so on native Linux pass the host's docker-bridge-reachable address (e.g.
-   * 172.17.0.1) or the Kimi container's Squid cannot resolve the proxy. */
+  /** Host a container-CLI arm's container should dial to reach the host
+   * provider proxy. Only those arms honor it; the Maka arm's host cell always
+   * uses loopback (127.0.0.1) since it runs on the host itself. Unset keeps the
+   * default host.docker.internal, which Docker Desktop injects but native Linux
+   * Docker does NOT provide (pier 0.3.0's compose wires no
+   * extra_hosts/host-gateway), so on native Linux pass the host's
+   * docker-bridge-reachable address (e.g. 172.17.0.1) or the container's Squid
+   * cannot resolve the proxy. */
   providerProxyAdvertisedHost?: string;
   /** Per-1M USD pricing forwarded as MAKA_TRIAL_* so the cell emits real costUsd. */
   pricing?: PierTaskPricing;
@@ -193,6 +205,8 @@ export interface PierRunResult {
 
 export type PierProcessRunner = (request: PierRunRequest) => Promise<PierRunResult>;
 
+export type PierAgent = 'maka' | 'kimi-code' | 'codex';
+
 interface PierProviderRuntime {
   /** Proxy-minted secret env delivered via `--env-file` (kept off argv). */
   envFile: Record<string, string>;
@@ -204,6 +218,11 @@ interface PierProviderRuntime {
 }
 
 export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner {
+  if (options.agent === 'codex' && options.agentVersion !== CODEX_TOOLCHAIN_SPEC.codex.version) {
+    throw new Error(
+      `Codex adapter version must match toolchain version ${CODEX_TOOLCHAIN_SPEC.codex.version}`,
+    );
+  }
   const runPier = options.runPier ?? defaultPierProcessRunner;
   const pierBin = options.pierBin ?? 'pier';
   // The bare adapter import path (`maka_agent:MakaAgent`) resolves only when the
@@ -282,6 +301,19 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
             mounts,
             agentEnv: aeEnv,
             ...(usesEnvFile ? { envFile: envFilePath } : {}),
+            // Constructor kwargs ride `--ak`; env cannot carry them. The Codex
+            // adapter pins its CLI build via `version` and forwards the effort
+            // as the `-c model_reasoning_effort` CLI flag descriptor.
+            ...(agent === 'codex'
+              ? {
+                  agentKwargs: {
+                    version: options.agentVersion!,
+                    ...(options.reasoningEffort
+                      ? { reasoning_effort: options.reasoningEffort }
+                      : {}),
+                  },
+                }
+              : {}),
           });
           return await runPier({
             pierBin,
@@ -331,13 +363,13 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
         );
       }
     };
-    // Only the Kimi arm on a FIXED port competes for the bind; the Maka arm
-    // (ephemeral or no proxy) and an explicit port 0 (OS-assigned, used by
-    // tests) cannot collide and need no serialization.
-    const kimiProxyPort = options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT;
+    // Only a container-CLI arm (Kimi/Codex) on a FIXED port competes for the
+    // bind; the Maka arm (ephemeral or no proxy) and an explicit port 0
+    // (OS-assigned, used by tests) cannot collide and need no serialization.
+    const containerProxyPort = options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT;
     const result =
-      agent === 'kimi-code' && kimiProxyPort !== 0
-        ? await withProxyPortLock(kimiProxyPort, launchAttempt)
+      agent !== 'maka' && containerProxyPort !== 0
+        ? await withProxyPortLock(containerProxyPort, launchAttempt)
         : await launchAttempt();
 
     try {
@@ -472,7 +504,7 @@ export function createPierTaskRunner(options: PierTaskRunnerOptions): TaskRunner
 }
 
 export interface BuildPierRunArgsInput {
-  agent: 'maka' | 'kimi-code';
+  agent: PierAgent;
   model: string;
   taskPath: string;
   jobsDir: string;
@@ -482,12 +514,18 @@ export interface BuildPierRunArgsInput {
   mounts: ReadonlyArray<Record<string, unknown>>;
   agentEnv: Record<string, string>;
   envFile?: string;
+  /** Adapter constructor kwargs forwarded as `--ak key=value`. */
+  agentKwargs?: Record<string, string>;
 }
 
 /** Assemble the `pier run` argv. Exported for deterministic unit tests. */
 export function buildPierRunArgs(input: BuildPierRunArgsInput): string[] {
   const importPath =
-    input.agent === 'kimi-code' ? 'kimi_code_agent:MakaKimiCodeAgent' : 'maka_agent:MakaAgent';
+    input.agent === 'kimi-code'
+      ? 'kimi_code_agent:MakaKimiCodeAgent'
+      : input.agent === 'codex'
+        ? 'codex_agent:MakaCodexAgent'
+        : 'maka_agent:MakaAgent';
   const args = [
     'run',
     '--agent-import-path',
@@ -515,6 +553,9 @@ export function buildPierRunArgs(input: BuildPierRunArgsInput): string[] {
     '--quiet',
   ];
   if (input.envFile) args.push('--env-file', input.envFile);
+  for (const [key, value] of Object.entries(input.agentKwargs ?? {})) {
+    args.push('--ak', `${key}=${value}`);
+  }
   for (const [key, value] of Object.entries(input.agentEnv)) {
     args.push('--ae', `${key}=${value}`);
   }
@@ -523,7 +564,7 @@ export function buildPierRunArgs(input: BuildPierRunArgsInput): string[] {
 
 function buildPierMounts(
   options: PierTaskRunnerOptions,
-  agent: 'maka' | 'kimi-code',
+  agent: PierAgent,
 ): Array<Record<string, unknown>> {
   const mounts: Array<Record<string, unknown>> = [
     { type: 'bind', source: options.makaRepoPath, target: CONTAINER_MAKA_REPO, read_only: true },
@@ -539,13 +580,24 @@ function buildPierMounts(
       read_only: true,
     });
   }
+  if (agent === 'codex') {
+    if (!options.codexToolchainPath) {
+      throw new Error('codexToolchainPath is required for the Codex adapter');
+    }
+    mounts.push({
+      type: 'bind',
+      source: options.codexToolchainPath,
+      target: CODEX_TOOLCHAIN_CONTAINER_PATH,
+      read_only: true,
+    });
+  }
   return mounts;
 }
 
 function buildPierAgentEnv(
   input: TaskRunInput,
   options: PierTaskRunnerOptions,
-  agent: 'maka' | 'kimi-code',
+  agent: PierAgent,
   providerAgentEnv: Record<string, string>,
 ): Record<string, string> {
   const provider = options.provider ?? 'deepseek';
@@ -562,6 +614,9 @@ function buildPierAgentEnv(
   if (options.reasoningEffort) env.MAKA_REASONING_EFFORT = options.reasoningEffort;
   if (agent === 'kimi-code') {
     env.MAKA_KIMI_CODE_TOOLCHAIN_FINGERPRINT = KIMI_CODE_TOOLCHAIN_FINGERPRINT;
+  }
+  if (agent === 'codex') {
+    env.MAKA_CODEX_TOOLCHAIN_FINGERPRINT = CODEX_TOOLCHAIN_FINGERPRINT;
   }
   if (options.pricing) {
     env.MAKA_TRIAL_INPUT_USD_PER_1M = String(options.pricing.inputUsdPer1M);
@@ -595,11 +650,17 @@ function buildPierAgentEnv(
 
 async function pierProviderRuntime(
   options: PierTaskRunnerOptions,
-  agent: 'maka' | 'kimi-code',
+  agent: PierAgent,
 ): Promise<PierProviderRuntime | null> {
   const provider = options.provider ?? 'deepseek';
   const baseUrl = options.baseUrl ?? providerDefaultBaseUrl(provider);
-  const usesProxy = agent === 'kimi-code' || options.useProviderProxy === true;
+  // A resolver-backed credential (e.g. Codex OAuth) is only usable through the
+  // proxy — same contract as the Harbor runner — so it forces the proxy path
+  // even when the caller forgot useProviderProxy.
+  const usesProxy =
+    agent !== 'maka' ||
+    options.useProviderProxy === true ||
+    options.resolveProviderCredential !== undefined;
 
   if (!usesProxy) {
     if (agent !== 'maka') return null;
@@ -644,13 +705,11 @@ async function pierProviderRuntime(
   if (!baseUrl) throw new Error(`Pier ${agent} provider ${provider} requires a base URL`);
 
   const proxyPort =
-    agent === 'kimi-code'
-      ? (options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT)
-      : undefined;
-  // The Maka host cell runs on the host and reaches the proxy on loopback; the
-  // Kimi container reaches it through Docker's host gateway on a Squid-legal
-  // port, defaulting to host.docker.internal unless an explicit advertised host
-  // is supplied (the native-Linux escape hatch, e.g. 172.17.0.1).
+    agent !== 'maka' ? (options.providerProxyPort ?? PIER_PROVIDER_PROXY_DEFAULT_PORT) : undefined;
+  // The Maka host cell runs on the host and reaches the proxy on loopback; a
+  // container-CLI arm (Kimi/Codex) reaches it through Docker's host gateway on
+  // a Squid-legal port, defaulting to host.docker.internal unless an explicit
+  // advertised host is supplied (the native-Linux escape hatch, e.g. 172.17.0.1).
   const advertisedHost = agent === 'maka' ? '127.0.0.1' : options.providerProxyAdvertisedHost;
   const proxy = await startProviderAuthProxy({
     upstreamBaseUrl: baseUrl,

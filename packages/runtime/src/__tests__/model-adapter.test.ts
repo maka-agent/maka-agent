@@ -1,10 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { SessionEvent } from '@maka/core/events';
 import { RetryError } from 'ai';
 
-import { AsyncEventQueue } from '../async-queue.js';
-import { ModelAdapter, normalizeAiSdkUsage, type AiSdkStreamChunk } from '../model-adapter.js';
+import { ModelAdapter, normalizeAiSdkUsage } from '../model-adapter.js';
+import type { ModelStreamEvent } from '../model-protocol.js';
 
 describe('ModelAdapter stream and error normalization', () => {
   test('resolves optional-key LocalAI without fabricating a credential', () => {
@@ -35,34 +34,10 @@ describe('ModelAdapter stream and error normalization', () => {
     assert.equal(observedApiKey, '');
   });
 
-  test('normalizes provider text, reasoning, ignored tool chunks, and errors into SessionEvents', () => {
-    const events: SessionEvent[] = [];
-    const queue = new AsyncEventQueue<SessionEvent>();
+  test('translates provider text, reasoning, ignored tool chunks, and errors into ModelStreamEvents', () => {
     const adapter = newAdapter();
-    const callbacks = {
-      text: '',
-      thinking: '',
-      signature: undefined as string | undefined,
-      onText(text: string) {
-        this.text += text;
-      },
-      onTextComplete(text: string) {
-        this.text = text;
-      },
-      onThinking(text: string) {
-        this.thinking += text;
-      },
-      onThinkingSignature(signature: string) {
-        this.signature = signature;
-      },
-    };
-    const push = queue.push.bind(queue);
-    queue.push = (event: SessionEvent) => {
-      events.push(event);
-      push(event);
-    };
-
-    const chunks: AiSdkStreamChunk[] = [
+    type Chunk = Parameters<typeof adapter.translateChunk>[0];
+    const chunks: Chunk[] = [
       { type: 'text-delta', text: 'hello ' },
       { type: 'text-delta', textDelta: 'world' },
       { type: 'reasoning', delta: 'think ' },
@@ -73,111 +48,90 @@ describe('ModelAdapter stream and error normalization', () => {
       { type: 'unknown-provider-chunk' },
     ];
 
-    for (const chunk of chunks) {
-      adapter.handleStreamChunk(chunk, 'turn-1', 'assistant-1', queue, callbacks);
-    }
+    const events: ModelStreamEvent[] = chunks.flatMap((chunk) => adapter.translateChunk(chunk));
 
-    assert.equal(callbacks.text, 'hello world');
-    assert.equal(callbacks.thinking, 'think more');
+    // Tool chunks and unknown chunks are inert; the error is carried as a
+    // Maka-owned `error` event for the backend to classify via makeErrorEvent.
     assert.deepEqual(
-      events.map((event) => event.type),
-      ['text_delta', 'text_delta', 'thinking_delta', 'thinking_delta', 'error'],
+      events.map((event) => event.kind),
+      ['text', 'text', 'thinking', 'thinking', 'error'],
     );
     assert.deepEqual(
-      events.filter((event) => event.type === 'text_delta').map((event) => event.text),
+      events
+        .filter((event) => event.kind === 'text')
+        .map((event) => (event as { text: string }).text),
       ['hello ', 'world'],
     );
     assert.deepEqual(
-      events.filter((event) => event.type === 'thinking_delta').map((event) => event.text),
+      events
+        .filter((event) => event.kind === 'thinking')
+        .map((event) => (event as { text: string }).text),
       ['think ', 'more'],
     );
-    const error = events.find((event) => event.type === 'error') as
-      | Extract<SessionEvent, { type: 'error' }>
-      | undefined;
-    assert.equal(error?.reason, 'rate_limit');
-    assert.equal(error?.code, '429');
-    assert.equal(error?.message, 'Rate limit exceeded');
-  });
-
-  test('treats AI SDK 7 step boundaries (start-step / finish-step) as no-ops', () => {
-    const events: SessionEvent[] = [];
-    const queue = new AsyncEventQueue<SessionEvent>();
-    const adapter = newAdapter();
-    const callbacks = {
-      textCalls: 0,
-      thinkingCalls: 0,
-      signatureCalls: 0,
-      onText() {
-        this.textCalls += 1;
-      },
-      onTextComplete() {},
-      onThinking() {
-        this.thinkingCalls += 1;
-      },
-      onThinkingSignature() {
-        this.signatureCalls += 1;
-      },
-    };
-    const push = queue.push.bind(queue);
-    queue.push = (event: SessionEvent) => {
-      events.push(event);
-      push(event);
-    };
-
-    // The backend owns step accounting (count + per-step AssistantMessage flush
-    // + messageId rotation), so the adapter must not emit events or touch the
-    // text/thinking callbacks for step-boundary chunks.
-    const chunks: AiSdkStreamChunk[] = [
-      { type: 'start-step' } as AiSdkStreamChunk,
-      { type: 'text-delta', text: 'one' },
-      {
-        type: 'finish-step',
-        finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
-      } as AiSdkStreamChunk,
-      { type: 'start-step' } as AiSdkStreamChunk,
-      { type: 'text-delta', text: 'two' },
-      { type: 'finish-step', finishReason: { unified: 'stop', raw: 'stop' } } as AiSdkStreamChunk,
-    ];
-    for (const chunk of chunks) {
-      adapter.handleStreamChunk(chunk, 'turn-1', 'assistant-1', queue, callbacks);
-    }
-
-    // Only the two text deltas produce events / callbacks; boundaries are inert.
-    assert.deepEqual(
-      events.map((event) => event.type),
-      ['text_delta', 'text_delta'],
+    const errorEvent = events.find(
+      (event): event is Extract<ModelStreamEvent, { kind: 'error' }> => event.kind === 'error',
     );
-    assert.equal(callbacks.textCalls, 2);
-    assert.equal(callbacks.thinkingCalls, 0);
-    assert.equal(callbacks.signatureCalls, 0);
+    assert.ok(errorEvent);
+    assert.deepEqual(errorEvent.failure, {
+      type: 'model_failure',
+      kind: 'rate_limit',
+      code: '429',
+      message: 'Rate limit exceeded',
+    });
+    // The backend consumes the typed failure without recovering the raw
+    // provider error shape.
+    const shaped = adapter.makeErrorEvent('turn-1', errorEvent.failure);
+    assert.equal(shaped.reason, 'rate_limit');
+    assert.equal(shaped.code, '429');
+    assert.equal(shaped.message, 'Rate limit exceeded');
   });
 
-  test('captures the Anthropic reasoning signature without emitting an empty thinking delta', () => {
-    const events: SessionEvent[] = [];
-    const queue = new AsyncEventQueue<SessionEvent>();
+  test('reduces AI SDK 7 step boundaries to Maka-owned step-finish events', () => {
     const adapter = newAdapter();
-    const callbacks = {
-      thinking: '',
-      signature: undefined as string | undefined,
-      onText() {},
-      onTextComplete() {},
-      onThinking(text: string) {
-        this.thinking += text;
-      },
-      onThinkingSignature(signature: string) {
-        this.signature = signature;
-      },
-    };
-    const push = queue.push.bind(queue);
-    queue.push = (event: SessionEvent) => {
-      events.push(event);
-      push(event);
-    };
+    type Chunk = Parameters<typeof adapter.translateChunk>[0];
+    // The backend owns step counting + per-step AssistantMessage flush +
+    // messageId rotation, but the adapter owns reducing the SDK step-boundary
+    // chunk to a `step-finish` event carrying the normalized finish reason.
+    // `start-step` carries nothing and is inert.
+    const chunks: Chunk[] = [
+      { type: 'start-step' },
+      { type: 'text-delta', text: 'one' },
+      { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } },
+      { type: 'start-step' },
+      { type: 'text-delta', text: 'two' },
+      { type: 'finish-step', finishReason: { unified: 'stop', raw: 'stop' } },
+    ];
+    const events: ModelStreamEvent[] = chunks.flatMap((chunk) => adapter.translateChunk(chunk));
 
+    assert.deepEqual(
+      events.map((event) => event.kind),
+      ['text', 'step-finish', 'text', 'step-finish'],
+    );
+    assert.deepEqual(
+      events
+        .filter((event) => event.kind === 'text')
+        .map((event) => (event as { text: string }).text),
+      ['one', 'two'],
+    );
+    const stepFinishes = events.filter((event) => event.kind === 'step-finish') as Array<
+      Extract<ModelStreamEvent, { kind: 'step-finish' }>
+    >;
+    assert.deepEqual(
+      stepFinishes.map((event) => event.finishReason),
+      ['tool_calls', 'stop'],
+    );
+    // No usage on these chunks -> no usage field on the events.
+    assert.equal(stepFinishes[0].usage, undefined);
+    assert.equal(stepFinishes[1].usage, undefined);
+  });
+
+  test('captures the Anthropic reasoning signature without emitting an empty thinking event', () => {
+    const adapter = newAdapter();
+    type Chunk = Parameters<typeof adapter.translateChunk>[0];
     // Mirrors the @ai-sdk/anthropic stream shape: reasoning text deltas, then a
     // standalone signature-only delta with empty text, then reasoning-end.
-    const chunks: AiSdkStreamChunk[] = [
-      { type: 'reasoning-start' } as AiSdkStreamChunk,
+    const chunks: Chunk[] = [
+      { type: 'reasoning-start' },
       { type: 'reasoning-delta', delta: 'weigh ' },
       { type: 'reasoning-delta', delta: 'options' },
       {
@@ -185,23 +139,24 @@ describe('ModelAdapter stream and error normalization', () => {
         delta: '',
         providerMetadata: { anthropic: { signature: 'sig-xyz' } },
       },
-      { type: 'reasoning-end' } as AiSdkStreamChunk,
+      { type: 'reasoning-end' },
     ];
-    for (const chunk of chunks) {
-      adapter.handleStreamChunk(chunk, 'turn-1', 'assistant-1', queue, callbacks);
-    }
+    const events: ModelStreamEvent[] = chunks.flatMap((chunk) => adapter.translateChunk(chunk));
 
-    assert.equal(callbacks.thinking, 'weigh options');
-    assert.equal(callbacks.signature, 'sig-xyz');
-    // The empty signature-carrier delta must not become a thinking_delta event.
     assert.deepEqual(
-      events.map((event) => event.type),
-      ['thinking_delta', 'thinking_delta'],
+      events.map((event) => event.kind),
+      ['thinking', 'thinking', 'thinking-signature'],
     );
     assert.deepEqual(
-      events.filter((event) => event.type === 'thinking_delta').map((event) => event.text),
+      events
+        .filter((event) => event.kind === 'thinking')
+        .map((event) => (event as { text: string }).text),
       ['weigh ', 'options'],
     );
+    const signatureEvent = events.find((event) => event.kind === 'thinking-signature') as
+      | Extract<ModelStreamEvent, { kind: 'thinking-signature' }>
+      | undefined;
+    assert.equal(signatureEvent?.signature, 'sig-xyz');
   });
 
   test('classifies provider errors and maps finish reasons through adapter-owned helpers', () => {

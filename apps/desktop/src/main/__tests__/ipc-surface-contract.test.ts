@@ -83,5 +83,13 @@ describe('IPC surface contract', () => {
     assert.match(combinedMainProcess, /子代理不会隐式继承父会话的本地记忆或个性化上下文/);
     assert.match(combinedMainProcess, /consumePendingPromptUpdates\(\)/);
     assert.match(combinedMainProcess, /<memory-update>/);
+    assert.match(
+      combinedMainProcess,
+      /const candidateTools = ctx\.tools\s+\? \[\.\.\.ctx\.tools\]\s+: isComputerUseRealModelE2e/,
+    );
+    assert.match(
+      combinedMainProcess,
+      /const planControlTools = ctx\.tools\s+\? \[\]\s+: collaborationMode === 'plan'/,
+    );
   });
 });

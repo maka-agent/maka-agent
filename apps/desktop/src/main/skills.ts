@@ -20,6 +20,7 @@ import {
   type ScannedSkill,
   type SkillContextDecisionReason,
   type SkillDiscoverySource,
+  type SkillDiscoveryDiagnostic,
   type SkillRuntimeStatus,
   type SkillSelectionReport,
   type SkillScope,
@@ -85,6 +86,7 @@ export interface InstalledSkill extends RuntimeSkillDefinition {
 }
 
 export interface SkillEntry {
+  kind: 'skill' | 'discovery_diagnostic';
   ref: string;
   id: string;
   name: string;
@@ -103,6 +105,9 @@ export interface SkillEntry {
   contextStatus: SkillContextDecisionReason;
   contextRank?: number;
   shadowedBy?: string;
+  /** Legacy id preference matched multiple refs and needs explicit choices. */
+  needsReview: boolean;
+  discoveryDiagnosticReason?: SkillDiscoveryDiagnostic['reason'];
   /** Only legacy workspace installs can be updated or deleted by this panel. */
   manageable: boolean;
 }
@@ -256,12 +261,25 @@ export async function listGovernedSkillEntries(
   root: string,
   options: SkillReadOptions = {},
 ): Promise<SkillEntry[]> {
-  const [installed, scan] = await Promise.all([
+  const [installed, scan, runtimeState] = await Promise.all([
     listInstalledSkills(root, options),
     scanSkillsWithDiagnostics(
       resolveSkillDiscoveryPaths(options.cwd ?? root, root, options.homeDir),
     ),
+    readSkillRuntimeState(root),
   ]);
+  const needsReview = new Set(runtimeState.ok ? runtimeState.needsReview : []);
+  if (runtimeState.ok && runtimeState.schemaVersion === 1) {
+    for (const legacyId of runtimeState.preferences.keys()) {
+      if (
+        scan.inventory.filter(
+          (skill) => skill.id.toLowerCase() === legacyId.toLowerCase(),
+        ).length > 1
+      ) {
+        needsReview.add(legacyId);
+      }
+    }
+  }
   const report = options.selectionReport ?? selectSkillScanForContext(scan, options.host, {
     contextWindow: options.contextWindow,
   }).report;
@@ -270,19 +288,28 @@ export async function listGovernedSkillEntries(
   const validEntries = scan.inventory.map((skill) => {
     const governed = installedByPath.get(skill.path);
     const decision = decisionByRef.get(skill.ref);
-    return toSkillEntry(governed ?? {
-      ...skill,
-      sourceType: 'unknown',
-      userModified: false,
-      validationStatus: 'ok',
-      validationCodes: [],
-    }, decision);
+    return toSkillEntry(
+      governed ?? {
+        ...skill,
+        sourceType: 'unknown',
+        userModified: false,
+        validationStatus: 'ok',
+        validationCodes: [],
+      },
+      decision,
+      needsReview.has(skill.id),
+    );
   });
-  return [...validEntries, ...scan.rejected.map(toRejectedSkillEntry)];
+  return [
+    ...validEntries,
+    ...scan.rejected.map(toRejectedSkillEntry),
+    ...scan.discoveryDiagnostics.map(toDiscoveryDiagnosticEntry),
+  ];
 }
 
 function toRejectedSkillEntry(skill: RejectedSkillDefinition): SkillEntry {
   return {
+    kind: 'skill',
     ref: skill.ref,
     id: skill.id,
     name: skill.name,
@@ -298,15 +325,44 @@ function toRejectedSkillEntry(skill: RejectedSkillDefinition): SkillEntry {
     scope: skill.scope,
     source: skill.source,
     contextStatus: 'invalid',
+    needsReview: false,
     manageable: skill.scope === 'workspace' && skill.source === 'legacy',
+  };
+}
+
+function toDiscoveryDiagnosticEntry(
+  diagnostic: SkillDiscoveryDiagnostic,
+): SkillEntry {
+  return {
+    kind: 'discovery_diagnostic',
+    ref: `diagnostic:${diagnostic.scope}:${diagnostic.source}:${diagnostic.precedence}`,
+    id: `source-${diagnostic.precedence}`,
+    name: '',
+    description: '',
+    path: diagnostic.path,
+    declaredTools: [],
+    sourceType: 'unknown',
+    userModified: false,
+    validationStatus: 'metadata_error',
+    enabled: false,
+    pinned: false,
+    runtimeStatus: 'disabled',
+    scope: diagnostic.scope,
+    source: diagnostic.source,
+    contextStatus: 'invalid',
+    needsReview: false,
+    discoveryDiagnosticReason: diagnostic.reason,
+    manageable: false,
   };
 }
 
 export function toSkillEntry(
   skill: InstalledSkill,
   decision?: { reason: SkillContextDecisionReason; rank?: number; shadowedBy?: string },
+  needsReview = false,
 ): SkillEntry {
   return {
+    kind: 'skill',
     ref: skill.ref,
     id: skill.id,
     name: skill.name,
@@ -326,6 +382,7 @@ export function toSkillEntry(
     contextStatus: decision?.reason ?? (skill.enabled ? 'advertised' : 'disabled'),
     ...(decision?.rank !== undefined ? { contextRank: decision.rank } : {}),
     ...(decision?.shadowedBy ? { shadowedBy: decision.shadowedBy } : {}),
+    needsReview,
     manageable: skill.scope === 'workspace' && skill.source === 'legacy',
     ...(skill.sourceType === 'managed' && skill.managedUpdateStatus ? { managedUpdateStatus: skill.managedUpdateStatus } : {}),
   };

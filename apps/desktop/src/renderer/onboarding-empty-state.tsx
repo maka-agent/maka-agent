@@ -1,17 +1,18 @@
-import type { LlmConnection, OnboardingState, QuickChatMode, SettingsSection } from '@maka/core';
+import type { LlmConnection, OnboardingState, ProviderType, QuickChatMode, SettingsSection } from '@maka/core';
 import { OnboardingHero } from './OnboardingHero';
 import { FirstRunChecklist } from './FirstRunChecklist';
 
 interface OnboardingEmptyStateProps {
   state: OnboardingState;
   onOpenSettings: (section?: SettingsSection) => void;
+  onAddProvider: (providerType: ProviderType) => void;
   onBrowseProviders: () => void;
   onQuickChatSubmit: (
     prompt: string,
     mode?: QuickChatMode,
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
-  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   quickChatPending?: boolean;
   connections: LlmConnection[];
   onRefreshConnections?: () => Promise<void> | void;
@@ -30,6 +31,7 @@ interface OnboardingEmptyStateProps {
 export function OnboardingEmptyState({
   state,
   onOpenSettings,
+  onAddProvider,
   onBrowseProviders,
   onQuickChatSubmit,
   mentionSkills,
@@ -46,6 +48,7 @@ export function OnboardingEmptyState({
       <OnboardingHero
         state={state}
         onOpenSettings={onOpenSettings}
+        onAddProvider={onAddProvider}
         onBrowseProviders={onBrowseProviders}
         onQuickChatSubmit={onQuickChatSubmit}
         mentionSkills={mentionSkills}

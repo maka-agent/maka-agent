@@ -16,16 +16,34 @@ describe('Desktop explicit Skill invocation contract', () => {
     const draft = await read('packages/ui/src/use-composer-skill-draft.ts');
     const styles = await read('apps/desktop/src/renderer/styles/composer-mention.css');
 
-    assert.match(popup, /input\.onSelectSkill\?\.\(\{ id: item\.id, name: item\.name \}\)/);
+    assert.match(
+      popup,
+      /input\.onSelectSkill\?\.\(\{[\s\S]*item\.ref \? \{ ref: item\.ref \}[\s\S]*id: item\.id,[\s\S]*name: item\.name/,
+    );
     assert.match(popup, /value\.slice\(0, current\.start\)/);
     assert.doesNotMatch(popup, /skillMentionInsertion\(item\.id\)/);
     assert.match(composer, /className="maka-composer-skill-chip"/);
     assert.match(composer, /props\.onSend\(text, skillIds\)/);
+    assert.match(composer, /clearDraft\(draftKey\);\s*skillDraft\.clear\(draftKey\)/);
     assert.match(composer, /<UiButton[\s\S]*?size="icon"[\s\S]*?shape="pill"[\s\S]*?className="maka-composer-skill-chip-remove"/);
-    assert.match(composer, /skillDraft\.remove\(skill\.id\);[\s\S]*?requestAnimationFrame\(\(\) => textareaRef\.current\?\.focus\(\)\)/);
+    assert.match(
+      composer,
+      /skillDraft\.remove\(skill\.ref \?\? skill\.id\);[\s\S]*?requestAnimationFrame\(\(\) => textareaRef\.current\?\.focus\(\)\)/,
+    );
+    assert.match(composer, /skillDraft\.skills\.map\(\(skill\) => skill\.ref \?\? skill\.id\)/);
     assert.match(draft, /storeRef = useRef<Map<string, ComposerSkillSelection\[\]>>/);
     assert.match(styles, /\.maka-composer-skill-chip \{[\s\S]*?min-height: 32px;/);
     assert.doesNotMatch(styles, /\.maka-composer-skill-chip-remove \{/);
+  });
+
+  it('clears the submitted Skill owner before guarding the visible draft', async () => {
+    const composer = await read('packages/ui/src/composer.tsx');
+    const clearSubmittedAt = composer.indexOf('skillDraft.clear(submittedSkillDraftKey)');
+    const ownerGuardAt = composer.indexOf(
+      'if (activeDraftKey() !== submittedDraftKey) return',
+      clearSubmittedAt,
+    );
+    assert.ok(clearSubmittedAt >= 0 && ownerGuardAt > clearSubmittedAt);
   });
 
   it('re-resolves structured ids and direct tokens before consuming attachments', async () => {
@@ -40,7 +58,8 @@ describe('Desktop explicit Skill invocation contract', () => {
     assert.match(sessions, /prepareSkillInvocation\(sessionId, sendCommand\.text, sendCommand\.skillIds\)/);
     assert.match(sendPlan, /if \(preparation\.disposition === 'blocked'\)/);
     assert.match(runtime, /\.\.\.\(input\.skillIds \?\? \[\]\)/);
-    assert.match(runtime, /Every invocation token is removed before provider handoff/);
+    assert.match(runtime, /loadedSkillInvocationReceipt\('explicit'/);
+    assert.match(runtime, /Every invocation token is removed before provider[\s\S]*handoff/);
     assert.match(
       sessions,
       /sendCommand\.text\.trim\(\)\.length > 0[\s\S]*\.map\(\(skill\) => `\/skill:\$\{skill\.id\}`\)/,

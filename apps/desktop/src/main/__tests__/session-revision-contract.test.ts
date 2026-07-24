@@ -34,10 +34,29 @@ describe('session revision (edit-and-resend) contract', () => {
     );
     assert.match(shell, /prepareRevisionSend/);
     assert.match(
+      source,
+      /const submittedSkills =[\s\S]*getSkills\(\)[\s\S]*await window\.maka\.sessions\.reviseBeforeTurn[\s\S]*setSkillDraft\(newSession\.id, submittedSkills\)[\s\S]*setDraft\(newSession\.id, text\)/,
+      'revision preparation must snapshot submitted Skills before creating the child session',
+    );
+    assert.match(
+      source,
+      /previousComposerSkills: composerRef\.current\?\.getSkills\(\) \?\? \[\]/,
+      'revision cancellation must be able to restore the complete pre-edit draft',
+    );
+    assert.match(
+      source,
+      /setSkillDraft\(\s*draft\.sourceSessionId,\s*draft\.previousComposerSkills/,
+      'revision cancellation must restore the source Skill snapshot',
+    );
+    assert.match(
       shell,
       /revisionNotice=\{[\s\S]*revisionDraft && activeId === revisionDraft\.draftSessionId/,
     );
-    assert.match(shell, /composerRef\.current\?\.clearDraft\(expectedRevisionSessionId\)/);
+    assert.match(
+      shell,
+      /clearDraft\(expectedRevisionDraft\.draftSessionId\)[\s\S]*clearDraft\(expectedRevisionDraft\.sourceSessionId\)/,
+      'a successful child retry must clear both copies of the migrated draft',
+    );
     assert.match(
       shell,
       /if \(\(skillIds\.length === 0 && text\.trim\(\) === '\/compact'\) \|\| swarmCommand\) \{[\s\S]*revisionCommandUnsupported/,

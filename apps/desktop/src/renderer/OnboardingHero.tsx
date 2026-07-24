@@ -21,7 +21,7 @@
 
 import { ArrowRight, ArrowUp, ChevronRight, RotateCcw, Sparkles, KeyRound, Settings as SettingsIcon, Cpu, AlertCircle, FolderOpen, Paperclip, X } from '@maka/ui/icons';
 import { Fragment, useCallback, useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from 'react';
-import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type QuickChatMode, type SettingsSection } from '@maka/core';
+import { RECOMMENDED_PROVIDER_TYPES, type LlmConnection, type OnboardingState, type ProviderType, type QuickChatMode, type SettingsSection } from '@maka/core';
 import {
   Button,
   ComposerMentionPopup,
@@ -62,6 +62,8 @@ export interface OnboardingHeroProps {
   state: OnboardingState;
   /** Open Settings with a specific section preselected. */
   onOpenSettings: (section?: SettingsSection) => void;
+  /** Open Settings → 模型 with the create-connection dialog for this provider. */
+  onAddProvider: (providerType: ProviderType) => void;
   /** Open the shared Settings provider catalog. */
   onBrowseProviders: () => void;
   /**
@@ -78,7 +80,7 @@ export interface OnboardingHeroProps {
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
   /** Enabled, host-compatible Skills offered by the `/` popup. */
-  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   /**
    * Flag set when a `quickChat:start` call is in flight, so the
    * composer can disable its submit button without owning the
@@ -135,7 +137,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
     case 'needs_connection':
       return (
         <NeedsConnectionHero
-          onOpenSettings={props.onOpenSettings}
+          onAddProvider={props.onAddProvider}
           onBrowseProviders={props.onBrowseProviders}
           onRefreshConnections={props.onRefreshConnections ? runRefreshConnections : undefined}
           refreshConnectionsPending={refreshConnectionsPending}
@@ -223,7 +225,7 @@ function connectionLabel(
 }
 
 function NeedsConnectionHero(props: {
-  onOpenSettings: (section?: SettingsSection) => void;
+  onAddProvider: (providerType: ProviderType) => void;
   onBrowseProviders: () => void;
   onRefreshConnections?: () => void;
   refreshConnectionsPending?: boolean;
@@ -261,7 +263,7 @@ function NeedsConnectionHero(props: {
                   render={
                     <button
                       type="button"
-                      onClick={() => props.onOpenSettings('models')}
+                      onClick={() => props.onAddProvider(type)}
                     />
                   }
                 >
@@ -499,7 +501,7 @@ function ReadyEmptyHero(props: {
     mode?: QuickChatMode,
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
-  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   quickChatPending: boolean;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
 }) {
@@ -570,7 +572,7 @@ function ReadyEmptyHero(props: {
     // without sending. Caller (main.tsx) decides whether to focus the
     // composer afterward.
     try {
-      const skillIds = skillDraft.skills.map((skill) => skill.id);
+      const skillIds = skillDraft.skills.map((skill) => skill.ref ?? skill.id);
       const submitted = await props.onQuickChatSubmit(draft, draftMode, skillIds);
       if (!readyHeroMountedRef.current) return;
       if (!submitted) return;
@@ -775,7 +777,7 @@ function ReadyEmptyHero(props: {
         {skillDraft.skills.length > 0 ? (
           <ul className="maka-composer-skill-chips" aria-label={composerCopy.selectedSkillsAriaLabel}>
             {skillDraft.skills.map((skill) => (
-              <li className="maka-composer-skill-chip" key={skill.id}>
+              <li className="maka-composer-skill-chip" key={skill.ref ?? skill.id}>
                 <span>{skill.name}</span>
                 <Button
                   type="button"
@@ -785,7 +787,7 @@ function ReadyEmptyHero(props: {
                   className="maka-composer-skill-chip-remove"
                   aria-label={composerCopy.removeSkillAriaLabel(skill.name)}
                   onClick={() => {
-                    skillDraft.remove(skill.id);
+                    skillDraft.remove(skill.ref ?? skill.id);
                     window.requestAnimationFrame(() => inputRef.current?.focus());
                   }}
                 >

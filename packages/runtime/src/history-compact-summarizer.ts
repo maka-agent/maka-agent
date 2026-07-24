@@ -1,6 +1,6 @@
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
-import { toolResultOutput } from './ai-sdk-tool-output.js';
+import { toolResultOutput } from './tool-result-output.js';
 import type { HistoryCompactSummaryInput } from './ai-sdk-backend.js';
 import { HistoryCompactSummarizerError } from './history-compact-error.js';
 

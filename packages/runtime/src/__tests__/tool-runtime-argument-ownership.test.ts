@@ -65,20 +65,22 @@ describe('ToolRuntime argument ownership', () => {
         return { ok: true, path: '/tmp/maka/notes.md' };
       },
     };
-    const execute = runtime.wrapToolExecute(tool, 'turn-1', {
-      push: (event) => {
-        if (event.type === 'tool_start') {
-          observeAndMutate(observed, 'event', event.args);
-        } else if (event.type === 'permission_request') {
-          observed.set('permission', structuredClone(event.args) as InvocationArgs);
-          resolvePermission(event);
-        }
-      },
-    });
-
-    const pending = execute(providerArgs, {
+    const pending = runtime.settleToolCall({
+      tool,
+      turnId: 'turn-1',
       toolCallId: 'tool-1',
+      input: providerArgs,
       abortSignal: new AbortController().signal,
+      eventSink: {
+        push: (event) => {
+          if (event.type === 'tool_start') {
+            observeAndMutate(observed, 'event', event.args);
+          } else if (event.type === 'permission_request') {
+            observed.set('permission', structuredClone(event.args) as InvocationArgs);
+            resolvePermission(event);
+          }
+        },
+      },
     });
     mutateArgs(providerArgs, 'provider');
     const request = await permissionRequested;

@@ -719,6 +719,8 @@ backends.register('ai-sdk', createAiSdkBackendFactory({
   runtimeCommitStore: runtimePersistence.runtimeCommitStore,
   planStore,
   safeSendToRenderer,
+  openGateway,
+  emitSessionsChanged,
   getRuntime: () => runtime,
   getLookupPricing: () => lookupPricing,
 }));

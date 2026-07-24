@@ -47,6 +47,8 @@ import { stableHash } from './request-shape.js';
 import { classifyError } from './provider-error-classification.js';
 import type { RunTraceLike } from './run-trace.js';
 import { TurnScopedAwaitRegistry } from './turn-scoped-await-registry.js';
+import { jsonValue } from './tool-result-output.js';
+import type { ToolResultOutput } from './model-protocol.js';
 import {
   AdditionalPermissionError,
   revalidateAdditionalPermissionProposal,
@@ -67,20 +69,23 @@ import {
   type ToolRecoveryMode,
 } from './runtime-commit-sink.js';
 import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
+import type { AgentProfile } from './agent-catalog.js';
+import type { SubagentExecutionRef } from './subagent-execution.js';
 import { serializeSandboxError } from './sandbox/errors.js';
 
-export type ToolModelOutputPart =
-  | { type: 'text'; text: string }
-  | {
-      type: 'file';
-      data: { type: 'data'; data: string | Uint8Array };
-      mediaType: string;
-      filename?: string;
-    };
+export interface ResolvedMakaToolCall {
+  tool: MakaTool;
+  turnId: string;
+  stepId?: string;
+  toolCallId: string;
+  input: unknown;
+  abortSignal: AbortSignal;
+  eventSink: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void };
+}
 
-export interface ToolModelOutput {
-  type: 'content';
-  value: ToolModelOutputPart[];
+export interface ToolSettlement {
+  result: unknown;
+  modelOutput: ToolResultOutput;
 }
 
 export interface MakaTool<P = any, R = unknown> {
@@ -137,7 +142,7 @@ export interface MakaTool<P = any, R = unknown> {
     toolCallId: string;
     input: unknown;
     output: unknown;
-  }) => ToolModelOutput | Promise<ToolModelOutput>;
+  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
 }
 
 export interface MakaToolContext {
@@ -178,8 +183,28 @@ export interface MakaToolContext {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: (input: {
+    agentProfile: AgentProfile;
+    prompt: string;
+    /** Optional swarm identity, scoped to the owning tool call. */
+    swarm?: {
+      swarmId: string;
+      itemId: string;
+    };
+    /** Optional per-child signal, always composed with the owning tool invocation signal. */
+    abortSignal?: AbortSignal;
+    onReady?: (input: {
+      childSessionId: string;
+      turnId: string;
+      runId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
+    execution: SubagentExecutionRef;
     agentId: string;
     agentName: string;
     profile: string;
@@ -190,7 +215,9 @@ export interface MakaToolContext {
     /** Optional per-child signal, always composed with the owning tool invocation signal. */
     abortSignal?: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -198,10 +225,13 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   retryChildAgent?: (input: {
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     /** Optional per-child signal, always composed with the owning tool invocation signal. */
     abortSignal?: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -209,6 +239,7 @@ export interface MakaToolContext {
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
+    execution?: SubagentExecutionRef;
     runId?: string;
     turnId?: string;
     maxEvents?: number;
@@ -282,13 +313,10 @@ export interface ToolRuntimeInput {
   getCurrentInvocationId?: () => string | undefined;
   getCurrentRunId?: () => string | undefined;
   agentTeam?: AgentTeamExecutionContext;
-  /**
-   * Id of the assistant step currently streaming, stamped onto each tool call's
-   * `tool_start` event so model replay can group a step's reasoning + tool calls
-   * into one provider assistant message. Undefined leaves the step unpaired
-   * (legacy per-turn behavior).
-   */
-  getCurrentStepId?: () => string | undefined;
+  materializeDefaultToolResultOutput?: (options: {
+    toolCallId: string;
+    output: unknown;
+  }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
   /** Effective orchestration for the active send; undefined between turns. */
   getCurrentOrchestration?: () => EffectiveOrchestration | undefined;
   spawnChildAgent?: (input: {
@@ -303,8 +331,29 @@ export interface ToolRuntimeInput {
     }) => void | Promise<void>;
     onEvent?: (event: SessionEvent) => void;
   }) => Promise<unknown>;
+  spawnChildSession?: (input: {
+    parentRunId: string;
+    parentTurnId: string;
+    toolCallId: string;
+    agentProfile: AgentProfile;
+    prompt: string;
+    swarm?: {
+      swarmId: string;
+      itemId: string;
+    };
+    abortSignal: AbortSignal;
+    onReady?: (input: {
+      childSessionId: string;
+      turnId: string;
+      runId: string;
+      agentId: string;
+      agentName: string;
+    }) => void | Promise<void>;
+    onEvent?: (event: SessionEvent) => void;
+  }) => Promise<unknown>;
   prepareChildAgentResume?: (sourceRunId: string) => Promise<{
     sourceRunId: string;
+    execution: SubagentExecutionRef;
     agentId: string;
     agentName: string;
     profile: string;
@@ -315,7 +364,9 @@ export interface ToolRuntimeInput {
     prompt: string;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -324,9 +375,12 @@ export interface ToolRuntimeInput {
   retryChildAgent?: (input: {
     parentRunId: string;
     sourceRunId: string;
+    execution?: SubagentExecutionRef;
     abortSignal: AbortSignal;
     onReady?: (input: {
+      childSessionId?: string;
       turnId: string;
+      runId?: string;
       agentId: string;
       agentName: string;
     }) => void | Promise<void>;
@@ -334,6 +388,7 @@ export interface ToolRuntimeInput {
   }) => Promise<unknown>;
   listChildAgents?: () => Promise<unknown>;
   readChildAgentOutput?: (input: {
+    execution?: SubagentExecutionRef;
     runId?: string;
     turnId?: string;
     maxEvents?: number;
@@ -446,15 +501,44 @@ export class ToolRuntime {
     return this.userQuestions.pendingCount(turnId);
   }
 
-  wrapToolExecute(
-    tool: MakaTool,
-    turnId: string,
-    queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
-  ) {
-    return async (
-      args: unknown,
-      ctx: { toolCallId: string; abortSignal: AbortSignal },
-    ): Promise<unknown> => this.executeTool(tool, turnId, queue, args, ctx);
+  hasStepAdmission(stepId: string | null | undefined): boolean {
+    return stepId ? (this.stepAdmissions.get(stepId)?.callCount ?? 0) > 0 : false;
+  }
+
+  /**
+   * Settle one resolved Maka tool call. Tool/business failures resolve with a
+   * provider-facing error output; durable runtime commit failures still reject.
+   */
+  async settleToolCall(call: ResolvedMakaToolCall): Promise<ToolSettlement> {
+    const result = await this.executeTool(
+      call.tool,
+      call.turnId,
+      call.eventSink,
+      call.input,
+      {
+        toolCallId: call.toolCallId,
+        abortSignal: call.abortSignal,
+      },
+      call.stepId,
+    );
+    const providerError = providerToolErrorMessage(result);
+    const modelOutput = providerError
+      ? { type: 'error-text' as const, value: new Error(providerError).toString() }
+      : call.tool.toModelOutput
+        ? await call.tool.toModelOutput({
+            toolCallId: call.toolCallId,
+            input: call.input,
+            output: result,
+          })
+        : this.input.materializeDefaultToolResultOutput
+          ? await this.input.materializeDefaultToolResultOutput({
+              toolCallId: call.toolCallId,
+              output: result,
+            })
+          : typeof result === 'string'
+            ? { type: 'text' as const, value: result }
+            : { type: 'json' as const, value: jsonValue(result) };
+    return { result, modelOutput };
   }
 
   /**
@@ -544,10 +628,10 @@ export class ToolRuntime {
     queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
     args: unknown,
     ctx: { toolCallId: string; abortSignal: AbortSignal },
+    stepId?: string,
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
-    const stepId = this.input.getCurrentStepId?.();
     // Registration is synchronous and happens before the first await, so
     // parallel AI SDK execute callbacks cannot race past exclusive admission.
     const admissionFailure = this.admitToolForStep(tool, stepId);
@@ -1317,6 +1401,7 @@ export class ToolRuntime {
             ? { readChildAgentOutput: this.input.readChildAgentOutput }
             : {}),
           ...this.buildChildAgentContext({
+            turnId,
             abortSignal: ctx.abortSignal,
             trace,
             toolUseId,
@@ -1770,19 +1855,24 @@ export class ToolRuntime {
   }
 
   private buildChildAgentContext(input: {
+    turnId: string;
     abortSignal: AbortSignal;
     trace: RunTraceLike | null;
     toolUseId: string;
     toolName: string;
   }): Pick<
     MakaToolContext,
-    'spawnChildAgent' | 'prepareChildAgentResume' | 'resumeChildAgent' | 'retryChildAgent'
+    | 'spawnChildAgent'
+    | 'spawnChildSession'
+    | 'prepareChildAgentResume'
+    | 'resumeChildAgent'
+    | 'retryChildAgent'
   > {
     const parentRunId = this.input.getCurrentRunId?.();
     if (!parentRunId) return {};
     const limiter = this.childAgentRunLimiter;
     const runWithPermit = async <T>(
-      mode: 'spawn' | 'resume' | 'retry',
+      mode: 'spawn' | 'spawn_session' | 'resume' | 'retry',
       abortSignal: AbortSignal,
       execute: () => Promise<T>,
     ): Promise<T> => {
@@ -1864,6 +1954,7 @@ export class ToolRuntime {
     };
 
     const spawnChildAgent = this.input.spawnChildAgent;
+    const spawnChildSession = this.input.spawnChildSession;
     const prepareChildAgentResume = this.input.prepareChildAgentResume;
     const resumeChildAgent = this.input.resumeChildAgent;
     const retryChildAgent = this.input.retryChildAgent;
@@ -1883,6 +1974,32 @@ export class ToolRuntime {
                     parentRunId,
                     spec: spawnInput.spec,
                     prompt: spawnInput.prompt,
+                    abortSignal,
+                    ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
+                    ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
+                  }),
+              );
+            },
+          }
+        : {}),
+      ...(spawnChildSession
+        ? {
+            spawnChildSession: async (spawnInput) => {
+              const abortSignal = composeChildAbortSignal(
+                input.abortSignal,
+                spawnInput.abortSignal,
+              );
+              return await runWithPermit(
+                'spawn_session',
+                abortSignal,
+                async () =>
+                  await spawnChildSession({
+                    parentRunId,
+                    parentTurnId: input.turnId,
+                    toolCallId: input.toolUseId,
+                    agentProfile: spawnInput.agentProfile,
+                    prompt: spawnInput.prompt,
+                    ...(spawnInput.swarm ? { swarm: spawnInput.swarm } : {}),
                     abortSignal,
                     ...(spawnInput.onReady ? { onReady: spawnInput.onReady } : {}),
                     ...(spawnInput.onEvent ? { onEvent: spawnInput.onEvent } : {}),
@@ -1931,6 +2048,7 @@ export class ToolRuntime {
                   await retryChildAgent({
                     parentRunId,
                     sourceRunId: retryInput.sourceRunId,
+                    ...(retryInput.execution ? { execution: retryInput.execution } : {}),
                     abortSignal,
                     ...(retryInput.onReady ? { onReady: retryInput.onReady } : {}),
                     ...(retryInput.onEvent ? { onEvent: retryInput.onEvent } : {}),
@@ -2272,6 +2390,19 @@ function isAmbiguousComputerFailure(raw: unknown): boolean {
 
 function durableAttemptKey(turnId: string, toolUseId: string): string {
   return `${turnId}\0${toolUseId}`;
+}
+
+function providerToolErrorMessage(output: unknown): string | undefined {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return undefined;
+  const record = output as Record<string, unknown>;
+  if (typeof record.error !== 'string' || record.error.length === 0) return undefined;
+  if (typeof record.modelText === 'string' && record.modelText.length > 0) {
+    return record.modelText;
+  }
+  if (typeof record.text === 'string' && record.text.length > 0) {
+    return record.text;
+  }
+  return record.error;
 }
 
 function summarizeArgs(toolName: string, args: unknown): string {

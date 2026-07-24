@@ -6,7 +6,7 @@ import type {
   ToolSchemaChangeReason,
   ToolAvailabilityDiagnostic,
 } from '@maka/core/usage-stats/types';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 import { toJSONSchema } from 'zod';
 
 import type { MakaTool } from './tool-runtime.js';

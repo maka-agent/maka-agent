@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { describe, test } from 'node:test';
 import type { SessionHeader } from '@maka/core';
 import {
@@ -18,7 +19,7 @@ describe('SqliteSessionMetadataStore', () => {
     try {
       const store = createSqliteSessionMetadataStore(path, { now: () => 100 });
       const header = fullHeader();
-      assert.equal(store.schemaVersion(), 2);
+      assert.equal(store.schemaVersion(), 5);
       assert.equal(store.journalMode(), 'wal');
       assert.deepEqual(await store.create(header), {
         header,
@@ -29,7 +30,7 @@ describe('SqliteSessionMetadataStore', () => {
 
       const reopened = createSqliteSessionMetadataStore(path, { now: () => 200 });
       try {
-        assert.equal(reopened.schemaVersion(), 2);
+        assert.equal(reopened.schemaVersion(), 5);
         assert.deepEqual(await reopened.read(header.id), {
           header,
           metadataVersion: 1,
@@ -50,7 +51,7 @@ describe('SqliteSessionMetadataStore', () => {
     const metadata = createSqliteSessionMetadataStore(path);
     try {
       assert.equal(runtime.schemaVersion(), 4);
-      assert.equal(metadata.schemaVersion(), 2);
+      assert.equal(metadata.schemaVersion(), 5);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {
         id: 'event-1',
@@ -69,6 +70,106 @@ describe('SqliteSessionMetadataStore', () => {
     } finally {
       metadata.close();
       runtime.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('backfills the relation index when upgrading a populated v2 database', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-metadata-v2-'));
+    const path = join(root, 'sessions.sqlite');
+    const parentSessionId = 'parent-session';
+    const header = fullHeader({
+      id: 'child-session',
+      parentSessionId: undefined,
+      branchOfTurnId: undefined,
+      revisionRootSessionId: undefined,
+      revisionParentSessionId: undefined,
+      revisionOfTurnId: undefined,
+      revisionIndex: undefined,
+      revisionState: undefined,
+      subagentParent: {
+        kind: 'subagent',
+        parentSessionId,
+        spawnedBy: {
+          parentRunId: 'parent-run',
+          parentTurnId: 'parent-turn',
+          toolCallId: 'tool-call',
+        },
+        lifecycle: 'foreground',
+      },
+    });
+    const db = new DatabaseSync(path);
+    db.exec(`
+      CREATE TABLE session_metadata_schema (
+        scope TEXT PRIMARY KEY,
+        version INTEGER NOT NULL
+      );
+      INSERT INTO session_metadata_schema(scope, version) VALUES ('session_metadata', 2);
+      CREATE TABLE session_metadata (
+        session_id TEXT PRIMARY KEY,
+        payload_json TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        last_used_at INTEGER NOT NULL,
+        last_message_at INTEGER,
+        name TEXT NOT NULL,
+        is_flagged INTEGER NOT NULL,
+        is_archived INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        status_updated_at INTEGER,
+        parent_session_id TEXT,
+        revision_root_session_id TEXT,
+        revision_index INTEGER,
+        has_unread INTEGER NOT NULL,
+        backend TEXT NOT NULL,
+        llm_connection_slug TEXT NOT NULL,
+        model TEXT NOT NULL,
+        metadata_version INTEGER NOT NULL,
+        committed_at INTEGER NOT NULL
+      );
+    `);
+    db.prepare(`
+      INSERT INTO session_metadata(
+        session_id, payload_json, created_at, last_used_at, last_message_at,
+        name, is_flagged, is_archived, status, status_updated_at,
+        parent_session_id, revision_root_session_id, revision_index, has_unread,
+        backend, llm_connection_slug, model, metadata_version, committed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      header.id,
+      JSON.stringify(header),
+      header.createdAt,
+      header.lastUsedAt,
+      header.lastMessageAt ?? null,
+      header.name,
+      0,
+      0,
+      header.status,
+      header.statusUpdatedAt ?? null,
+      null,
+      null,
+      null,
+      1,
+      header.backend,
+      header.llmConnectionSlug,
+      header.model,
+      1,
+      100,
+    );
+    db.close();
+
+    const store = createSqliteSessionMetadataStore(path);
+    try {
+      assert.equal(store.schemaVersion(), 5);
+      assert.deepEqual(
+        (
+          await store.list({
+            subagentParentSessionId: parentSessionId,
+          })
+        ).map((record) => record.header.id),
+        [header.id],
+      );
+    } finally {
+      store.close();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -125,6 +226,303 @@ describe('SqliteSessionMetadataStore', () => {
       );
     } finally {
       store.close();
+    }
+  });
+
+  test('queries typed subagent relations through the dedicated parent index', async () => {
+    const store = createSqliteSessionMetadataStore(':memory:');
+    const subagentParent = {
+      kind: 'subagent' as const,
+      parentSessionId: 'parent-session',
+      spawnedBy: {
+        parentRunId: 'parent-run',
+        parentTurnId: 'parent-turn',
+        toolCallId: 'tool-call',
+      },
+      lifecycle: 'foreground' as const,
+    };
+    const subagentRuntime = {
+      schemaVersion: 1 as const,
+      definitionVersion: 1,
+      agentId: 'local-read',
+      agentName: 'Local Read',
+      profile: 'local_read',
+      systemPrompt: 'Read the assigned workspace task.',
+      toolNames: ['Read', 'Glob', 'Grep'],
+      categoryPolicy: { read: 'allow' as const },
+      permissionCeiling: 'ask' as const,
+    };
+    const subagentSpawn = {
+      schemaVersion: 1 as const,
+      requestFingerprint: 'a'.repeat(64),
+      initialTurnId: 'child-turn',
+      initialRunId: 'child-run',
+    };
+    try {
+      const created = await store.createSubagent(
+        fullHeader({
+          id: 'child-session',
+          parentSessionId: undefined,
+          branchOfTurnId: undefined,
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+          subagentParent,
+          subagentRuntime,
+          subagentSpawn,
+        }),
+      );
+      assert.equal(created.created, true);
+      await store.create(
+        fullHeader({
+          id: 'ordinary-branch',
+          parentSessionId: 'parent-session',
+          branchOfTurnId: 'parent-turn',
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+        }),
+      );
+      await store.create(
+        fullHeader({
+          id: 'other-child',
+          parentSessionId: undefined,
+          branchOfTurnId: undefined,
+          revisionRootSessionId: undefined,
+          revisionParentSessionId: undefined,
+          revisionOfTurnId: undefined,
+          revisionIndex: undefined,
+          revisionState: undefined,
+          subagentParent: { ...subagentParent, parentSessionId: 'other-parent' },
+        }),
+      );
+
+      const children = await store.list({
+        subagentParentSessionId: subagentParent.parentSessionId,
+      });
+      assert.deepEqual(
+        children.map((record) => record.header.id),
+        ['child-session'],
+      );
+      assert.deepEqual(children[0]?.header.subagentParent, subagentParent);
+      assert.deepEqual(children[0]?.header.subagentRuntime, subagentRuntime);
+      assert.deepEqual(children[0]?.header.subagentSpawn, subagentSpawn);
+      await assert.rejects(
+        () => store.update('child-session', { subagentParent: undefined }),
+        /parent relation is immutable/,
+      );
+      await assert.rejects(
+        () => store.update('child-session', { subagentRuntime: undefined }),
+        /runtime snapshot is immutable/,
+      );
+      await assert.rejects(
+        () => store.update('child-session', { subagentSpawn: undefined }),
+        /spawn identity is immutable/,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test('atomically reuses one child per durable spawn identity and rejects request drift', async () => {
+    const store = createSqliteSessionMetadataStore(':memory:');
+    const parent = {
+      kind: 'subagent' as const,
+      parentSessionId: 'parent-session',
+      spawnedBy: {
+        parentRunId: 'parent-run',
+        parentTurnId: 'parent-turn',
+        toolCallId: 'tool-call',
+      },
+      lifecycle: 'foreground' as const,
+    };
+    const runtime = {
+      schemaVersion: 1 as const,
+      definitionVersion: 1,
+      agentId: 'local-read',
+      agentName: 'Local Read',
+      profile: 'local_read',
+      systemPrompt: 'Original durable prompt.',
+      toolNames: ['Read'],
+      categoryPolicy: { read: 'allow' as const },
+      permissionCeiling: 'ask' as const,
+    };
+    const childHeader = (overrides: Partial<SessionHeader>): SessionHeader =>
+      fullHeader({
+        parentSessionId: undefined,
+        branchOfTurnId: undefined,
+        revisionRootSessionId: undefined,
+        revisionParentSessionId: undefined,
+        revisionOfTurnId: undefined,
+        revisionIndex: undefined,
+        revisionState: undefined,
+        subagentParent: parent,
+        subagentRuntime: runtime,
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint: 'a'.repeat(64),
+          initialTurnId: 'child-turn',
+          initialRunId: 'child-run',
+        },
+        ...overrides,
+      });
+    try {
+      const first = await store.createSubagent(childHeader({ id: 'child-original' }));
+      assert.equal(first.created, true);
+
+      const retry = await store.createSubagent(
+        childHeader({
+          id: 'child-retry-candidate',
+          subagentRuntime: { ...runtime, systemPrompt: 'A changed catalog prompt.' },
+          subagentSpawn: {
+            schemaVersion: 1,
+            requestFingerprint: 'a'.repeat(64),
+            initialTurnId: 'different-proposed-turn',
+            initialRunId: 'different-proposed-run',
+          },
+        }),
+      );
+      assert.equal(retry.created, false);
+      assert.equal(retry.record.header.id, 'child-original');
+      assert.equal(retry.record.header.subagentRuntime?.systemPrompt, 'Original durable prompt.');
+      assert.equal(retry.record.header.subagentSpawn?.initialRunId, 'child-run');
+
+      await assert.rejects(
+        () =>
+          store.createSubagent(
+            childHeader({
+              id: 'drifted-child',
+              subagentSpawn: {
+                schemaVersion: 1,
+                requestFingerprint: 'b'.repeat(64),
+                initialTurnId: 'drifted-turn',
+                initialRunId: 'drifted-run',
+              },
+            }),
+          ),
+        /reused for different work/,
+      );
+
+      const swarmItem = await store.createSubagent(
+        childHeader({
+          id: 'swarm-child',
+          subagentParent: {
+            ...parent,
+            swarm: { swarmId: 'swarm-1', itemId: 'item-1' },
+          },
+          subagentSpawn: {
+            schemaVersion: 1,
+            requestFingerprint: 'c'.repeat(64),
+            initialTurnId: 'swarm-turn',
+            initialRunId: 'swarm-run',
+          },
+        }),
+      );
+      assert.equal(swarmItem.created, true);
+
+      assert.equal(await store.remove('child-original'), true);
+      await assert.rejects(
+        () =>
+          store.createSubagent(
+            childHeader({
+              id: 'child-after-delete',
+              subagentSpawn: {
+                schemaVersion: 1,
+                requestFingerprint: 'a'.repeat(64),
+                initialTurnId: 'retry-after-delete-turn',
+                initialRunId: 'retry-after-delete-run',
+              },
+            }),
+          ),
+        /belongs to deleted session: child-original/,
+      );
+    } finally {
+      store.close();
+    }
+  });
+
+  test('migrates v4 spawn identities into claims that survive child deletion', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-subagent-spawn-v4-'));
+    const path = join(root, 'sessions.sqlite');
+    const child = fullHeader({
+      id: 'migrated-child',
+      parentSessionId: undefined,
+      branchOfTurnId: undefined,
+      revisionRootSessionId: undefined,
+      revisionParentSessionId: undefined,
+      revisionOfTurnId: undefined,
+      revisionIndex: undefined,
+      revisionState: undefined,
+      subagentParent: {
+        kind: 'subagent',
+        parentSessionId: 'parent-session',
+        spawnedBy: {
+          parentRunId: 'parent-run',
+          parentTurnId: 'parent-turn',
+          toolCallId: 'tool-call',
+        },
+        lifecycle: 'foreground',
+      },
+      subagentRuntime: {
+        schemaVersion: 1,
+        definitionVersion: 1,
+        agentId: 'local-read',
+        agentName: 'Local Read',
+        profile: 'local_read',
+        systemPrompt: 'Original durable prompt.',
+        toolNames: ['Read'],
+        categoryPolicy: { read: 'allow' },
+        permissionCeiling: 'ask',
+      },
+      subagentSpawn: {
+        schemaVersion: 1,
+        requestFingerprint: 'd'.repeat(64),
+        initialTurnId: 'child-turn',
+        initialRunId: 'child-run',
+      },
+    });
+    try {
+      const initial = createSqliteSessionMetadataStore(path);
+      await initial.createSubagent(child);
+      initial.close();
+
+      const v4 = new DatabaseSync(path);
+      v4.exec(`
+        DROP TABLE subagent_spawns;
+        CREATE UNIQUE INDEX session_metadata_by_subagent_spawn
+          ON session_metadata(
+            subagent_parent_session_id,
+            subagent_parent_run_id,
+            subagent_tool_call_id,
+            COALESCE(subagent_swarm_id, ''),
+            COALESCE(subagent_item_id, '')
+          )
+          WHERE
+            subagent_parent_session_id IS NOT NULL
+            AND subagent_parent_run_id IS NOT NULL
+            AND subagent_tool_call_id IS NOT NULL
+            AND subagent_request_fingerprint IS NOT NULL;
+        UPDATE session_metadata_schema SET version = 4 WHERE scope = 'session_metadata';
+      `);
+      v4.close();
+
+      const migrated = createSqliteSessionMetadataStore(path);
+      try {
+        assert.equal(migrated.schemaVersion(), 5);
+        assert.equal(await migrated.remove(child.id), true);
+        await assert.rejects(
+          () => migrated.createSubagent({ ...child, id: 'retry-after-migration' }),
+          /belongs to deleted session: migrated-child/,
+        );
+      } finally {
+        migrated.close();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
     }
   });
 

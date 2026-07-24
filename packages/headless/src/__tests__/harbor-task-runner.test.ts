@@ -1326,6 +1326,100 @@ describe('createHarborTaskRunner', () => {
     });
   });
 
+  test('hydrates missing deadline usage from the trial checkpoint', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const usageCheckpoint = tokenSummary({
+        input: 12_000,
+        output: 800,
+        reasoning: 400,
+        total: 12_800,
+        costUsd: 0.01,
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          reward: '0\n',
+          cell: cellOutput({
+            status: 'failed',
+            errorClass: 'aborted',
+            deadlineSettlement: { source: 'benchmark.deadline', mode: 'immediate' },
+            tokenSummary: undefined,
+          }),
+          usageCheckpoint,
+        }),
+      });
+
+      const output = await runner(runInput());
+      assert.deepEqual(output.cell.tokenSummary, usageCheckpoint);
+    });
+  });
+
+  test('replaces a parent-only summary with a child-inclusive checkpoint', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const parentOnly = tokenSummary({
+        input: 100,
+        output: 10,
+        reasoning: 2,
+        total: 110,
+        costUsd: 0.004,
+      });
+      const childInclusive = tokenSummary({
+        input: 160,
+        output: 25,
+        reasoning: 7,
+        total: 185,
+        costUsd: 0.011,
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          reward: '1\n',
+          cell: cellOutput({ tokenSummary: parentOnly }),
+          usageCheckpoint: childInclusive,
+        }),
+      });
+
+      const output = await runner(runInput());
+      assert.deepEqual(output.cell.tokenSummary, childInclusive);
+    });
+  });
+
+  test('retains the final summary when a higher-total checkpoint is not cumulative', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const finalSummary = tokenSummary({
+        input: 100,
+        output: 20,
+        reasoning: 4,
+        total: 120,
+        costUsd: 0.008,
+      });
+      const conflictingCheckpoint = tokenSummary({
+        input: 90,
+        output: 40,
+        reasoning: 8,
+        total: 130,
+        costUsd: 0.01,
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          reward: '1\n',
+          cell: cellOutput({ tokenSummary: finalSummary }),
+          usageCheckpoint: conflictingCheckpoint,
+        }),
+      });
+
+      const output = await runner(runInput());
+      assert.deepEqual(output.cell.tokenSummary, finalSummary);
+    });
+  });
+
   test('treats a non-zero Harbor exit with an incomplete agent-timeout trial as budget exhausted', async () => {
     await withRun(async ({ jobsDir, repo }) => {
       const executionIdentity = {
@@ -1439,6 +1533,86 @@ describe('createHarborTaskRunner', () => {
           executionIdentity,
         );
         assert.deepEqual(error.artifactRefs?.tokenSummary, usageCheckpoint);
+        return true;
+      });
+    });
+  });
+
+  test('recovers checkpoint usage when a timed-out deadline cell has no summary', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const usageCheckpoint = tokenSummary({
+        input: 120,
+        output: 15,
+        reasoning: 3,
+        total: 135,
+        costUsd: 0.009,
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          cell: cellOutput({
+            status: 'failed',
+            errorClass: 'aborted',
+            deadlineSettlement: { source: 'benchmark.deadline', mode: 'immediate' },
+            tokenSummary: undefined,
+          }),
+          usageCheckpoint,
+          trialResult: {
+            exception_info: {
+              exception_type: 'AgentTimeoutError',
+              exception_message: 'Agent execution timed out after 60.0 seconds',
+            },
+          },
+        }),
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+        assert.deepEqual(error.artifactRefs?.tokenSummary, usageCheckpoint);
+        assert.deepEqual(error.artifactRefs?.cellOutput?.tokenSummary, usageCheckpoint);
+        return true;
+      });
+    });
+  });
+
+  test('recovers child-inclusive usage when a timed-out cell has a parent summary', async () => {
+    await withRun(async ({ jobsDir, repo }) => {
+      const parentOnly = tokenSummary({
+        input: 100,
+        output: 10,
+        reasoning: 2,
+        total: 110,
+        costUsd: 0.006,
+      });
+      const childInclusive = tokenSummary({
+        input: 140,
+        output: 20,
+        reasoning: 5,
+        total: 160,
+        costUsd: 0.012,
+      });
+      const runner = createHarborTaskRunner({
+        makaRepoPath: repo,
+        jobsDir,
+        model: 'deepseek/deepseek-v4-flash',
+        runHarbor: fakeRunner({
+          cell: cellOutput({ tokenSummary: parentOnly }),
+          usageCheckpoint: childInclusive,
+          trialResult: {
+            exception_info: {
+              exception_type: 'AgentTimeoutError',
+              exception_message: 'Agent execution timed out after 60.0 seconds',
+            },
+          },
+        }),
+      });
+
+      await assert.rejects(runner(runInput()), (error: unknown) => {
+        assert.ok(error instanceof FixedPromptBudgetExhaustedError);
+        assert.deepEqual(error.artifactRefs?.tokenSummary, childInclusive);
+        assert.deepEqual(error.artifactRefs?.cellOutput?.tokenSummary, childInclusive);
         return true;
       });
     });

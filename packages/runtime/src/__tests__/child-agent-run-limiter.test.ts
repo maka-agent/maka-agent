@@ -322,13 +322,16 @@ async function executeTool(
   tool: MakaTool,
   controller: AbortController,
 ): Promise<unknown> {
-  return await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(
-    {},
-    {
+  return (
+    await runtime.settleToolCall({
+      tool,
+      turnId: 'turn-1',
       toolCallId: `tool-${tool.name}`,
+      input: {},
       abortSignal: controller.signal,
-    },
-  );
+      eventSink: { push: () => {} },
+    })
+  ).result;
 }
 
 function testHeader(): SessionHeader {

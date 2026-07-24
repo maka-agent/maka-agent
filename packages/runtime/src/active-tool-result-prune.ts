@@ -1,4 +1,4 @@
-import type { JSONValue, ModelMessage } from 'ai';
+import type { JSONValue, ModelMessage } from './model-protocol.js';
 
 import {
   ARCHIVED_TOOL_RESULT_REWRITE_VERSION,

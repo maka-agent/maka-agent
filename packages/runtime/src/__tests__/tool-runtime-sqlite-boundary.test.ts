@@ -46,13 +46,14 @@ describe('ToolRuntime with real SQLite boundary', () => {
 
       const published: SessionEvent[] = [];
 
-      await runtime.wrapToolExecute(tool, 'turn-1', { push: (event) => published.push(event) })(
-        {},
-        {
-          toolCallId: 'provider-call-1',
-          abortSignal: new AbortController().signal,
-        },
-      );
+      await runtime.settleToolCall({
+        tool,
+        turnId: 'turn-1',
+        toolCallId: 'provider-call-1',
+        input: {},
+        abortSignal: new AbortController().signal,
+        eventSink: { push: (event) => published.push(event) },
+      });
 
       assert.equal(implementationCalls, 1);
       const events = await store.readRuntimeEvents('session-1', 'run-1');
@@ -124,13 +125,14 @@ describe('ToolRuntime with real SQLite boundary', () => {
         },
       };
 
-      await runtime.wrapToolExecute(tool, 'turn-1', { push: (event) => published.push(event) })(
-        {},
-        {
-          toolCallId: 'provider-call-1',
-          abortSignal: new AbortController().signal,
-        },
-      );
+      await runtime.settleToolCall({
+        tool,
+        turnId: 'turn-1',
+        toolCallId: 'provider-call-1',
+        input: {},
+        abortSignal: new AbortController().signal,
+        eventSink: { push: (event) => published.push(event) },
+      });
 
       const memory = createSessionEventMapMemory();
       for (const event of published.filter(

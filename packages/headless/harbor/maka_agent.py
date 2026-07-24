@@ -464,11 +464,10 @@ class MakaAgent(BaseInstalledAgent):
             run_log_path.write_bytes(stdout + stderr)
             if process.returncode == 124:
                 # run-host-cell uses 124 only after it has settled the runtime at
-                # the soft deadline and persisted maka-cell-output.json. Freeze the
-                # task before grading by reclaiming every process started through
-                # this cell, including background commands that already returned
-                # to the model but can still mutate packages or workspace files.
-                executor.mark_reclaim_scoped_processes()
+                # the soft deadline and persisted maka-cell-output.json. Stop only
+                # commands that are still active: completed commands may have
+                # intentionally left verifier-visible services running.
+                executor.mark_reclaim_active_commands()
                 return
             if process.returncode != 0:
                 message = (stderr or stdout).decode("utf-8", errors="replace").strip()
@@ -827,11 +826,14 @@ class MakaAgent(BaseInstalledAgent):
                 )
                 raise
 
-            # A non-zero runner exit is an infrastructure failure. Flag it inside
-            # the executor scope so __aexit__ reclaims scoped background processes
-            # instead of preserving them as if the run had completed. A clean exit
-            # (return code 0) still preserves verifier-visible services.
-            if proc is not None and proc.returncode != 0:
+            if proc is not None and proc.returncode == 124:
+                # The benchmark deadline is an expected scored terminal state.
+                # Reclaim only in-flight commands while preserving services from
+                # completed commands for the post-exit verifier.
+                executor.mark_reclaim_active_commands()
+            elif proc is not None and proc.returncode != 0:
+                # Other non-zero exits are infrastructure failures, so no scoped
+                # background work should survive into grading or later attempts.
                 executor.mark_reclaim_scoped_processes()
 
         parsed = self._parse_node_result(stdout)
@@ -1053,6 +1055,7 @@ class _ToolExecutorServer:
         self._futures_lock = threading.Lock()
         self._accepting_requests = False
         self._reclaim_scoped_processes = False
+        self._reclaim_active_commands = False
         self._command_cleanup_error: BaseException | None = None
         self.token = secrets.token_urlsafe(32)
         self.command_scope = secrets.token_urlsafe(24)
@@ -1081,18 +1084,25 @@ class _ToolExecutorServer:
     def mark_reclaim_scoped_processes(self) -> None:
         """Make teardown stop active scoped commands before returning.
 
-        Callers use this after a settled deadline or a non-zero runner exit,
-        where waiting for a bridged command to finish would either overrun the
-        outer benchmark timeout or leave an orphan that can affect grading.
+        Callers use this after an exception or a non-zero infrastructure exit,
+        where scoped background processes must not survive into grading.
         """
         self._reclaim_scoped_processes = True
+
+    def mark_reclaim_active_commands(self) -> None:
+        """Stop in-flight commands while preserving completed service processes."""
+        self._reclaim_active_commands = True
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         stop_error: BaseException | None = None
         cleanup_error: BaseException | None = None
         reclaim_scope = exc_type is not None or self._reclaim_scoped_processes
+        reclaim_active = self._reclaim_active_commands and not reclaim_scope
         try:
-            cleanup_error = await self._stop_server(reclaim_scoped_processes=reclaim_scope)
+            cleanup_error = await self._stop_server(
+                reclaim_scoped_processes=reclaim_scope,
+                reclaim_active_commands=reclaim_active,
+            )
         except BaseException as error:
             stop_error = error
         if stop_error is not None and not reclaim_scope:
@@ -1106,12 +1116,26 @@ class _ToolExecutorServer:
         if command_cleanup_error is not None:
             raise command_cleanup_error
 
-    async def _stop_server(self, *, reclaim_scoped_processes: bool) -> BaseException | None:
+    async def _stop_server(
+        self,
+        *,
+        reclaim_scoped_processes: bool,
+        reclaim_active_commands: bool,
+    ) -> BaseException | None:
         with self._futures_lock:
             self._accepting_requests = False
             futures = list(self._futures)
+            active_command_ids = [
+                self._future_command_ids[future]
+                for future in futures
+                if not future.done() and future in self._future_command_ids
+            ]
         if reclaim_scoped_processes:
-            cleanup_error = await self._drain_futures_with_cleanup(futures)
+            cleanup_error = await self._drain_futures_with_cleanup(futures, None)
+        elif reclaim_active_commands:
+            cleanup_error = await self._drain_futures_with_cleanup(
+                futures, active_command_ids
+            )
         else:
             cleanup_error = await self._drain_futures(futures)
         if self._server is not None:
@@ -1133,9 +1157,10 @@ class _ToolExecutorServer:
     async def _drain_futures_with_cleanup(
         self,
         futures: list[concurrent.futures.Future[Any]],
+        command_ids: list[str] | None,
     ) -> BaseException | None:
         while any(not future.done() for future in futures):
-            cleanup_error = await self._cleanup_processes(None)
+            cleanup_error = await self._cleanup_processes(command_ids)
             if cleanup_error is not None:
                 for future in futures:
                     future.cancel()
@@ -1143,7 +1168,7 @@ class _ToolExecutorServer:
                 return cleanup_error
             await asyncio.sleep(0.2)
         await self._drain_futures(futures)
-        return await self._cleanup_processes(None)
+        return await self._cleanup_processes(command_ids)
 
     async def _cleanup_processes(
         self, command_ids: list[str] | None

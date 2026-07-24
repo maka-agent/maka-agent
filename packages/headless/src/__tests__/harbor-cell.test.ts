@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, test } from 'node:test';
-import type { BackendKind, LlmConnection, SessionEvent, SessionHeader } from '@maka/core';
+import type {
+  BackendKind,
+  LlmConnection,
+  RuntimeEvent,
+  SessionEvent,
+  SessionHeader,
+} from '@maka/core';
 import type {
   BackendSendInput,
   BackendStopMode,
@@ -17,6 +24,7 @@ import {
   type AgentBackend,
   type AiSdkBackendInput,
   type BackendFactoryContext,
+  type InvocationResult,
   type PiAgentTransport,
   type ProviderRequestCaptureRecord,
   type SessionStore,
@@ -24,6 +32,7 @@ import {
   type ToolResultArchiveReader,
   type ToolResultArchiveRecorder,
 } from '@maka/runtime';
+import { Agent } from 'undici';
 import type { Config } from '../contracts.js';
 import { openHeadlessStorageForWrite } from '../headless-storage.js';
 import type {
@@ -48,8 +57,11 @@ import {
   resolveHarborCellAiSdkEnv,
   runHarborCellFromEnv,
   runHarborCell,
+  writeHarborCellArtifacts,
+  writeHarborCellExecutionIdentity,
   writeHarborCellUsageCheckpoint,
 } from '../harbor-cell.js';
+import { resolveHarborRunOptions } from '../harbor-cli.js';
 import { DEFAULT_HEADLESS_SYSTEM_PROMPT } from '../system-prompts.js';
 import { buildIsolatedBashTool } from '../tools.js';
 
@@ -773,6 +785,106 @@ describe('runHarborCell', () => {
         readFile(join(outputDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
         (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
       );
+    });
+  });
+
+  test('writes child-inclusive checkpoint usage into the canonical cell output', async () => {
+    await withDirs(async ({ outputDir }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 140,
+        outputTokens: 20,
+        cacheHitInputTokens: 40,
+        cacheMissInputTokens: 100,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 5,
+        totalTokens: 160,
+        costUsd: 0.012,
+      });
+      const usageEvent: RuntimeEvent = {
+        id: 'parent-usage',
+        sessionId: 'session-1',
+        invocationId: 'invocation-1',
+        runId: 'run-1',
+        turnId: 'turn-1',
+        ts: 100,
+        partial: false,
+        role: 'model',
+        author: 'agent',
+        actions: {
+          tokenUsage: {
+            input: 100,
+            output: 10,
+            cacheHitInput: 30,
+            cacheMissInput: 70,
+            cacheMissInputSource: 'explicit',
+            cacheWriteInput: 0,
+            reasoning: 2,
+            total: 110,
+            runtimeSteps: 1,
+            costUsd: 0.006,
+          },
+        },
+      };
+      const invocation: InvocationResult = {
+        invocationId: 'invocation-1',
+        sessionId: 'session-1',
+        runId: 'run-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        events: [usageEvent],
+        startedAt: 100,
+        finishedAt: 200,
+      };
+
+      const result = await writeHarborCellArtifacts({ invocation, outputDir });
+
+      assert.deepEqual(result.output.tokenSummary, {
+        input: 140,
+        output: 20,
+        cachedInput: 40,
+        cacheHitInput: 40,
+        cacheMissInput: 100,
+        cacheWriteInput: 0,
+        cacheMissInputSource: 'explicit',
+        reasoning: 5,
+        total: 160,
+        costUsd: 0.012,
+        pricingSource: 'runtime',
+      });
+      assert.deepEqual(
+        JSON.parse(await readFile(result.outputPath, 'utf8')).tokenSummary,
+        result.output.tokenSummary,
+      );
+    });
+  });
+
+  test('a new cell run does not inherit a stale checkpoint from the same output directory', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot }) => {
+      await writeHarborCellUsageCheckpoint(outputDir, {
+        inputTokens: 500,
+        outputTokens: 50,
+        cacheHitInputTokens: 200,
+        cacheMissInputTokens: 300,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 10,
+        totalTokens: 550,
+        costUsd: 1,
+      });
+
+      const result = await runHarborCell({
+        config,
+        instruction: 'fail before model usage',
+        cwd: workspaceDir,
+        outputDir,
+        storageRoot,
+        registerBackends: registerThrowingBackend,
+      });
+
+      assert.equal(result.output.status, 'failed');
+      assert.equal(result.output.tokenSummary, undefined);
+      assert.equal(JSON.parse(await readFile(result.outputPath, 'utf8')).tokenSummary, undefined);
     });
   });
 
@@ -2014,6 +2126,729 @@ describe('runHarborCell', () => {
       assert.equal(backendInput.streamIdleTimeoutMs, 789_000);
       assert.equal(backendInput.supportsVision, true);
       assert.equal(typeof backendInput.readAttachmentBytes, 'function');
+
+      const scopedBackend = await registry.build('ai-sdk', {
+        ...backendContext(workspaceDir),
+        tools: [
+          {
+            name: 'ReadOnlyProbe',
+            description: 'Read-only test probe',
+            parameters: {},
+            impl: () => 'ok',
+          },
+        ],
+        systemPrompt: 'Durable child prompt.',
+      });
+      const scopedInput = (scopedBackend as unknown as { input: AiSdkBackendInput }).input;
+      assert.deepEqual(
+        scopedInput.tools.map((tool) => tool.name),
+        ['ReadOnlyProbe'],
+      );
+      assert.equal(scopedInput.systemPrompt, 'Durable child prompt.');
+      assert.equal(scopedInput.toolAvailability, undefined);
+    });
+  });
+
+  test('Harbor replaces each backend cumulative usage snapshot', async () => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
+      const registry = new BackendRegistry();
+      const checkpoints: Array<{ inputTokens: number; outputTokens: number; totalTokens: number }> =
+        [];
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+        recordUsageCheckpoint: (usage) => {
+          checkpoints.push(usage);
+        },
+      });
+      const toolExecutor = fakeToolExecutor();
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const parent = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const childContext = backendContext(workspaceDir);
+      const child = await registry.build('ai-sdk', {
+        ...childContext,
+        sessionId: 'child-session',
+        header: { ...childContext.header, id: 'child-session' },
+      });
+      const recordParentUsage = (
+        parent as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      const recordChildUsage = (
+        child as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordParentUsage);
+      assert.ok(recordChildUsage);
+
+      await recordParentUsage({
+        inputTokens: 11,
+        outputTokens: 2,
+        cacheHitInputTokens: 3,
+        cachedInputTokens: 3,
+        cacheMissInputTokens: 7,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 1,
+        reasoningTokens: 1,
+        totalTokens: 13,
+        costUsd: 0.004,
+      });
+      await recordChildUsage({
+        inputTokens: 5,
+        outputTokens: 2,
+        cacheHitInputTokens: 1,
+        cachedInputTokens: 1,
+        cacheMissInputTokens: 4,
+        cacheMissInputSource: 'derived',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 7,
+        costUsd: 0.002,
+      });
+      await recordParentUsage({
+        inputTokens: 19,
+        outputTokens: 5,
+        cacheHitInputTokens: 6,
+        cachedInputTokens: 6,
+        cacheMissInputTokens: 11,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 4,
+        totalTokens: 24,
+        costUsd: 0.009,
+      });
+
+      assert.deepEqual(
+        checkpoints.map(({ inputTokens, outputTokens, totalTokens }) => ({
+          inputTokens,
+          outputTokens,
+          totalTokens,
+        })),
+        [
+          { inputTokens: 11, outputTokens: 2, totalTokens: 13 },
+          { inputTokens: 16, outputTokens: 4, totalTokens: 20 },
+          { inputTokens: 24, outputTokens: 7, totalTokens: 31 },
+        ],
+      );
+    });
+  });
+
+  test('Harbor retains usage across repeated backend registrations for one run', async () => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
+      const checkpoints: Array<{ inputTokens: number; outputTokens: number }> = [];
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+        recordUsageCheckpoint: (usage) => {
+          checkpoints.push(usage);
+        },
+      });
+      const context = {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk' as const,
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: {
+          kind: 'external' as const,
+          label: 'Harbor task container',
+          toolExecutor: fakeToolExecutor(),
+        },
+        toolExecutor: fakeToolExecutor(),
+      };
+      const recorders: Array<NonNullable<AiSdkBackendInput['recordUsageCheckpoint']>> = [];
+      for (const sessionId of ['attempt-1', 'attempt-2']) {
+        const registry = new BackendRegistry();
+        await register(registry, context);
+        const backendContextInput = backendContext(workspaceDir);
+        const backend = await registry.build('ai-sdk', {
+          ...backendContextInput,
+          sessionId,
+          header: { ...backendContextInput.header, id: sessionId },
+        });
+        const recorder = (
+          backend as unknown as {
+            input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+          }
+        ).input.recordUsageCheckpoint;
+        assert.ok(recorder);
+        recorders.push(recorder);
+      }
+
+      await recorders[0]!({
+        inputTokens: 90,
+        outputTokens: 10,
+        cacheHitInputTokens: 20,
+        cachedInputTokens: 20,
+        cacheMissInputTokens: 70,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 2,
+        totalTokens: 100,
+        costUsd: 0.01,
+      });
+      await recorders[1]!({
+        inputTokens: 8,
+        outputTokens: 2,
+        cacheHitInputTokens: 3,
+        cachedInputTokens: 3,
+        cacheMissInputTokens: 5,
+        cacheMissInputSource: 'derived',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 10,
+        costUsd: 0.002,
+      });
+
+      assert.deepEqual(
+        checkpoints.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })),
+        [
+          { inputTokens: 90, outputTokens: 10 },
+          { inputTokens: 98, outputTokens: 12 },
+        ],
+      );
+    });
+  });
+
+  test('Harbor preserves pricing and cache fields in parent-child usage aggregates', async () => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
+      const registry = new BackendRegistry();
+      const checkpoints: Array<{
+        cacheHitInputTokens: number;
+        cacheMissInputTokens: number;
+        cacheMissInputSource: 'explicit' | 'derived';
+        cacheWriteInputTokens: number;
+        reasoningTokens: number;
+        costUsd?: number;
+      }> = [];
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+        recordUsageCheckpoint: (usage) => {
+          checkpoints.push(usage);
+        },
+      });
+      const toolExecutor = fakeToolExecutor();
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const parent = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const child = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const recordParentUsage = (
+        parent as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      const recordChildUsage = (
+        child as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordParentUsage);
+      assert.ok(recordChildUsage);
+
+      await recordParentUsage({
+        inputTokens: 14,
+        outputTokens: 3,
+        cacheHitInputTokens: 4,
+        cachedInputTokens: 4,
+        cacheMissInputTokens: 8,
+        cacheMissInputSource: 'derived',
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 1,
+        totalTokens: 17,
+        costUsd: 0.006,
+      });
+      await recordChildUsage({
+        inputTokens: 9,
+        outputTokens: 5,
+        cacheHitInputTokens: 5,
+        cachedInputTokens: 5,
+        cacheMissInputTokens: 4,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 2,
+        totalTokens: 14,
+        costUsd: 0.008,
+      });
+
+      const aggregate = checkpoints.at(-1);
+      assert.ok(aggregate);
+      assert.deepEqual(
+        {
+          cacheHitInputTokens: aggregate.cacheHitInputTokens,
+          cacheMissInputTokens: aggregate.cacheMissInputTokens,
+          cacheMissInputSource: aggregate.cacheMissInputSource,
+          cacheWriteInputTokens: aggregate.cacheWriteInputTokens,
+          reasoningTokens: aggregate.reasoningTokens,
+          costUsd: aggregate.costUsd,
+        },
+        {
+          cacheHitInputTokens: 9,
+          cacheMissInputTokens: 12,
+          cacheMissInputSource: 'explicit',
+          cacheWriteInputTokens: 2,
+          reasoningTokens: 3,
+          costUsd: 0.014,
+        },
+      );
+    });
+  });
+
+  test('Harbor serializes concurrent aggregate checkpoint persistence', async () => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
+      const registry = new BackendRegistry();
+      const persisted: Array<{ inputTokens: number; outputTokens: number; totalTokens: number }> =
+        [];
+      let persistenceCalls = 0;
+      let releaseFirstPersistence = () => {};
+      const firstPersistenceBlocked = new Promise<void>((resolve) => {
+        releaseFirstPersistence = resolve;
+      });
+      let observeFirstPersistence = () => {};
+      const firstPersistenceStarted = new Promise<void>((resolve) => {
+        observeFirstPersistence = resolve;
+      });
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+        recordUsageCheckpoint: async (usage) => {
+          persistenceCalls += 1;
+          if (persistenceCalls === 1) {
+            observeFirstPersistence();
+            await firstPersistenceBlocked;
+          }
+          persisted.push(usage);
+        },
+      });
+      const toolExecutor = fakeToolExecutor();
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+
+      const parent = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const child = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const recordParentUsage = (
+        parent as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      const recordChildUsage = (
+        child as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordParentUsage);
+      assert.ok(recordChildUsage);
+
+      const parentWrite = recordParentUsage({
+        inputTokens: 8,
+        outputTokens: 2,
+        cacheHitInputTokens: 1,
+        cachedInputTokens: 1,
+        cacheMissInputTokens: 7,
+        cacheMissInputSource: 'derived',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 10,
+        costUsd: 0.003,
+      });
+      await firstPersistenceStarted;
+      const childWrite = recordChildUsage({
+        inputTokens: 15,
+        outputTokens: 4,
+        cacheHitInputTokens: 5,
+        cachedInputTokens: 5,
+        cacheMissInputTokens: 10,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 2,
+        totalTokens: 19,
+        costUsd: 0.007,
+      });
+      await Promise.resolve();
+      const callsBeforeRelease = persistenceCalls;
+      releaseFirstPersistence();
+      await Promise.all([parentWrite, childWrite]);
+
+      assert.equal(callsBeforeRelease, 1);
+      assert.deepEqual(
+        persisted.map(({ inputTokens, outputTokens, totalTokens }) => ({
+          inputTokens,
+          outputTokens,
+          totalTokens,
+        })),
+        [
+          { inputTokens: 8, outputTokens: 2, totalTokens: 10 },
+          { inputTokens: 23, outputTokens: 6, totalTokens: 29 },
+        ],
+      );
+    });
+  });
+
+  test('Harbor continues checkpoint aggregation after a persistence failure', async () => {
+    await withDirs(async ({ workspaceDir, artifactStore }) => {
+      const registry = new BackendRegistry();
+      const persisted: Array<{ inputTokens: number; outputTokens: number }> = [];
+      let persistenceCalls = 0;
+      const register = buildAiSdkCellBackendRegistration({
+        provider: 'openai',
+        model: 'gpt-5.6-sol',
+        env: { OPENAI_API_KEY: 'test-key' },
+        now: () => 123,
+        newId: testIdFactory(),
+        recordUsageCheckpoint: (usage) => {
+          persistenceCalls += 1;
+          if (persistenceCalls === 1) throw new Error('checkpoint disk unavailable');
+          persisted.push(usage);
+        },
+      });
+      const toolExecutor = fakeToolExecutor();
+      await register(registry, {
+        config: {
+          id: 'harbor-ai-sdk',
+          backend: 'ai-sdk',
+          llmConnectionSlug: 'openai',
+          model: 'gpt-5.6-sol',
+        },
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot: workspaceDir,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const parent = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const child = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const recordParentUsage = (
+        parent as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      const recordChildUsage = (
+        child as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordParentUsage);
+      assert.ok(recordChildUsage);
+
+      await assert.rejects(
+        async () =>
+          await recordParentUsage({
+            inputTokens: 80,
+            outputTokens: 20,
+            cacheHitInputTokens: 30,
+            cachedInputTokens: 30,
+            cacheMissInputTokens: 50,
+            cacheMissInputSource: 'explicit',
+            cacheWriteInputTokens: 0,
+            reasoningTokens: 5,
+            totalTokens: 100,
+            costUsd: 0.01,
+          }),
+        /checkpoint disk unavailable/,
+      );
+      await recordChildUsage({
+        inputTokens: 8,
+        outputTokens: 2,
+        cacheHitInputTokens: 3,
+        cachedInputTokens: 3,
+        cacheMissInputTokens: 5,
+        cacheMissInputSource: 'derived',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 1,
+        totalTokens: 10,
+        costUsd: 0.002,
+      });
+
+      assert.equal(persistenceCalls, 2);
+      assert.deepEqual(
+        persisted.map(({ inputTokens, outputTokens }) => ({ inputTokens, outputTokens })),
+        [{ inputTokens: 88, outputTokens: 22 }],
+      );
+    });
+  });
+
+  test('task-run CLI persists runtime usage checkpoints to the cell artifact directory', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot, artifactStore }) => {
+      const cellArtifactDir = join(outputDir, 'cell-artifacts');
+      const options = await resolveHarborRunOptions(
+        [
+          '--mode',
+          'task-run',
+          '--backend',
+          'ai-sdk',
+          '--isolation',
+          'harbor-local',
+          '--instruction',
+          'solve',
+          '--workdir',
+          workspaceDir,
+          '--out',
+          outputDir,
+          '--storage-root',
+          storageRoot,
+          '--provider',
+          'openai',
+          '--model',
+          'gpt-5.6-sol',
+        ],
+        {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_CELL_ARTIFACT_DIR: cellArtifactDir,
+        },
+      );
+      assert.ok(options.registerBackends);
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      await options.registerBackends(registry, {
+        config: options.config,
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const recordUsageCheckpoint = (
+        backend as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordUsageCheckpoint);
+
+      await recordUsageCheckpoint({
+        inputTokens: 21,
+        outputTokens: 4,
+        cacheHitInputTokens: 7,
+        cachedInputTokens: 7,
+        cacheMissInputTokens: 12,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 2,
+        reasoningTokens: 3,
+        totalTokens: 25,
+        costUsd: 0.012,
+      });
+
+      assert.deepEqual(
+        JSON.parse(
+          await readFile(join(cellArtifactDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        ),
+        {
+          input: 21,
+          output: 4,
+          cachedInput: 7,
+          cacheHitInput: 7,
+          cacheMissInput: 12,
+          cacheWriteInput: 2,
+          cacheMissInputSource: 'explicit',
+          reasoning: 3,
+          total: 25,
+          costUsd: 0.012,
+          pricingSource: 'runtime',
+        },
+      );
+    });
+  });
+
+  test('cell-mode CLI keeps usage checkpoints with its canonical cell artifacts', async () => {
+    await withDirs(async ({ workspaceDir, outputDir, storageRoot, artifactStore }) => {
+      const detachedCellArtifactDir = join(outputDir, 'detached-cell-artifacts');
+      const options = await resolveHarborRunOptions(
+        [
+          '--mode',
+          'cell',
+          '--backend',
+          'ai-sdk',
+          '--isolation',
+          'harbor-local',
+          '--instruction',
+          'solve',
+          '--workdir',
+          workspaceDir,
+          '--out',
+          outputDir,
+          '--storage-root',
+          storageRoot,
+          '--provider',
+          'openai',
+          '--model',
+          'gpt-5.6-sol',
+        ],
+        {
+          OPENAI_API_KEY: 'test-key',
+          MAKA_CELL_ARTIFACT_DIR: detachedCellArtifactDir,
+        },
+      );
+      const staleUsage = {
+        inputTokens: 500,
+        outputTokens: 50,
+        cacheHitInputTokens: 200,
+        cacheMissInputTokens: 300,
+        cacheMissInputSource: 'explicit' as const,
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 10,
+        totalTokens: 550,
+        costUsd: 1,
+      };
+      await writeHarborCellUsageCheckpoint(outputDir, staleUsage);
+      const executionIdentity = {
+        llmConnectionSlug: 'openai',
+        model: 'gpt-5.6-sol',
+        systemPromptHash: 'sha256:cell-mode-checkpoint',
+        pricingProfile: 'test-profile',
+      };
+      await writeHarborCellExecutionIdentity(outputDir, executionIdentity);
+
+      assert.ok(options.registerBackends);
+      const registry = new BackendRegistry();
+      const toolExecutor = fakeToolExecutor();
+      await options.registerBackends(registry, {
+        config: options.config,
+        task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
+        storageRoot,
+        workspaceDir,
+        artifactStore,
+        realBackendIsolation: { kind: 'external', label: 'Harbor task container', toolExecutor },
+        toolExecutor,
+      });
+      const backend = await registry.build('ai-sdk', backendContext(workspaceDir));
+      const recordUsageCheckpoint = (
+        backend as unknown as {
+          input: Pick<AiSdkBackendInput, 'recordUsageCheckpoint'>;
+        }
+      ).input.recordUsageCheckpoint;
+      assert.ok(recordUsageCheckpoint);
+      await recordUsageCheckpoint({
+        inputTokens: 140,
+        outputTokens: 20,
+        cacheHitInputTokens: 40,
+        cachedInputTokens: 40,
+        cacheMissInputTokens: 100,
+        cacheMissInputSource: 'explicit',
+        cacheWriteInputTokens: 0,
+        reasoningTokens: 5,
+        totalTokens: 160,
+        costUsd: 0.012,
+      });
+
+      const invocation: InvocationResult = {
+        invocationId: 'invocation-1',
+        sessionId: 'session-1',
+        runId: 'run-1',
+        turnId: 'turn-1',
+        status: 'completed',
+        events: [
+          {
+            id: 'parent-usage',
+            sessionId: 'session-1',
+            invocationId: 'invocation-1',
+            runId: 'run-1',
+            turnId: 'turn-1',
+            ts: 100,
+            partial: false,
+            role: 'model',
+            author: 'agent',
+            actions: {
+              tokenUsage: {
+                input: 100,
+                output: 10,
+                cacheHitInput: 30,
+                cacheMissInput: 70,
+                cacheMissInputSource: 'explicit',
+                cacheWriteInput: 0,
+                reasoning: 2,
+                total: 110,
+                runtimeSteps: 1,
+                costUsd: 0.006,
+              },
+            },
+          },
+        ],
+        startedAt: 100,
+        finishedAt: 200,
+      };
+      const artifacts = await writeHarborCellArtifacts({
+        invocation,
+        outputDir,
+        executionIdentity,
+      });
+
+      assert.deepEqual(artifacts.output.tokenSummary, {
+        input: 140,
+        output: 20,
+        cachedInput: 40,
+        cacheHitInput: 40,
+        cacheMissInput: 100,
+        cacheWriteInput: 0,
+        cacheMissInputSource: 'explicit',
+        reasoning: 5,
+        total: 160,
+        costUsd: 0.012,
+        pricingSource: 'runtime',
+      });
+      await assert.rejects(
+        readFile(join(detachedCellArtifactDir, HARBOR_CELL_USAGE_CHECKPOINT_FILENAME), 'utf8'),
+        (error: NodeJS.ErrnoException) => error.code === 'ENOENT',
+      );
     });
   });
 
@@ -3638,7 +4473,7 @@ setTimeout(() => {
 
     assert.equal(resolved.apiKey, '');
     assert.equal(resolved.connection.providerType, 'lm-studio');
-    assert.equal(resolved.connection.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(resolved.connection.baseUrl, 'http://127.0.0.1:1234/v1');
     assert.equal(
       resolved.connection.defaultModel,
       'lmstudio-community/Qwen3-Coder-30B-A3B-Instruct-GGUF',
@@ -3655,7 +4490,7 @@ setTimeout(() => {
     });
     assert.equal(noAuth.apiKey, '');
     assert.equal(noAuth.connection.providerType, 'localai');
-    assert.equal(noAuth.connection.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(noAuth.connection.baseUrl, 'http://127.0.0.1:8080/v1');
     assert.equal(noAuth.connection.defaultModel, model);
 
     const keyed = resolveHarborCellAiSdkEnv({
@@ -4539,12 +5374,45 @@ setTimeout(() => {
 });
 
 describe('createHarborHttpToolExecutor', () => {
+  const createMockedHarborHttpToolExecutor = (
+    env: Parameters<typeof createHarborHttpToolExecutor>[0],
+  ) => createHarborHttpToolExecutor(env, globalThis.fetch as never);
+
+  test('uses its explicit HTTP client for real bridge requests', async () => {
+    const server = createServer((_request, response) => {
+      response.end(JSON.stringify({ exitCode: 0, stdout: 'ok', stderr: '' }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const previousFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = async () => {
+        throw new Error('global fetch must not own Harbor bridge transport');
+      };
+      const address = server.address();
+      assert.ok(address && typeof address !== 'string');
+      const executor = createHarborHttpToolExecutor({
+        MAKA_HARBOR_TOOL_EXECUTOR_URL: `http://127.0.0.1:${address.port}`,
+        MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
+      });
+
+      assert.deepEqual(
+        await executor.exec({ command: 'echo hello', cwd: '/workspace', timeoutMs: 10_000 }),
+        { exitCode: 0, stdout: 'ok', stderr: '' },
+      );
+    } finally {
+      globalThis.fetch = previousFetch;
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve())),
+      );
+    }
+  });
+
   test('keeps bridge failures out of command stderr', async () => {
     const previousFetch = globalThis.fetch;
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ error: 'executor bridge failed' }), { status: 500 });
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4562,7 +5430,7 @@ describe('createHarborHttpToolExecutor', () => {
     const previousFetch = globalThis.fetch;
     try {
       globalThis.fetch = async () => new Response(JSON.stringify(['not', 'an', 'envelope']));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4581,7 +5449,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 0, returnCode: 9, stdout: '', stderr: '' }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4600,7 +5468,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 0, stdout: '', stderr: '', timedOut: true }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4621,7 +5489,7 @@ describe('createHarborHttpToolExecutor', () => {
         new Response(
           JSON.stringify({ exitCode: Number.MAX_SAFE_INTEGER + 1, stdout: '', stderr: '' }),
         );
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4640,7 +5508,7 @@ describe('createHarborHttpToolExecutor', () => {
     try {
       globalThis.fetch = async () =>
         new Response(JSON.stringify({ exitCode: 124, stdout: '', stderr: '', timedOut: true }));
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
@@ -4656,33 +5524,47 @@ describe('createHarborHttpToolExecutor', () => {
     }
   });
 
-  test('forwards active-tool cancellation to fetch without serializing execution control', async () => {
+  test('uses a long-running dispatcher without replacing active-tool cancellation', async () => {
     const previousFetch = globalThis.fetch;
     const controller = new AbortController();
+    let observedDispatcher: unknown;
     let observedSignal: AbortSignal | null | undefined;
     let observedBody: unknown;
     try {
       globalThis.fetch = async (_input, init) => {
+        observedDispatcher = Reflect.get(init ?? {}, 'dispatcher');
         observedSignal = init?.signal;
         observedBody = JSON.parse(String(init?.body));
         return new Response(JSON.stringify({ exitCode: 0, stdout: 'ok', stderr: '' }), {
           status: 200,
         });
       };
-      const executor = createHarborHttpToolExecutor({
+      const executor = createMockedHarborHttpToolExecutor({
         MAKA_HARBOR_TOOL_EXECUTOR_URL: 'http://127.0.0.1:1',
         MAKA_HARBOR_TOOL_EXECUTOR_TOKEN: 'test-token',
       });
 
       await executor.exec(
-        { command: 'sleep until cancelled', cwd: '/workspace' },
+        { command: 'sleep until cancelled', cwd: '/workspace', timeoutMs: 600_000 },
         { abortSignal: controller.signal },
       );
 
+      assert.ok(observedDispatcher instanceof Agent);
+      // Undici has no public getter for Agent defaults. Its own options symbol is
+      // the cheapest observable distinction from the default 300-second Agent.
+      const optionsSymbol = Object.getOwnPropertySymbols(observedDispatcher).find(
+        (symbol) => symbol.description === 'options',
+      );
+      assert.ok(optionsSymbol);
+      const dispatcherOptions = Reflect.get(observedDispatcher, optionsSymbol);
+      assert.equal(Reflect.get(dispatcherOptions, 'headersTimeout'), 0);
+      assert.equal(Reflect.has(dispatcherOptions, 'bodyTimeout'), false);
       assert.equal(observedSignal, controller.signal);
       assert.deepEqual(observedBody, {
         command: 'sleep until cancelled',
         cwd: '/workspace',
+        timeoutMs: 600_000,
+        timeoutSec: 600,
       });
     } finally {
       globalThis.fetch = previousFetch;

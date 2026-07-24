@@ -325,6 +325,6 @@ export function wireAppLifecycle(deps: AppLifecycleDeps): void {
       if (result.status === 'rejected') console.error('[shutdown] cleanup failed:', result.reason);
     }
     runtimePersistence.close();
-    sessionStore.close?.();
+    await sessionStore.close?.();
   }
 }

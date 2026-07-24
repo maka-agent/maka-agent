@@ -27,17 +27,15 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
         rationale: 'Authorized exact action.',
       }),
     });
-    const result = await h.runtime.wrapToolExecute(
+    const result = await settle(
+      h,
       bashTool((_args, context) => {
         receivedContext = context.permissionContext;
         return { ok: true };
       }),
       'turn-1',
-      { push: (event) => h.events.push(event) },
-    )(args, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
+      'tool-1',
+    );
 
     assert.deepEqual(result, { ok: true });
     assert.equal(
@@ -60,23 +58,13 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
         return { outcome: 'deny', riskLevel: 'critical', rationale: 'User intent is ambiguous.' };
       },
     });
-    const execute = h.runtime.wrapToolExecute(
-      bashTool(() => {
-        called = true;
-        return { ok: true };
-      }),
-      'turn-1',
-      { push: (event) => h.events.push(event) },
-    );
+    const tool = bashTool(() => {
+      called = true;
+      return { ok: true };
+    });
 
-    const first = await execute(args, {
-      toolCallId: 'tool-1',
-      abortSignal: new AbortController().signal,
-    });
-    const repeated = await execute(args, {
-      toolCallId: 'tool-2',
-      abortSignal: new AbortController().signal,
-    });
+    const first = await settle(h, tool, 'turn-1', 'tool-1');
+    const repeated = await settle(h, tool, 'turn-1', 'tool-2');
 
     assert.equal(called, false);
     assert.deepEqual(first, { error: '自动审批已拒绝权限请求：User intent is ambiguous.' });
@@ -105,18 +93,14 @@ describe('ToolRuntime sandbox escalation orchestration', () => {
       executions += 1;
       return { ok: true };
     });
-    const first = await h.runtime.wrapToolExecute(tool, 'turn-1', {
-      push: (event) => h.events.push(event),
-    })(args, { toolCallId: 'tool-1', abortSignal: new AbortController().signal });
+    const first = await settle(h, tool, 'turn-1', 'tool-1');
     assert.deepEqual(first, {
       error: '自动审批已拒绝权限请求：Automatic approval review failed closed.',
     });
 
     h.runtime.endTurn('turn-1');
     h.runtime.beginTurn('turn-2');
-    const next = await h.runtime.wrapToolExecute(tool, 'turn-2', {
-      push: (event) => h.events.push(event),
-    })(args, { toolCallId: 'tool-2', abortSignal: new AbortController().signal });
+    const next = await settle(h, tool, 'turn-2', 'tool-2');
     assert.deepEqual(next, { ok: true });
     assert.equal(reviews, 2);
     assert.equal(executions, 1);
@@ -145,6 +129,24 @@ function bashTool(impl: MakaTool['impl']): MakaTool {
       }),
     impl,
   };
+}
+
+function settle(
+  fixture: ReturnType<typeof harness>,
+  tool: MakaTool,
+  turnId: string,
+  toolCallId: string,
+): Promise<unknown> {
+  return fixture.runtime
+    .settleToolCall({
+      tool,
+      turnId,
+      toolCallId,
+      input: args,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => fixture.events.push(event) },
+    })
+    .then((settlement) => settlement.result);
 }
 
 function harness(autoReviewer: AutoApprovalReviewer) {

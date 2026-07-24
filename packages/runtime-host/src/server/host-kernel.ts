@@ -26,6 +26,7 @@ import {
   type ConnectionOperationLease,
 } from './connection-session.js';
 import {
+  composeOperationHandlers,
   type DomainOperationHandlerMap,
   type OperationResidency,
   type OperationHandlerMap,
@@ -290,7 +291,7 @@ export class RuntimeHostKernel {
   ): Promise<ConnectionOperationLease | HostOperationErrorCode> {
     if (!(await this.#readAdmissionState())) return 'host_draining';
     if (
-      HOST_OPERATION_SPECS[frame.operation].admission !== 'bootstrap' &&
+      HOST_OPERATION_SPECS[frame.operation].availability !== 'bootstrap' &&
       this.#state !== 'ready'
     ) {
       return 'host_not_ready';
@@ -379,19 +380,21 @@ export class RuntimeHostKernel {
   }
 
   #createOperationHandlers(domainHandlers: DomainOperationHandlerMap): OperationHandlerMap {
-    return {
-      'host.status': async () => ({
-        ok: true,
-        result: {
-          hostEpoch: this.hostEpoch,
-          state: this.#state,
-          connections: this.#acceptedTransports.size,
-          activeOperations: this.#activeOperations,
-          activeResidencies: this.#activeResidencies,
-        },
-      }),
-      ...domainHandlers,
-    };
+    return composeOperationHandlers(
+      {
+        'host.status': async () => ({
+          ok: true,
+          result: {
+            hostEpoch: this.hostEpoch,
+            state: this.#state,
+            connections: this.#acceptedTransports.size,
+            activeOperations: this.#activeOperations,
+            activeResidencies: this.#activeResidencies,
+          },
+        }),
+      },
+      domainHandlers,
+    );
   }
 
   #waitForOperations(): Promise<void> {

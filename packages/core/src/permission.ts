@@ -46,6 +46,14 @@ export function isPermissionMode(value: unknown): value is PermissionMode {
   return typeof value === 'string' && (PERMISSION_MODES as readonly string[]).includes(value);
 }
 
+/** Whether a requested mode stays within an immutable creation-time ceiling. */
+export function isPermissionModeWithinCeiling(
+  mode: PermissionMode,
+  ceiling: PermissionMode,
+): boolean {
+  return PERMISSION_MODES.indexOf(mode) <= PERMISSION_MODES.indexOf(ceiling);
+}
+
 /** Canonical category names use Claude SDK terminology. Pi adapter MUST
  *  translate Pi-native tool names into these before they reach the runtime. */
 export type ToolCategory =

@@ -1,7 +1,6 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { ModelMessage } from 'ai';
 import {
   AiSdkBackend,
   AutomationManager,
@@ -53,6 +52,7 @@ import {
   type ShellRunUpdate,
   type SkillSource,
   type ToolAvailabilityConfig,
+  type ModelMessage,
 } from '@maka/runtime';
 import {
   createAgentRunStore,
@@ -606,6 +606,7 @@ export async function createMakaCliRuntimeContext(
       mode: header.permissionMode,
       cwd: header.cwd,
     });
+    const backendTools = ctx.tools ? [...ctx.tools] : allTools;
     return new AiSdkBackend({
       sessionId: ctx.sessionId,
       header: { ...header, model: ready.model },
@@ -616,12 +617,26 @@ export async function createMakaCliRuntimeContext(
       modelId: ready.model,
       permissionEngine,
       modelFactory: (modelInput) => getAIModel({ ...modelInput, fetch: modelFetch }),
-      tools: allTools,
+      tools: backendTools,
       sandboxDiagnosticsSnapshot,
-      toolAvailability,
+      toolAvailability: ctx.tools ? undefined : toolAvailability,
       ...(input.surface === 'tui'
         ? {
             spawnChildAgent: (childInput) => runtime.spawnChildAgent(ctx.sessionId, childInput),
+            spawnChildSession: (childInput) =>
+              runtime.spawnChildSession(ctx.sessionId, {
+                spawnedBy: {
+                  parentRunId: childInput.parentRunId,
+                  parentTurnId: childInput.parentTurnId,
+                  toolCallId: childInput.toolCallId,
+                },
+                agentProfile: childInput.agentProfile,
+                prompt: childInput.prompt,
+                ...(childInput.swarm ? { swarm: childInput.swarm } : {}),
+                abortSignal: childInput.abortSignal,
+                ...(childInput.onReady ? { onReady: childInput.onReady } : {}),
+                ...(childInput.onEvent ? { onEvent: childInput.onEvent } : {}),
+              }),
             prepareChildAgentResume: (sourceRunId) =>
               runtime.prepareChildAgentResume(ctx.sessionId, sourceRunId),
             resumeChildAgent: (childInput) => runtime.resumeChildAgent(ctx.sessionId, childInput),
@@ -658,26 +673,28 @@ export async function createMakaCliRuntimeContext(
       }),
       recordHistoryCompactCheckpoint: ctx.recordHistoryCompactCheckpoint,
       loadTurnRuntimeEvents: ctx.loadTurnRuntimeEvents,
-      systemPrompt: async ({ cwd, emitSkillCatalogTrace }) => {
-        const settings = await settingsStore.get();
-        return buildCliSystemPrompt({
-          settings,
-          cwd,
-          workspaceRoot: input.workspaceRoot,
-          host,
-          modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
-          onSkillSelection: (report) =>
-            emitSkillCatalogTrace?.('Skill catalog selection completed', {
-              policyVersion: report.policyVersion,
-              budgetChars: report.budgetChars,
-              usedChars: report.usedChars,
-              totalCount: report.totalCount,
-              eligibleCount: report.eligibleCount,
-              advertisedCount: report.advertisedCount,
-              omittedCount: report.omittedCount,
-            }),
-        });
-      },
+      systemPrompt:
+        ctx.systemPrompt ??
+        (async ({ cwd, emitSkillCatalogTrace }) => {
+          const settings = await settingsStore.get();
+          return buildCliSystemPrompt({
+            settings,
+            cwd,
+            workspaceRoot: input.workspaceRoot,
+            host,
+            modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
+            onSkillSelection: (report) =>
+              emitSkillCatalogTrace?.('Skill catalog selection completed', {
+                policyVersion: report.policyVersion,
+                budgetChars: report.budgetChars,
+                usedChars: report.usedChars,
+                totalCount: report.totalCount,
+                eligibleCount: report.eligibleCount,
+                advertisedCount: report.advertisedCount,
+                omittedCount: report.omittedCount,
+              }),
+          });
+        }),
       turnTailPrompt: ({ cwd }) =>
         buildCliTurnTailPrompt({ cwd, sessionId: ctx.sessionId, automationManager, goalManager }),
       shellRunContextSummary: ctx.shellRunContextSummary,
@@ -891,7 +908,7 @@ export async function createMakaCliRuntimeContext(
       goalManager.dispose();
       await shellRuns.terminateAll();
       shellRunListeners.clear();
-      store.close?.();
+      await store.close?.();
       runtimePersistence.close();
     },
   };

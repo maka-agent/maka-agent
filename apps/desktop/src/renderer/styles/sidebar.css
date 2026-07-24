@@ -364,6 +364,21 @@
   transition: background-color var(--duration-base) var(--ease-out-strong);
 }
 
+.maka-list-session-children {
+  margin-inline-start: var(--space-2);
+  padding-inline-start: var(--space-1);
+  border-inline-start: var(--border-width-hairline) solid var(--border);
+}
+
+.maka-list-row[data-subagent="true"] {
+  background: var(--selection);
+}
+
+.maka-list-row-subagent-icon {
+  flex: 0 0 auto;
+  color: var(--muted-foreground);
+}
+
 .maka-list-row:hover {
   background: var(--state-hover-bg);
 }

@@ -24,6 +24,7 @@ import {
   runHarborCellWithStorage,
   writeHarborCellArtifacts,
   writeHarborCellExecutionIdentity,
+  writeHarborCellUsageCheckpoint,
   writeHarborTaskRunTrace,
   type RunHarborCellEnv,
   type RunHarborCellInput,
@@ -381,7 +382,7 @@ export async function resolveHarborRunOptions(
   preflightIsolation(backend, isolation, env);
 
   const outDir = resolve(valueOf(parsed, env, 'out', 'MAKA_OUTPUT_DIR') ?? '/logs/agent');
-  const cellArtifactDir = resolve(env.MAKA_CELL_ARTIFACT_DIR ?? outDir);
+  const cellArtifactDir = mode === 'cell' ? outDir : resolve(env.MAKA_CELL_ARTIFACT_DIR ?? outDir);
   const storageRoot = resolve(
     valueOf(parsed, env, 'storage-root', 'MAKA_STORAGE_ROOT') ??
       (mode === 'task-run' ? join(outDir, 'runs') : join(outDir, 'maka-storage')),
@@ -422,7 +423,14 @@ export async function resolveHarborRunOptions(
     heavyTask: parsed.bools['heavy-task'] || truthyEnv(env.MAKA_HEAVY_TASK_MODE),
     economyTask: parsed.bools['economy-task'] || truthyEnv(env.MAKA_ECONOMY_TASK_MODE),
   });
-  const registerBackends = buildBackendRegistration({ backend, env, now, newId, maxSteps });
+  const registerBackends = buildBackendRegistration({
+    backend,
+    env,
+    now,
+    newId,
+    cellArtifactDir,
+    maxSteps,
+  });
   const realBackendIsolation = buildIsolation(isolation, env, workdir);
   return {
     mode,
@@ -581,6 +589,7 @@ function buildBackendRegistration(input: {
   env: RunHarborCellEnv;
   now: () => number;
   newId: () => string;
+  cellArtifactDir: string;
   maxSteps?: number;
 }): RunHarborCellInput['registerBackends'] | undefined {
   if (input.backend === 'fake') return undefined;
@@ -595,6 +604,7 @@ function buildBackendRegistration(input: {
     env: input.env,
     now: input.now,
     newId: input.newId,
+    recordUsageCheckpoint: (usage) => writeHarborCellUsageCheckpoint(input.cellArtifactDir, usage),
     ...(input.maxSteps !== undefined ? { maxSteps: input.maxSteps } : {}),
   });
 }

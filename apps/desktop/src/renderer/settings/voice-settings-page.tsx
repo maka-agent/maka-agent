@@ -177,7 +177,11 @@ export function VoiceModelsSettingsPage() {
         </Button>
       </div>
 
-      <Alert id={smokeStatusId} variant={smoke.status === 'error' ? 'info' : 'passive'} role="status">
+      <Alert
+        id={smokeStatusId}
+        variant={smoke.status === 'error' ? 'error' : smoke.status === 'ok' ? 'success' : 'passive'}
+        role="status"
+      >
         <AlertDescription>{voiceSmokeMessage(smoke, copy)}</AlertDescription>
       </Alert>
 

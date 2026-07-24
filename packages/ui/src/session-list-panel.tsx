@@ -16,6 +16,7 @@ export function SessionListPanel(props: {
   streamingSessionIds?: Set<string>;
   staleSessionIds?: Set<string>;
   statusGroups?: ReadonlyArray<SessionHistoryStatusGroup>;
+  childSessionsByParentId?: ReadonlyMap<string, readonly SessionSummary[]>;
   viewMode?: SessionViewMode;
   onViewModeChange?: (mode: SessionViewMode) => void;
   onSelectSession(sessionId: string): void;
@@ -71,6 +72,7 @@ export function SessionListPanel(props: {
         staleSessionIds={props.staleSessionIds}
         groupVariant={viewMode === 'project' ? 'project' : 'status'}
         statusGroups={statusGroups}
+        childSessionsByParentId={props.childSessionsByParentId}
         onSelectSession={props.onSelectSession}
         rowActions={props.rowActions}
       />

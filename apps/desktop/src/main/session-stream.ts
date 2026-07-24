@@ -115,6 +115,8 @@ export interface AiSdkBackendFactoryDeps {
   runtimeCommitStore: RuntimeCommitStore;
   planStore: PlanStore;
   safeSendToRenderer: (channel: string, ...args: unknown[]) => void;
+  openGateway: OpenGatewayService;
+  emitSessionsChanged: (reason: SessionChangedReason, sessionId?: string) => void;
   getRuntime: () => SessionManager;
   getLookupPricing: () => PricingLookup;
 }
@@ -153,6 +155,8 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     runtimeCommitStore,
     planStore,
     safeSendToRenderer,
+    openGateway,
+    emitSessionsChanged,
     getRuntime,
     getLookupPricing,
   } = deps;
@@ -172,10 +176,10 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       .reverse()
       .find((execution) => execution.status === 'interrupted');
     const buildDesktopBaseTools = () => [...builtinTools, ...buildMcpTools(mcpManager)];
-    const candidateTools = isComputerUseRealModelE2e
-      ? computerUseTools
-      : ctx.tools
-        ? [...ctx.tools]
+    const candidateTools = ctx.tools
+      ? [...ctx.tools]
+      : isComputerUseRealModelE2e
+        ? computerUseTools
         : [
             ...buildDesktopBaseTools(),
             ...(isDeepResearchSession(ctx.header.labels) ? deepResearchTools : []),
@@ -194,14 +198,16 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     const agentTeam = ctx.agentTeam ?? (expertTeamId
       ? { role: 'lead' as const, teamId: expertTeamId, agentId: 'lead' }
       : undefined);
-    const planControlTools = collaborationMode === 'plan'
-      ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
-      : activeExecution
-        ? [
-            buildUpdatePlanTool(planStore, activeExecution.executionId),
-            buildCancelPlanTool(planStore, activeExecution.executionId),
-          ]
-        : [];
+    const planControlTools = ctx.tools
+      ? []
+      : collaborationMode === 'plan'
+        ? [buildSubmitPlanTool(planStore, interruptedExecution?.executionId)]
+        : activeExecution
+          ? [
+              buildUpdatePlanTool(planStore, activeExecution.executionId),
+              buildCancelPlanTool(planStore, activeExecution.executionId),
+            ]
+          : [];
     const backendTools = computerUseToolsForModel(
       [...candidateTools, ...planControlTools],
       computerUseTools,
@@ -220,9 +226,9 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
     });
     const backendToolNames = new Set(selectedTools.map((tool) => tool.name));
     const backendSkillHost = buildHostCapabilitiesFromBinding(backendToolNames);
-    // Child backends share the parent sessionId but intentionally have a
-    // narrower tool surface. They do not receive the Desktop Skill tool, so
-    // they must not overwrite the parent session's resolver entry.
+    // Legacy child-run backends share the parent sessionId; linked child
+    // sessions have their own id. Both receive a narrower tool surface without
+    // the Desktop Skill tool, so only a session's full backend owns this entry.
     if (!ctx.tools) desktopSessionSkillHosts.set(ctx.sessionId, backendSkillHost);
     const effectivePermissionMode = collaborationMode === 'plan' ? 'explore' : ctx.header.permissionMode;
     const sandboxDiagnosticsSnapshot = await sandboxDiagnosticsProvider.resolve({
@@ -255,10 +261,61 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       agentTeam,
       toolAvailability: backendToolAvailability,
       spawnChildAgent: (input) => getRuntime().spawnChildAgent(ctx.sessionId, input),
+      spawnChildSession: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'created',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().spawnChildSession(ctx.sessionId, {
+          spawnedBy: {
+            parentRunId: input.parentRunId,
+            parentTurnId: input.parentTurnId,
+            toolCallId: input.toolCallId,
+          },
+          agentProfile: input.agentProfile,
+          prompt: input.prompt,
+          ...(input.swarm ? { swarm: input.swarm } : {}),
+          abortSignal: input.abortSignal,
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
       prepareChildAgentResume: (sourceRunId) =>
         getRuntime().prepareChildAgentResume(ctx.sessionId, sourceRunId),
-      resumeChildAgent: (input) => getRuntime().resumeChildAgent(ctx.sessionId, input),
-      retryChildAgent: (input) => getRuntime().retryChildAgent(ctx.sessionId, input),
+      resumeChildAgent: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'continued',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().resumeChildAgent(ctx.sessionId, {
+          ...input,
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
+      retryChildAgent: (input) => {
+        const observation = createLinkedChildEventProjection({
+          lifecycle: 'continued',
+          safeSendToRenderer,
+          openGateway,
+          emitSessionsChanged,
+          onReady: input.onReady,
+          onEvent: input.onEvent,
+        });
+        return getRuntime().retryChildAgent(ctx.sessionId, {
+          ...input,
+          onReady: observation.onReady,
+          onEvent: observation.onEvent,
+        });
+      },
       listChildAgents: () => getRuntime().listChildAgents(ctx.sessionId),
       readChildAgentOutput: (input) => getRuntime().readChildAgentOutput(ctx.sessionId, input),
       providerOptions: buildProviderOptions(connection, model, ctx.header.thinkingLevel),
@@ -385,6 +442,68 @@ export function createAiSdkBackendFactory(deps: AiSdkBackendFactoryDeps): Backen
       newId: randomUUID,
       now: Date.now,
     });
+  };
+}
+
+interface LinkedChildReady {
+  childSessionId?: string;
+  turnId: string;
+  runId?: string;
+  agentId: string;
+  agentName: string;
+}
+
+/**
+ * Bridge linked-child events onto the child Session's normal Desktop and Open
+ * Gateway channels while the parent tool call remains the stream consumer.
+ * Direct user follow-ups already use createSessionStreamer; this closes the
+ * nested spawn/resume/retry observation gap without inventing a subagent-only
+ * event protocol.
+ */
+export function createLinkedChildEventProjection<
+  Ready extends LinkedChildReady = LinkedChildReady,
+>(input: {
+  lifecycle: 'created' | 'continued';
+  safeSendToRenderer: (channel: string, ...args: unknown[]) => void;
+  openGateway: Pick<OpenGatewayService, 'publishSessionEvent'>;
+  emitSessionsChanged: (reason: SessionChangedReason, sessionId?: string) => void;
+  onReady?: (ready: Ready) => void | Promise<void>;
+  onEvent?: (event: SessionEvent) => void;
+}): {
+  onReady(ready: Ready): Promise<void>;
+  onEvent(event: SessionEvent): void;
+} {
+  let childSessionId: string | undefined;
+  let messageAppendBroadcasted = false;
+  return {
+    async onReady(ready) {
+      childSessionId = ready.childSessionId;
+      if (childSessionId) {
+        input.emitSessionsChanged(
+          input.lifecycle === 'created' ? 'created' : 'status-change',
+          childSessionId,
+        );
+        input.emitSessionsChanged('turn-status-change', childSessionId);
+      }
+      await input.onReady?.(ready);
+    },
+    onEvent(event) {
+      if (childSessionId) {
+        input.safeSendToRenderer(`sessions:event:${childSessionId}`, event);
+        input.openGateway.publishSessionEvent(childSessionId, event);
+        if (!messageAppendBroadcasted) {
+          input.emitSessionsChanged('message-appended', childSessionId);
+          messageAppendBroadcasted = true;
+        }
+        if (isStatusChangingSessionEvent(event)) {
+          input.emitSessionsChanged('status-change', childSessionId);
+        }
+        if (isTurnStatusChangingSessionEvent(event)) {
+          input.emitSessionsChanged('turn-status-change', childSessionId);
+        }
+      }
+      input.onEvent?.(event);
+    },
   };
 }
 

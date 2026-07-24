@@ -3,6 +3,7 @@ import {
   isDeepResearchSession,
   type LlmConnection,
   type OnboardingState,
+  type ProviderType,
   type QuickChatMode,
   type SettingsSection,
 } from '@maka/core';
@@ -31,13 +32,14 @@ interface ChatMessageSurfaceProps extends Omit<
   onboardingState: OnboardingState | undefined;
   isOnboardingLoading: boolean;
   onOpenSettings: (section?: SettingsSection) => void;
+  onAddProvider: (providerType: ProviderType) => void;
   onBrowseProviders: () => void;
   onQuickChatSubmit: (
     prompt: string,
     mode?: QuickChatMode,
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
-  mentionSkills?: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   quickChatPending?: boolean;
   connections: LlmConnection[];
   onRefreshConnections: () => Promise<void> | void;
@@ -53,6 +55,7 @@ export function ChatMessageSurface({
   onboardingState,
   isOnboardingLoading,
   onOpenSettings,
+  onAddProvider,
   onBrowseProviders,
   onQuickChatSubmit,
   mentionSkills,
@@ -79,6 +82,7 @@ export function ChatMessageSurface({
       <OnboardingEmptyState
         state={onboardingState}
         onOpenSettings={onOpenSettings}
+        onAddProvider={onAddProvider}
         onBrowseProviders={onBrowseProviders}
         onQuickChatSubmit={onQuickChatSubmit}
         mentionSkills={mentionSkills}

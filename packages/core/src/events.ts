@@ -351,6 +351,7 @@ export type ToolResultContent =
     }
   | {
       kind: 'subagent';
+      childSessionId?: string;
       agentId?: string;
       agentName: string;
       turnId: string;
@@ -373,6 +374,7 @@ export type ToolResultContent =
         index: number;
         profile: string;
         started: boolean;
+        childSessionId?: string;
         agentId?: string;
         agentName?: string;
         turnId?: string;

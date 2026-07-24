@@ -1,7 +1,8 @@
-import { useRef, useState } from 'react';
-import type { Meta, StoryObj } from '@storybook/react-vite';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { Decorator, Meta, StoryObj } from '@storybook/react-vite';
 import { ToastProvider } from '@maka/ui';
 import type {
+  AppSettings,
   LlmConnection,
   ProviderType,
   SettingsSection,
@@ -184,9 +185,165 @@ const makaBridge = {
     }),
     runOnce: async () => ({ ok: true }),
   },
+  e2eFixture: {
+    getState: async () => null,
+  },
 } satisfies Record<string, unknown>;
 
 const withSettingsBridge = withScopedMakaBridge(makaBridge);
+
+type StoryBotStatuses = Awaited<ReturnType<typeof window.maka.settings.bots.listStatuses>>;
+
+const botAttentionError =
+  'Discord WebSocket 握手失败：系统级代理连接超时，请检查 TUN 模式与网络设置后重试。';
+
+const botAttentionSettings = mergeSettings(createDefaultSettings(), {
+  botChat: {
+    channels: {
+      telegram: {
+        enabled: true,
+        connected: true,
+        readiness: 'operational',
+        token: 'storybook-telegram-token',
+        lastTestAt: NOW - 8 * 60_000,
+      },
+      discord: {
+        enabled: true,
+        connected: true,
+        readiness: 'degraded',
+        token: 'storybook-discord-token',
+        lastTestAt: NOW - 25 * 60_000,
+        lastError: botAttentionError,
+      },
+    },
+  },
+});
+
+function createInactiveStoryBotStatus(
+  platform: keyof StoryBotStatuses,
+): StoryBotStatuses[keyof StoryBotStatuses] {
+  return {
+    platform,
+    running: false,
+    readiness: 'scaffolded',
+    connection: 'none',
+  };
+}
+
+const botAttentionStatuses: StoryBotStatuses = {
+  telegram: {
+    platform: 'telegram',
+    running: true,
+    readiness: 'operational',
+    connection: 'polling',
+    startedAt: NOW - 2 * 60 * 60_000,
+    lastEventAt: NOW - 4 * 60_000,
+    identity: { username: '@maka_review_bot' },
+  },
+  discord: {
+    platform: 'discord',
+    running: false,
+    readiness: 'degraded',
+    connection: 'none',
+    reason: botAttentionError,
+    lastEventAt: NOW - 35 * 60_000,
+    identity: { username: 'maka-remote-review-bot-with-a-long-name' },
+  },
+  feishu: createInactiveStoryBotStatus('feishu'),
+  wecom: createInactiveStoryBotStatus('wecom'),
+  wechat: createInactiveStoryBotStatus('wechat'),
+  dingtalk: createInactiveStoryBotStatus('dingtalk'),
+  qq: createInactiveStoryBotStatus('qq'),
+};
+
+function makeBotAttentionBridge(settings: AppSettings) {
+  return {
+    ...makaBridge,
+    settings: {
+      ...makaBridge.settings,
+      get: async () => settings,
+      update: async (
+        patch: Parameters<typeof window.maka.settings.update>[0],
+      ): Promise<UpdateAppSettingsResult> => ({
+        settings: mergeSettings(settings, patch),
+      }),
+      bots: {
+        ...makaBridge.settings.bots,
+        listStatuses: async () => botAttentionStatuses as StoryBotStatuses,
+      },
+    },
+  } satisfies Record<string, unknown>;
+}
+
+const withBotAttentionBridge = withScopedMakaBridge(makeBotAttentionBridge(botAttentionSettings));
+
+type VoiceStoryOutcome = 'denied' | 'success';
+
+function withVoiceCaptureOutcome(outcome: VoiceStoryOutcome): Decorator {
+  return (Story) => {
+    useLayoutEffect(() => {
+      const permissions = navigator.permissions as Permissions & {
+        query(descriptor: PermissionDescriptor): Promise<PermissionStatus>;
+      };
+      const permissionsQuery = Object.getOwnPropertyDescriptor(permissions, 'query');
+      const mediaDevices = Object.getOwnPropertyDescriptor(navigator, 'mediaDevices');
+      const mediaRecorder = Object.getOwnPropertyDescriptor(globalThis, 'MediaRecorder');
+      const stream = {
+        getTracks: () => [{ stop: noop }],
+      } as unknown as MediaStream;
+      const permissionsQueryMock = async () => ({
+        state: outcome === 'denied' ? 'denied' : 'granted',
+      });
+      const mediaDevicesMock = {
+        getUserMedia: async () => {
+          if (outcome === 'denied') {
+            throw new DOMException('Microphone access denied for the story', 'NotAllowedError');
+          }
+          return stream;
+        },
+      };
+
+      class StoryMediaRecorder extends EventTarget {
+        state: RecordingState = 'inactive';
+
+        start() {
+          this.state = 'recording';
+        }
+
+        stop() {
+          this.state = 'inactive';
+          const dataEvent = new Event('dataavailable');
+          Object.defineProperty(dataEvent, 'data', {
+            value: new Blob(['storybook voice capture']),
+          });
+          this.dispatchEvent(dataEvent);
+          this.dispatchEvent(new Event('stop'));
+        }
+      }
+
+      Object.defineProperty(permissions, 'query', {
+        configurable: true,
+        value: permissionsQueryMock,
+      });
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: mediaDevicesMock,
+      });
+      Object.defineProperty(globalThis, 'MediaRecorder', {
+        configurable: true,
+        value: StoryMediaRecorder,
+      });
+
+      return () => {
+        restoreProperty(permissions, 'query', permissionsQueryMock, permissionsQuery);
+        restoreProperty(navigator, 'mediaDevices', mediaDevicesMock, mediaDevices);
+        restoreProperty(globalThis, 'MediaRecorder', StoryMediaRecorder, mediaRecorder);
+      };
+    }, []);
+
+    return <Story />;
+  };
+}
 
 function SettingsStory(props: { section: SettingsSection }) {
   const initialFocusRef = useRef<HTMLButtonElement>(null);
@@ -223,6 +380,73 @@ function SettingsStory(props: { section: SettingsSection }) {
   );
 }
 
+function restoreProperty(
+  target: object,
+  property: PropertyKey,
+  ownedValue: unknown,
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (Reflect.get(target, property) !== ownedValue) return;
+  if (descriptor) {
+    Object.defineProperty(target, property, descriptor);
+  } else {
+    Reflect.deleteProperty(target, property);
+  }
+}
+
+async function waitForStoryButton(
+  canvasElement: HTMLElement,
+  predicate: (button: HTMLButtonElement) => boolean,
+): Promise<HTMLButtonElement> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const button = Array.from(canvasElement.querySelectorAll<HTMLButtonElement>('button')).find(predicate);
+    if (button) return button;
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 20));
+  }
+  throw new Error('Story action button did not render');
+}
+
+async function waitForStoryCondition(predicate: () => boolean, errorMessage: string): Promise<void> {
+  for (let attempt = 0; attempt < 250; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 20));
+  }
+  throw new Error(errorMessage);
+}
+
+async function runVoiceStoryCapture(
+  canvasElement: HTMLElement,
+  expectedStatusText: string,
+  expectedPermissionText: string,
+) {
+  const button = await waitForStoryButton(
+    canvasElement,
+    (candidate) => candidate.textContent?.includes('运行录音自检') === true,
+  );
+  button.click();
+  await waitForStoryCondition(() => {
+    const status = canvasElement.querySelector<HTMLElement>('[role="status"]');
+    const permission = Array.from(canvasElement.querySelectorAll<HTMLElement>('dt')).find(
+      (term) => term.textContent?.trim() === '麦克风权限',
+    )?.nextElementSibling;
+    return button.dataset.pending !== 'true'
+      && status?.textContent?.includes(expectedStatusText) === true
+      && permission?.textContent?.trim() === expectedPermissionText;
+  }, `Voice story did not reach the expected state: ${expectedStatusText}`);
+}
+
+async function openFirstActiveBotChannel(canvasElement: HTMLElement) {
+  const button = await waitForStoryButton(
+    canvasElement,
+    (candidate) => candidate.closest('.settingsRemoteAccessChannelRow') !== null,
+  );
+  button.click();
+  await waitForStoryCondition(
+    () => canvasElement.querySelector('.settingsBotDetail') !== null,
+    'Remote Access story did not open the channel detail',
+  );
+}
+
 export const Models: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="models" />,
@@ -251,6 +475,20 @@ export const Voice: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="voice" />,
 };
+export const VoiceSuccess: Story = {
+  decorators: [withSettingsBridge, withVoiceCaptureOutcome('success')],
+  render: () => <SettingsStory section="voice" />,
+  play: async ({ canvasElement }) => {
+    await runVoiceStoryCapture(canvasElement, '录音链路可用', '已授权');
+  },
+};
+export const VoicePermissionDenied: Story = {
+  decorators: [withSettingsBridge, withVoiceCaptureOutcome('denied')],
+  render: () => <SettingsStory section="voice" />,
+  play: async ({ canvasElement }) => {
+    await runVoiceStoryCapture(canvasElement, '麦克风权限被拒绝', '已拒绝');
+  },
+};
 export const OpenGateway: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="open-gateway" />,
@@ -258,6 +496,17 @@ export const OpenGateway: Story = {
 export const BotChat: Story = {
   decorators: [withSettingsBridge],
   render: () => <SettingsStory section="bot-chat" />,
+};
+export const BotChatNeedsAttention: Story = {
+  decorators: [withBotAttentionBridge],
+  render: () => <SettingsStory section="bot-chat" />,
+};
+export const BotChatNeedsAttentionDetail: Story = {
+  decorators: [withBotAttentionBridge],
+  render: () => <SettingsStory section="bot-chat" />,
+  play: async ({ canvasElement }) => {
+    await openFirstActiveBotChannel(canvasElement);
+  },
 };
 export const DailyReview: Story = {
   decorators: [withSettingsBridge],

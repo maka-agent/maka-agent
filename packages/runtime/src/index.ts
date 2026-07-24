@@ -11,6 +11,7 @@ export {
   headerToSummary,
   changesBackendConfig,
 } from './session-manager.js';
+export type { ModelMessage, JSONValue } from './model-protocol.js';
 export type {
   CompactSessionInput,
   PlanSafeBoundaryContinuationInput,
@@ -26,13 +27,17 @@ export type {
   ResumeChildAgentInput,
   SpawnChildAgentInput,
   SpawnChildAgentResult,
+  SpawnChildSessionInput,
+  SpawnChildSessionResult,
   RetryChildAgentInput,
   AgentListItem,
   AgentListResult,
+  SubagentExecutionListItem,
   AgentOutputInput,
   AgentOutputResult,
   StopSessionInput,
 } from './session-manager.js';
+export type { SubagentExecutionRef } from './subagent-execution.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
@@ -1316,11 +1321,15 @@ export type {
   InvocableSkillEntry,
   PreparedSkillInvocationMessage,
   SkillInvocationFailure,
-  SkillInvocationFailureReason,
   SkillInvocationResolution,
   SkillInvocationResult,
   SkillInvocationToken,
 } from './skill-invocation.js';
+export type {
+  SkillInvocationFailureReason,
+  SkillInvocationMode,
+  SkillInvocationReceipt,
+} from './skill-invocation-receipt.js';
 export {
   isPathInside,
   isSafeSkillId,
@@ -1339,6 +1348,7 @@ export type {
   SkillMetadataValidationResult,
   SkillScanDiagnostic,
   SkillScanResult,
+  SkillDiscoveryDiagnostic,
   RejectedSkillDefinition,
   RuntimeSkillDefinition,
   ScannedSkill,

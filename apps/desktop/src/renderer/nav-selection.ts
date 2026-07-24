@@ -1,4 +1,3 @@
-import type { SessionSummary } from '@maka/core';
 import type { NavSelection } from '@maka/ui';
 import { safeLocalStorageGet } from './browser-storage';
 
@@ -28,16 +27,4 @@ export function readNavSelection(): NavSelection {
     /* fall through */
   }
   return { section: 'sessions', filter: 'chats' };
-}
-
-export function filterSessions(sessions: SessionSummary[], selection: NavSelection): SessionSummary[] {
-  const filter = selection.section === 'sessions' ? selection.filter : 'chats';
-  switch (filter) {
-    case 'flagged':
-      return sessions.filter((session) => session.isFlagged && !session.isArchived && session.lastMessageAt);
-    case 'archived':
-      return sessions.filter((session) => session.isArchived);
-    case 'chats':
-      return sessions.filter((session) => !session.isArchived && session.lastMessageAt);
-  }
 }

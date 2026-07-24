@@ -340,7 +340,7 @@ export function registerSessionsIpc(deps: SessionsIpcDeps): void {
           : Promise.resolve({
               disposition: 'passthrough' as const,
               sendText: sendCommand.text,
-              skillInvocation: { loaded: [], failed: [] },
+              skillInvocation: { loaded: [], failed: [], receipts: [] },
             }),
       resolveSend: () =>
         resolveSessionSend({

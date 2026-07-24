@@ -1034,7 +1034,8 @@ function classifyPlumbingFailure(
   }
   if (
     requireFinalUsage &&
-    output.cell.status === 'completed' &&
+    (output.cell.status === 'completed' ||
+      output.cell.deadlineSettlement?.source === 'benchmark.deadline') &&
     output.cell.tokenSummary === undefined
   ) {
     return {

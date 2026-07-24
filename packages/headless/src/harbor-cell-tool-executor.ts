@@ -6,6 +6,7 @@
 import { exec as nodeExec } from 'node:child_process';
 import { promisify } from 'node:util';
 import { defaultShellPlan, runShellWithBoundedTail, type MakaTool } from '@maka/runtime';
+import { Agent, fetch as undiciFetch } from 'undici';
 import { numericEnv, type RunHarborCellEnv } from './headless-run-env.js';
 import type { IsolatedCommandResult, IsolatedToolExecutor } from './isolation.js';
 import { ISOLATED_HEADLESS_TOOL_NAMES } from './isolation.js';
@@ -20,6 +21,10 @@ const execAsync = promisify(nodeExec);
 
 export const HARBOR_CELL_DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 
+// The bridge returns response headers only after the isolated command exits.
+// Leave command duration to its timeout and the active tool's abort signal.
+const harborHttpDispatcher = new Agent({ headersTimeout: 0 });
+
 export function buildHarborCellAiSdkTools(
   executor: IsolatedToolExecutor,
   options: BuildIsolatedHeadlessToolsOptions = {},
@@ -32,6 +37,7 @@ export function buildHarborCellAiSdkTools(
 
 export function createHarborHttpToolExecutor(
   env: RunHarborCellEnv = process.env,
+  fetchImpl: typeof undiciFetch = undiciFetch,
 ): IsolatedToolExecutor {
   const baseUrl = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_URL');
   const token = requiredHarborEnv(env, 'MAKA_HARBOR_TOOL_EXECUTOR_TOKEN');
@@ -39,7 +45,7 @@ export function createHarborHttpToolExecutor(
     exec: async (input, control) => {
       const timeoutSec =
         input.timeoutMs === undefined ? undefined : Math.max(1, Math.ceil(input.timeoutMs / 1000));
-      const response = await fetch(new URL('/exec', baseUrl), {
+      const response = await fetchImpl(new URL('/exec', baseUrl), {
         method: 'POST',
         headers: {
           authorization: `Bearer ${token}`,
@@ -50,6 +56,7 @@ export function createHarborHttpToolExecutor(
           ...(timeoutSec !== undefined ? { timeoutSec } : {}),
         }),
         signal: control?.abortSignal,
+        dispatcher: harborHttpDispatcher,
       });
       const body = await response.text();
       if (!response.ok) {

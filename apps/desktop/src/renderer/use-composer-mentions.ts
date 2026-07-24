@@ -15,7 +15,7 @@ export function useComposerMentions(options: {
   sessionId?: string;
   projectPath?: string;
 }): {
-  mentionSkills: ReadonlyArray<{ id: string; name: string; description?: string }>;
+  mentionSkills: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
   searchMentionFiles(query: string): Promise<ReadonlyArray<{ relativePath: string }>>;
 } {
   const { projectPath, sessionId, skills } = options;

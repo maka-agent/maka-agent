@@ -11,6 +11,7 @@ import type {
   TaskOwner,
 } from '@maka/core';
 import type { SessionEvent } from '@maka/core/events';
+import { zodSchema } from 'ai';
 import { buildBuiltinTools } from '../builtin-tools.js';
 import { PermissionEngine } from '../permission-engine.js';
 import {
@@ -33,6 +34,7 @@ import {
   evaluateAgentDefinitionAvailability,
   evaluateAgentDefinitionToolAccess,
   listBuiltinAgentDefinitions,
+  requireBuiltinAgentDefinitionByProfile,
 } from '../agent-catalog.js';
 import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
 import {
@@ -62,6 +64,43 @@ describe('subagent tools', () => {
       AGENT_LIST_TOOL_NAME,
       AGENT_OUTPUT_TOOL_NAME,
     ]);
+  });
+
+  test('agent_spawn advertises task_id only when task binding is available', async () => {
+    const advertisedProperties = async (tool: MakaTool) => {
+      const schema = (await zodSchema(tool.parameters as never).jsonSchema) as {
+        properties?: Record<string, unknown>;
+      };
+      return schema.properties ?? {};
+    };
+
+    expect(Object.keys(await advertisedProperties(buildSubagentSpawnTool()))).toEqual([
+      'profile',
+      'task',
+      'write_back',
+      'isolation',
+    ]);
+    expect(
+      Object.keys(
+        await advertisedProperties(
+          buildSubagentSpawnTool({ taskLedger: taskLedgerStub(undefined, []) }),
+        ),
+      ),
+    ).toEqual(['profile', 'task', 'write_back', 'isolation', 'task_id']);
+  });
+
+  test('agent_spawn rejects task_id when task binding is unavailable', () => {
+    const schema = buildSubagentSpawnTool().parameters as {
+      safeParse(input: unknown): { success: boolean };
+    };
+
+    expect(
+      schema.safeParse({
+        profile: LOCAL_READ_AGENT_PROFILE,
+        task: 'Inspect the repo.',
+        task_id: 'T1',
+      }).success,
+    ).toBe(false);
   });
 
   test('built-in catalog exposes local-read without shell, web, nested, or write tools', () => {
@@ -401,7 +440,7 @@ describe('subagent tools', () => {
         toolCallId: 'tool-1',
         abortSignal: abortController.signal,
         emitOutput: (stream, chunk) => output.push({ stream, chunk }),
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           calls.push(input);
           input.onEvent?.({
             type: 'tool_start',
@@ -423,9 +462,11 @@ describe('subagent tools', () => {
             content: { kind: 'text', text: 'secret body' },
           });
           return {
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            childSessionId: 'child-session',
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             turnId: 'child-turn',
+            runId: 'child-run',
             status: 'completed',
             permissionMode: 'explore',
             summary: 'done',
@@ -440,15 +481,11 @@ describe('subagent tools', () => {
     expect(tool.permissionRequired).toBe(true);
     expect(calls).toHaveLength(1);
     const call = calls[0] as {
-      spec: unknown;
+      agentProfile: string;
       prompt: string;
       onEvent?: (event: SessionEvent) => void;
     };
-    expect(call.spec).toEqual({
-      id: LOCAL_READ_AGENT_ID,
-      name: 'Local Read',
-      systemPrompt: LOCAL_READ_AGENT_DEFINITION.systemPrompt,
-    });
+    expect(call.agentProfile).toBe(LOCAL_READ_AGENT_PROFILE);
     expect(call.prompt).toBe('Inspect the runtime tests.');
     expect(typeof call.onEvent).toBe('function');
     expect(output).toEqual([
@@ -461,9 +498,11 @@ describe('subagent tools', () => {
     expect(JSON.stringify(output)).not.toContain('secret body');
     expect(result).toEqual({
       kind: 'subagent',
+      childSessionId: 'child-session',
       agentId: LOCAL_READ_AGENT_ID,
       agentName: 'Local Read',
       turnId: 'child-turn',
+      runId: 'child-run',
       status: 'completed',
       permissionMode: 'explore',
       summary: 'done',
@@ -487,7 +526,7 @@ describe('subagent tools', () => {
         toolCallId: 'tool-1',
         abortSignal: new AbortController().signal,
         emitOutput: (_stream, chunk) => output.push(chunk),
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           for (let index = 0; index < 100; index += 1) {
             input.onEvent?.({
               type: 'tool_start',
@@ -500,8 +539,8 @@ describe('subagent tools', () => {
             });
           }
           return {
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             turnId: 'child-turn',
             status: 'completed',
             permissionMode: 'explore',
@@ -535,7 +574,7 @@ describe('subagent tools', () => {
             toolCallId: 'tool-1',
             abortSignal: new AbortController().signal,
             emitOutput: (_stream, chunk) => output.push(chunk),
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               throw new Error('x'.repeat(10_000));
             },
           },
@@ -566,11 +605,11 @@ describe('subagent tools', () => {
         toolCallId: 'tool-1',
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           calls.push(input);
           return {
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             turnId: 'child-turn',
             status: 'completed',
             permissionMode: 'execute',
@@ -583,15 +622,11 @@ describe('subagent tools', () => {
 
     expect(calls).toHaveLength(1);
     const call = calls[0] as {
-      spec: unknown;
+      agentProfile: string;
       prompt: string;
       onEvent?: (event: SessionEvent) => void;
     };
-    expect(call.spec).toEqual({
-      id: WEB_RESEARCH_AGENT_ID,
-      name: 'Web Research',
-      systemPrompt: WEB_RESEARCH_AGENT_DEFINITION.systemPrompt,
-    });
+    expect(call.agentProfile).toBe(WEB_RESEARCH_AGENT_PROFILE);
     expect(call.prompt).toBe('Find current sources.');
     expect(typeof call.onEvent).toBe('function');
     expect(result).toMatchObject({
@@ -627,15 +662,17 @@ describe('subagent tools', () => {
         toolCallId: 'tool-1',
         abortSignal: new AbortController().signal,
         emitOutput: () => {},
-        spawnChildAgent: async (input) => {
+        spawnChildSession: async (input) => {
           await input.onReady?.({
+            childSessionId: 'child-session',
+            runId: 'child-run',
             turnId: 'child-turn',
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
           });
           return {
-            agentId: input.spec.id,
-            agentName: input.spec.name,
+            agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+            agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             runId: 'child-run',
             turnId: 'child-turn',
             status: 'completed',
@@ -650,6 +687,7 @@ describe('subagent tools', () => {
     expect(task.status).toBe('in_progress');
     expect(task.owner).toEqual({
       actor: 'child_agent',
+      sessionId: 'child-session',
       agentId: LOCAL_READ_AGENT_ID,
       runId: 'child-run',
       turnId: 'child-turn',
@@ -684,27 +722,26 @@ describe('subagent tools', () => {
       now: () => 1,
       getPermissionPauseTarget: () => null,
       getCurrentRunId: () => 'parent-run',
-      spawnChildAgent: async () => {
+      spawnChildSession: async () => {
         spawned = true;
         return {};
       },
     });
     const tool = buildSubagentSpawnTool({ taskLedger: taskLedgerStub(task, calls) });
-    const execute = runtime.wrapToolExecute(tool, 'parent-turn', {
-      push: (event) => events.push(event),
-    });
-
-    const pending = execute(
-      {
-        profile: LOCAL_READ_AGENT_PROFILE,
-        task: 'Inspect the runtime tests.',
-        task_id: task.key,
-      },
-      {
+    const pending = runtime
+      .settleToolCall({
+        tool,
+        turnId: 'parent-turn',
         toolCallId: 'tool-agent-spawn-denied',
+        input: {
+          profile: LOCAL_READ_AGENT_PROFILE,
+          task: 'Inspect the runtime tests.',
+          task_id: task.key,
+        },
         abortSignal: new AbortController().signal,
-      },
-    );
+        eventSink: { push: (event) => events.push(event) },
+      })
+      .then((settlement) => settlement.result);
     await waitFor(() => events.some((event) => event.type === 'permission_request'));
     const request = events.find(
       (event): event is Extract<SessionEvent, { type: 'permission_request' }> =>
@@ -746,7 +783,7 @@ describe('subagent tools', () => {
             toolCallId: 'tool-1',
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               spawned = true;
               return {};
             },
@@ -783,15 +820,17 @@ describe('subagent tools', () => {
           toolCallId: 'tool-1',
           abortSignal: new AbortController().signal,
           emitOutput: () => {},
-          spawnChildAgent: async (input) => {
+          spawnChildSession: async (input) => {
             await input.onReady?.({
+              childSessionId: 'child-session',
+              runId: 'child-run',
               turnId: `child-${status}`,
-              agentId: input.spec.id,
-              agentName: input.spec.name,
+              agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+              agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
             });
             return {
-              agentId: input.spec.id,
-              agentName: input.spec.name,
+              agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+              agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
               runId: `run-${status}`,
               turnId: `child-${status}`,
               status,
@@ -810,6 +849,7 @@ describe('subagent tools', () => {
       expect(task.status).toBe(status);
       expect(task.owner).toEqual({
         actor: 'child_agent',
+        sessionId: 'child-session',
         agentId: LOCAL_READ_AGENT_ID,
         runId: `run-${status}`,
         turnId: `child-${status}`,
@@ -844,11 +884,13 @@ describe('subagent tools', () => {
             toolCallId: 'tool-1',
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
-            spawnChildAgent: async (input) => {
+            spawnChildSession: async (input) => {
               await input.onReady?.({
+                childSessionId: 'child-session',
+                runId: 'child-run',
                 turnId: 'child-turn',
-                agentId: input.spec.id,
-                agentName: input.spec.name,
+                agentId: requireBuiltinAgentDefinitionByProfile(input.agentProfile).id,
+                agentName: requireBuiltinAgentDefinitionByProfile(input.agentProfile).name,
               });
               throw new Error('child startup failed');
             },
@@ -889,7 +931,7 @@ describe('subagent tools', () => {
             toolCallId: 'tool-1',
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               spawned = true;
               return {};
             },
@@ -1006,7 +1048,7 @@ describe('subagent tools', () => {
             toolCallId: 'tool-1',
             abortSignal: new AbortController().signal,
             emitOutput: () => {},
-            spawnChildAgent: async () => {
+            spawnChildSession: async () => {
               throw new Error('spawn should not be called');
             },
           },
@@ -1047,6 +1089,18 @@ describe('subagent tools', () => {
         readChildAgentOutput: async (input) => ({ requested: input }),
       },
     );
+    const childSessionOutput = await outputTool.impl(
+      { child_session_id: 'child-session', run_id: 'child-session-run' },
+      {
+        sessionId: 'session-1',
+        turnId: 'parent-turn',
+        cwd: '/tmp/cwd',
+        toolCallId: 'tool-output-child-session',
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+        readChildAgentOutput: async (input) => ({ requested: input }),
+      },
+    );
 
     expect(listTool.name).toBe(AGENT_LIST_TOOL_NAME);
     expect(outputTool.name).toBe(AGENT_OUTPUT_TOOL_NAME);
@@ -1056,17 +1110,49 @@ describe('subagent tools', () => {
       definitions: [{ id: LOCAL_READ_AGENT_ID }],
       runs: [{ runId: 'child-run', turnId: 'child-turn' }],
     });
-    expect(output).toEqual({ requested: { runId: 'child-run' } });
+    expect(output).toEqual({
+      requested: {
+        execution: {
+          kind: 'legacy_child_run',
+          sessionId: 'session-1',
+          runId: 'child-run',
+        },
+      },
+    });
+    expect(childSessionOutput).toEqual({
+      requested: {
+        execution: {
+          kind: 'child_session',
+          sessionId: 'child-session',
+          currentRunId: 'child-session-run',
+        },
+      },
+    });
   });
 
-  test('agent_output requires exactly one run locator', () => {
+  test('agent_output accepts linked child-session and legacy run locators', () => {
     const outputTool = buildSubagentOutputTool();
     const schema = outputTool.parameters as { safeParse(input: unknown): { success: boolean } };
 
     expect(schema.safeParse({ run_id: 'child-run' }).success).toBe(true);
     expect(schema.safeParse({ turn_id: 'child-turn' }).success).toBe(true);
+    expect(schema.safeParse({ child_session_id: 'child-session' }).success).toBe(true);
+    expect(
+      schema.safeParse({
+        child_session_id: 'child-session',
+        run_id: 'child-run',
+      }).success,
+    ).toBe(true);
     expect(schema.safeParse({}).success).toBe(false);
     expect(schema.safeParse({ run_id: 'child-run', turn_id: 'child-turn' }).success).toBe(false);
+    expect(
+      schema.safeParse({
+        child_session_id: 'child-session',
+        turn_id: 'child-turn',
+      }).success,
+    ).toBe(false);
+    expect(schema.safeParse({ child_session_id: '' }).success).toBe(false);
+    expect(schema.safeParse({ run_id: '' }).success).toBe(false);
   });
 });
 
@@ -1095,12 +1181,16 @@ async function runTool(
 ): Promise<unknown> {
   const tool = tools.get(name);
   if (!tool) throw new Error(`Missing child tool ${name}`);
-  return await runtime.wrapToolExecute(tool, 'child-turn', {
-    push: (event) => events.push(event),
-  })(args, {
-    toolCallId: `tool-${name}-${typeof args === 'object' && args && 'command' in args ? (args as { command: string }).command : 'read'}`,
-    abortSignal: new AbortController().signal,
-  });
+  return (
+    await runtime.settleToolCall({
+      tool,
+      turnId: 'child-turn',
+      toolCallId: `tool-${name}-${typeof args === 'object' && args && 'command' in args ? (args as { command: string }).command : 'read'}`,
+      input: args,
+      abortSignal: new AbortController().signal,
+      eventSink: { push: (event) => events.push(event) },
+    })
+  ).result;
 }
 
 function testCatalogTool(name: string, categoryHint: MakaTool['categoryHint']): MakaTool {

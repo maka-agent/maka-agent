@@ -23,7 +23,6 @@ export type RuntimeEventReadModelDiagnosticCode =
   | 'incomplete_event'
   | 'archived_tool_result_placeholder'
   | 'generated_id'
-  | 'context_remaining_unsupported'
   | 'tool_use_id_mismatch'
   | 'missing_legacy_message'
   | 'unexpected_projected_message';
@@ -198,15 +197,6 @@ export function projectRuntimeEventsToStoredMessages(
 
     if (isTerminalRuntimeEvent(event)) {
       projected = projectTerminalTurnState(event, state, messages) || projected;
-    }
-
-    if (event.actions?.tokenUsage?.contextRemaining !== undefined) {
-      diagnostic(
-        state,
-        event,
-        'context_remaining_unsupported',
-        'token usage contextRemaining is diagnostic-only in StoredMessage',
-      );
     }
 
     if (!projected) {
@@ -795,6 +785,7 @@ function projectTokenUsage(
     ...(usage.cacheCreation !== undefined ? { cacheCreation: usage.cacheCreation } : {}),
     ...(usage.costUsd !== undefined ? { costUsd: usage.costUsd } : {}),
     ...(usage.systemPromptHash !== undefined ? { systemPromptHash: usage.systemPromptHash } : {}),
+    ...(usage.contextRemaining !== undefined ? { contextRemaining: usage.contextRemaining } : {}),
     ...(usage.prefixHash !== undefined ? { prefixHash: usage.prefixHash } : {}),
     ...(usage.prefixChangeReason !== undefined
       ? { prefixChangeReason: usage.prefixChangeReason }
@@ -805,6 +796,9 @@ function projectTokenUsage(
       : {}),
     ...(usage.promptSegments !== undefined ? { promptSegments: usage.promptSegments } : {}),
     ...(usage.contextBudget !== undefined ? { contextBudget: usage.contextBudget } : {}),
+    ...(event.refs?.providerRequestTraceId !== undefined
+      ? { providerRequestTraceId: event.refs.providerRequestTraceId }
+      : {}),
   });
   return true;
 }
@@ -1205,16 +1199,19 @@ function semanticMessage(message: StoredMessage): unknown {
         reasoning: message.reasoning,
         total: message.total,
         rawFinishReason: message.rawFinishReason,
+        runtimeSteps: message.runtimeSteps,
         cacheRead: message.cacheRead,
         cacheCreation: message.cacheCreation,
         costUsd: message.costUsd,
         systemPromptHash: message.systemPromptHash,
+        contextRemaining: message.contextRemaining,
         prefixHash: message.prefixHash,
         prefixChangeReason: message.prefixChangeReason,
         requestShapeHash: message.requestShapeHash,
         requestShapeChangeReason: message.requestShapeChangeReason,
         promptSegments: message.promptSegments,
         contextBudget: message.contextBudget,
+        providerRequestTraceId: message.providerRequestTraceId,
       };
     case 'turn_state':
       return {

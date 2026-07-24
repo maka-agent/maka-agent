@@ -31,16 +31,26 @@ function resolveRepoRoot(): string {
 }
 
 describe('ToolRuntime extraction contract', () => {
-  test('AiSdkBackend keeps only the ai-sdk loop and delegates tool execution internally', async () => {
+  test('AiSdkBackend keeps only the ai-sdk loop around direct ToolRuntime settlement', async () => {
     const backend = await readRepo('packages/runtime/src/ai-sdk-backend.ts');
 
     assert.match(backend, /from '\.\/tool-runtime\.js'/);
     assert.match(backend, /private readonly toolRuntime: ToolRuntime;/);
     assert.match(
       backend,
-      /private wrapToolExecute\([\s\S]*?\)\s*\{\s*return this\.toolRuntime\.wrapToolExecute\(tool, turnId, queue\);\s*\}/,
-      'AiSdkBackend.wrapToolExecute must be a narrow compatibility shim',
+      /this\.toolRuntime\.settleToolCall\(\{/,
+      'the SDK execute callback must call the direct ToolRuntime settlement operation',
     );
+    assert.match(backend, /toModelOutput:[\s\S]*?\(output as ToolSettlement\)\.modelOutput/);
+    assert.match(
+      backend,
+      /isPlanToolResult\(settlement\.result\)[\s\S]*?handlePlanToolResult\(settlement\.result/,
+      'plan handoff remains a backend-owned post-settlement loop decision',
+    );
+    assert.doesNotMatch(backend, /wrapToolExecute/);
+    assert.doesNotMatch(backend, /providerToolError/);
+    assert.doesNotMatch(backend, /currentStepToolExecutions/);
+    assert.match(backend, /!this\.toolRuntime\.hasStepAdmission\(this\.currentStepMessageId\)/);
     assert.match(
       backend,
       /this\.toolRuntime\.beginTurn\(turnId\);/,
@@ -52,7 +62,7 @@ describe('ToolRuntime extraction contract', () => {
       'turn cleanup must settle and reset ToolRuntime-owned per-turn state',
     );
 
-    assert.doesNotMatch(backend, /private async writeSyntheticToolResult/);
+    assert.doesNotMatch(backend, /private (?:async )?writeSyntheticToolResult/);
     assert.doesNotMatch(backend, /private coerceResultContent/);
     assert.doesNotMatch(backend, /private coerceTerminalFailure/);
     assert.doesNotMatch(backend, /private async awaitPermissionDecision/);
@@ -63,9 +73,15 @@ describe('ToolRuntime extraction contract', () => {
 
   test('ToolRuntime owns permission, watchdog pause, telemetry, artifacts, and result classification', async () => {
     const runtime = await readRepo('packages/runtime/src/tool-runtime.ts');
+    const toolOutput = await readRepo('packages/runtime/src/tool-result-output.ts');
 
     assert.match(runtime, /export class ToolRuntime/);
-    assert.match(runtime, /wrapToolExecute\(/);
+    assert.match(runtime, /settleToolCall\(/);
+    assert.match(runtime, /hasStepAdmission\(/);
+    assert.doesNotMatch(runtime, /wrapToolExecute\(/);
+    assert.doesNotMatch(runtime, /ToolModelOutput/);
+    assert.match(toolOutput, /ToolResultOutput/);
+    assert.doesNotMatch(toolOutput, /AiSdkToolResultOutput/);
     assert.match(runtime, /permissionEngine\.evaluate/);
     assert.match(runtime, /getPermissionPauseTarget/);
     assert.match(runtime, /recordToolInvocation/);
@@ -73,6 +89,8 @@ describe('ToolRuntime extraction contract', () => {
     assert.match(runtime, /deriveToolResultStatus/);
     assert.match(runtime, /coerceTerminalFailure/);
     assert.match(runtime, /formatSyntheticToolErrorText/);
+    assert.match(runtime, /providerToolErrorMessage/);
+    assert.match(runtime, /materializeDefaultToolResultOutput/);
     assert.match(runtime, /activeSubagentToolCount/);
   });
 });
@@ -85,11 +103,11 @@ describe('ModelAdapter extraction contract', () => {
     assert.match(backend, /private readonly modelAdapter: ModelAdapter;/);
     assert.match(backend, /this\.modelAdapter\.resolveModel\(\)/);
     assert.match(backend, /this\.modelAdapter\.startStream\(/);
-    assert.match(backend, /this\.modelAdapter\.handleStreamChunk\(/);
-    assert.match(
-      backend,
-      /normalizeAiSdkUsage\(await result\.usage,[\s\S]*?rawFinishReason[\s\S]*?\)/,
-    );
+    // #1381 slice 1: the backend consumes the Maka-owned event stream and
+    // never parses raw SDK chunk names, calls normalizeAiSdkUsage, or reads
+    // result.stream. It iterates result.events and switches on event.kind.
+    assert.match(backend, /for await \(const event of result\.events\)/);
+    assert.match(backend, /event\.kind/);
     assert.match(backend, /this\.modelAdapter\.classifyError\(/);
     assert.match(
       backend,
@@ -104,8 +122,11 @@ describe('ModelAdapter extraction contract', () => {
 
     assert.doesNotMatch(backend, /await import\('ai'\)/);
     assert.doesNotMatch(backend, /const \{ streamText, isStepCount \}/);
+    assert.doesNotMatch(backend, /this\.modelAdapter\.handleStreamChunk\(/);
     assert.doesNotMatch(backend, /switch \(chunk\.type\)/);
     assert.doesNotMatch(backend, /case 'reasoning-delta'/);
+    assert.doesNotMatch(backend, /normalizeAiSdkUsage\(await result\.usage/);
+    assert.doesNotMatch(backend, /result\.stream/);
     assert.doesNotMatch(backend, /function finiteToken/);
   });
 
@@ -121,9 +142,14 @@ describe('ModelAdapter extraction contract', () => {
     // backend's reactive overflow retry passes only the remaining budget.
     assert.match(adapter, /input\.maxSteps \?\? this\.input\.maxSteps/);
     assert.match(adapter, /isStepCount\(maxSteps\)/);
-    assert.match(adapter, /handleStreamChunk\(/);
+    // #1381 slice 1: raw SDK chunk interpretation is adapter-internal via
+    // translateChunk, which emits the Maka-owned ModelStreamEvent. The retired
+    // handleStreamChunk/callbacks boundary is gone.
+    assert.match(adapter, /translateChunk\(/);
     assert.match(adapter, /switch \(chunk\.type\)/);
     assert.match(adapter, /case 'reasoning-delta'/);
+    assert.match(adapter, /normalizeModelFailure\(/);
+    assert.match(adapter, /include: \{ requestMessages: true \}/);
     assert.match(adapter, /makeErrorEvent\(/);
     assert.match(adapter, /mapFinishReason\(/);
     assert.match(adapter, /export function normalizeAiSdkUsage/);

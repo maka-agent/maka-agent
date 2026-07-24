@@ -1,17 +1,32 @@
-import type {
-  ErrorEvent,
-  SessionEvent,
-  TextDeltaEvent,
-  ThinkingDeltaEvent,
-  CompleteEvent,
-} from '@maka/core/events';
+import type { ErrorEvent, CompleteEvent } from '@maka/core/events';
 import { providerAuthRequiresSecret, type LlmConnection } from '@maka/core/llm-connections';
 import { lookupModelMetadata } from '@maka/core/model-metadata';
 import { generalizedErrorMessage } from '@maka/core/redaction';
 import type { CacheMissInputSource } from '@maka/core/usage-stats/types';
-import type { ModelMessage } from 'ai';
+import type {
+  ModelMessage,
+  NormalizedUsage,
+  RawUsageFields,
+  ModelStreamEvent,
+  ModelStreamResult,
+  ModelFinishReason,
+  ModelFailure,
+  ModelFailureKind,
+  ModelRequestMetadata,
+  ModelToolSet,
+} from './model-protocol.js';
+export type {
+  NormalizedUsage,
+  RawUsageFields,
+  ModelStreamEvent,
+  ModelStreamResult,
+  ModelFinishReason,
+  ModelFailure,
+  ModelFailureKind,
+  ModelRequestMetadata,
+  ModelToolSet,
+} from './model-protocol.js';
 
-import type { AsyncEventQueue } from './async-queue.js';
 import { resolveModelRuntime } from './model-runtime.js';
 import { classifyError, errorPresentationFromClass } from './provider-error-classification.js';
 import type { ProviderRequestTracker } from './provider-request-telemetry.js';
@@ -107,7 +122,7 @@ export interface CompactSummaryResult {
 export interface ModelAdapterStreamInput {
   model: unknown;
   messages: ModelMessage[];
-  tools: Record<string, unknown>;
+  tools: ModelToolSet;
   activeTools: string[];
   system?: string;
   abortSignal: AbortSignal;
@@ -133,21 +148,6 @@ export interface ModelAdapterStreamInput {
   stopAfterStep?: () => boolean;
   /** Main-agent provider-call tracker. Auxiliary model calls intentionally omit it. */
   providerRequestTracker?: ProviderRequestTracker;
-}
-
-export interface ModelAdapterStreamCallbacks {
-  onText: (text: string) => void;
-  onTextComplete: (text: string) => void;
-  onThinking: (text: string) => void;
-  /**
-   * Provider-signed reasoning signature (Anthropic). Delivered out-of-band from
-   * the thinking text: the provider emits it on a separate reasoning chunk
-   * (empty delta) or on `reasoning-end`, so the caller records it without
-   * disturbing the accumulated thinking text. The final `thinking_complete`
-   * SessionEvent is emitted by the backend's turn-finalization seam (mirroring
-   * `text_complete`), carrying the accumulated text plus this signature.
-   */
-  onThinkingSignature: (signature: string) => void;
 }
 
 interface ProviderMiddlewareStreamInput {
@@ -183,14 +183,14 @@ export class ModelAdapter {
     });
   }
 
-  async startStream(input: ModelAdapterStreamInput): Promise<StreamTextResult> {
+  async startStream(input: ModelAdapterStreamInput): Promise<ModelStreamResult> {
     const ai = await import('ai').catch((err) => {
       throw new Error(
         `Failed to load 'ai' package. Run \`npm install ai\`. Inner: ${(err as Error).message}`,
       );
     });
     const { streamText, isStepCount, isLoopFinished, wrapLanguageModel } = ai as unknown as {
-      streamText: (opts: Record<string, unknown>) => StreamTextResult;
+      streamText: (opts: Record<string, unknown>) => SdkStreamResult;
       isStepCount: (n: number) => unknown;
       isLoopFinished: () => unknown;
       wrapLanguageModel: (input: Record<string, unknown>) => unknown;
@@ -219,7 +219,7 @@ export class ModelAdapter {
           },
         })
       : input.model;
-    return streamText({
+    const sdkResult = streamText({
       model: trackedModel,
       messages: input.messages,
       tools: input.tools,
@@ -229,6 +229,10 @@ export class ModelAdapter {
       ...(input.system ? { instructions: input.system } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
       providerOptions: this.input.providerOptions,
+      // Preserve the final request's Maka-owned message projection without
+      // retaining the provider request body. ProviderRequestTracker owns body
+      // capture; duplicating it here can retain large base64 image payloads.
+      include: { requestMessages: true },
       // streamText defaults to one step when stopWhen is omitted. Its exported
       // non-stopping condition is required for an unbounded tool loop.
       stopWhen: stopAfterStep ? [configuredStop, () => stopAfterStep()] : configuredStop,
@@ -236,9 +240,43 @@ export class ModelAdapter {
       // The SDK default onError console.errors the raw error object (stack,
       // request bodies), which lands on the terminal outside the TUI
       // transcript. Stream failures already surface through the stream
-      // `error` chunk → ErrorEvent path, so silence the default.
+      // `error` event → ErrorEvent path, so silence the default.
       onError: () => {},
-    });
+    }) as unknown as SdkStreamResult;
+    return this.toModelStreamResult(sdkResult);
+  }
+
+  /**
+   * Lower an AI SDK `streamText` result into the Maka-owned `ModelStreamResult`.
+   * The raw SDK chunk stream is translated lazily to `ModelStreamEvent`s so
+   * streaming stays live; failures, usage, finish reason, and request messages
+   * are normalized to Maka-owned contracts. No AI SDK type escapes this method.
+   */
+  private toModelStreamResult(sdk: SdkStreamResult): ModelStreamResult {
+    const events: AsyncIterable<ModelStreamEvent> = {
+      async *[Symbol.asyncIterator]() {
+        try {
+          for await (const chunk of sdk.stream as AsyncIterable<AiSdkStreamChunk>) {
+            for (const event of translateChunk(chunk)) yield event;
+          }
+        } catch (error) {
+          yield { kind: 'error', failure: normalizeModelFailure(error) };
+        }
+      },
+    };
+    const usage = (async () => {
+      const [sdkUsage, sdkFinishReason] = await Promise.all([
+        sdk.usage.catch(() => undefined),
+        sdk.finishReason.catch(() => undefined),
+      ]);
+      return normalizeAiSdkUsage(sdkUsage, { rawFinishReason: sdkFinishReason });
+    })();
+    const finishReason = (async () =>
+      rawFinishReasonString(await sdk.finishReason.catch(() => undefined)))();
+    const request = Promise.resolve(sdk.request)
+      .then(normalizeRequestMetadata)
+      .catch(() => undefined);
+    return { events, usage, finishReason, request };
   }
 
   async generateCompactSummary(input: CompactSummaryRequest): Promise<CompactSummaryResult> {
@@ -279,96 +317,33 @@ export class ModelAdapter {
     };
   }
 
-  handleStreamChunk(
-    chunk: AiSdkStreamChunk,
-    turnId: string,
-    assistantMessageId: string,
-    queue: AsyncEventQueue<SessionEvent>,
-    callbacks: ModelAdapterStreamCallbacks,
-  ): void {
-    const ts = this.input.now();
-    switch (chunk.type) {
-      case 'text-delta': {
-        const text = chunk.text ?? chunk.textDelta ?? chunk.delta ?? '';
-        callbacks.onText(text);
-        queue.push({
-          type: 'text_delta',
-          id: this.input.newId(),
-          turnId,
-          ts,
-          messageId: assistantMessageId,
-          text,
-        } satisfies TextDeltaEvent);
-        break;
-      }
-      case 'reasoning':
-      case 'reasoning-delta': {
-        const text = chunk.text ?? chunk.textDelta ?? chunk.delta ?? '';
-        const signature = reasoningSignatureFromChunk(chunk);
-        if (signature) callbacks.onThinkingSignature(signature);
-        // The signed reasoning chunk arrives as a standalone delta with empty
-        // text; only stream a thinking_delta when there is actual text so the
-        // signature carrier does not surface as an empty reasoning fragment.
-        if (text) {
-          callbacks.onThinking(text);
-          queue.push({
-            type: 'thinking_delta',
-            id: this.input.newId(),
-            turnId,
-            ts,
-            messageId: assistantMessageId,
-            text,
-          } satisfies ThinkingDeltaEvent);
-        }
-        break;
-      }
-      case 'reasoning-end': {
-        const signature = reasoningSignatureFromChunk(chunk);
-        if (signature) callbacks.onThinkingSignature(signature);
-        break;
-      }
-      case 'reasoning-start':
-        break;
-      // Step boundaries (`start-step` / `finish-step`) and the terminal
-      // `finish` carry no
-      // text/thinking to stream. The backend owns step accounting: it counts and
-      // flushes one AssistantMessage per step and rotates the messageId at each
-      // `finish-step`. Handling them here would double-count, so they are no-ops.
-      case 'start-step':
-      case 'finish-step':
-      case 'step-finish': // legacy replay fixture compatibility
-      case 'finish':
-        break;
-      case 'tool-call':
-      case 'tool-result':
-        break;
-      case 'error':
-        queue.push(this.makeErrorEvent(turnId, chunk.error));
-        break;
-      default:
-        break;
-    }
+  /**
+   * Translate one raw AI SDK stream chunk into zero or more Maka-owned
+   * `ModelStreamEvent`s. This is the sole place that parses SDK chunk names
+   * (`text-delta` / `reasoning-delta` / `finish-step` / `finish` / `error` / …);
+   * the backend never sees them. Pure and side-effect-free so it is directly
+   * testable through the Maka-owned event contract.
+   */
+  translateChunk(chunk: AiSdkStreamChunk): ModelStreamEvent[] {
+    return translateChunk(chunk);
   }
 
   makeErrorEvent(turnId: string, err: unknown): ErrorEvent {
-    const errorClass = classifyError(err);
-    const presentation = errorPresentationFromClass(errorClass);
-    const message = presentation.message ?? generalizedErrorMessage(err);
-    const code =
-      err instanceof Error && 'code' in err ? String((err as { code?: unknown }).code) : undefined;
+    const failure = normalizeModelFailure(err);
     return {
       type: 'error',
       id: this.input.newId(),
       turnId,
       ts: this.input.now(),
       recoverable: false,
-      ...(code !== undefined ? { code } : {}),
-      ...(presentation.reason !== undefined ? { reason: presentation.reason } : {}),
-      message,
+      ...(failure.code !== undefined ? { code: failure.code } : {}),
+      ...(failure.kind !== 'abort' && failure.kind !== 'unknown' ? { reason: failure.kind } : {}),
+      message: failure.message,
     };
   }
 
   classifyError(error: unknown): string {
+    if (isModelFailure(error)) return errorClassFromFailureKind(error.kind);
     return classifyError(error);
   }
 
@@ -425,7 +400,13 @@ export interface ModelAdapterRuntimeEventReplaySupport {
   signedThinking: boolean;
 }
 
-export interface AiSdkStreamChunk {
+/**
+ * Internal, adapter-only shape of an AI SDK `streamText` stream chunk. This
+ * type never crosses the `ModelAdapter` boundary — `ModelAdapter.translateChunk`
+ * consumes it and emits the Maka-owned `ModelStreamEvent`. It mirrors the AI
+ * SDK chunk union just enough to read the fields Maka cares about.
+ */
+interface AiSdkStreamChunk {
   type: string;
   text?: string;
   delta?: string;
@@ -442,6 +423,20 @@ export interface AiSdkStreamChunk {
 }
 
 /**
+ * Internal, adapter-only shape of an AI SDK `streamText` result. The public
+ * boundary contract is `ModelStreamResult`; this exists only to type the
+ * lowering cast inside `ModelAdapter`.
+ */
+interface SdkStreamResult {
+  stream: AsyncIterable<AiSdkStreamChunk>;
+  usage: Promise<AiSdkUsageLike | undefined>;
+  finishReason: Promise<unknown>;
+  request: PromiseLike<{
+    messages?: ModelMessage[];
+  }>;
+}
+
+/**
  * Extract the provider-signed reasoning signature from a stream chunk.
  * Anthropic delivers it via `providerMetadata.anthropic.signature`; other
  * providers omit it and this returns undefined.
@@ -455,11 +450,146 @@ function reasoningSignatureFromChunk(chunk: AiSdkStreamChunk): string | undefine
   return typeof signature === 'string' && signature.length > 0 ? signature : undefined;
 }
 
-export interface StreamTextResult {
-  stream: AsyncIterable<AiSdkStreamChunk>;
-  usage: Promise<AiSdkUsageLike | undefined>;
-  finalStep: Promise<{ usage?: AiSdkUsageLike } | undefined>;
-  finishReason: Promise<unknown>;
+/**
+ * Translate one raw AI SDK stream chunk into zero or more Maka-owned
+ * `ModelStreamEvent`s. The sole site that parses SDK chunk names; the backend
+ * never sees raw chunks. Pure and side-effect-free.
+ */
+function translateChunk(chunk: AiSdkStreamChunk): ModelStreamEvent[] {
+  switch (chunk.type) {
+    case 'text-delta': {
+      const text = chunk.text ?? chunk.textDelta ?? chunk.delta ?? '';
+      return text ? [{ kind: 'text', text }] : [];
+    }
+    case 'reasoning':
+    case 'reasoning-delta': {
+      const text = chunk.text ?? chunk.textDelta ?? chunk.delta ?? '';
+      const signature = reasoningSignatureFromChunk(chunk);
+      const events: ModelStreamEvent[] = [];
+      if (signature) events.push({ kind: 'thinking-signature', signature });
+      // The signed reasoning chunk arrives as a standalone delta with empty
+      // text; only emit a `thinking` event when there is actual text so the
+      // signature carrier does not surface as an empty reasoning fragment.
+      if (text) events.push({ kind: 'thinking', text });
+      return events;
+    }
+    case 'reasoning-end': {
+      const signature = reasoningSignatureFromChunk(chunk);
+      return signature ? [{ kind: 'thinking-signature', signature }] : [];
+    }
+    // Step boundaries (`start-step` / `finish-step`) and the terminal `finish`
+    // carry no text/thinking to stream. The backend owns step accounting: it
+    // counts and flushes one AssistantMessage per step and rotates the
+    // messageId at each `finish-step`. `step-finish` is legacy replay fixture
+    // compatibility — handled as a step boundary, not a text carrier.
+    case 'finish-step':
+    case 'step-finish': {
+      const finishReason = rawFinishReasonString(chunk.finishReason);
+      const usage = normalizeAiSdkUsage(chunk.usage, { rawFinishReason: chunk.finishReason });
+      return [
+        {
+          kind: 'step-finish',
+          ...(usage ? { usage } : {}),
+          ...(finishReason ? { finishReason } : {}),
+        },
+      ];
+    }
+    case 'finish': {
+      const finishReason = rawFinishReasonString(chunk.finishReason);
+      return [{ kind: 'finish', ...(finishReason ? { finishReason } : {}) }];
+    }
+    case 'reasoning-start':
+    case 'start-step':
+    case 'tool-call':
+    case 'tool-result':
+      return [];
+    case 'error':
+      return [{ kind: 'error', failure: normalizeModelFailure(chunk.error) }];
+    default:
+      return [];
+  }
+}
+
+function normalizeModelFailure(error: unknown): ModelFailure {
+  if (isModelFailure(error)) return error;
+  const errorClass = classifyError(error);
+  const presentation = errorPresentationFromClass(errorClass);
+  const code =
+    error instanceof Error && 'code' in error
+      ? String((error as { code?: unknown }).code)
+      : undefined;
+  return {
+    type: 'model_failure',
+    kind: modelFailureKind(errorClass),
+    ...(code !== undefined ? { code } : {}),
+    message: presentation.message ?? generalizedErrorMessage(error),
+  };
+}
+
+function isModelFailure(value: unknown): value is ModelFailure {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    (value as { type?: unknown }).type === 'model_failure' &&
+    typeof (value as { kind?: unknown }).kind === 'string' &&
+    typeof (value as { message?: unknown }).message === 'string'
+  );
+}
+
+function modelFailureKind(errorClass: string): ModelFailureKind {
+  switch (errorClass) {
+    case 'Abort':
+      return 'abort';
+    case 'Auth':
+      return 'auth';
+    case 'ContextLength':
+      return 'context_overflow';
+    case 'Network':
+      return 'network';
+    case 'ProviderBilling':
+      return 'provider_billing';
+    case 'ProviderUnavailable':
+      return 'provider_unavailable';
+    case 'RateLimit':
+      return 'rate_limit';
+    case 'Timeout':
+      return 'timeout';
+    default:
+      return 'unknown';
+  }
+}
+
+function errorClassFromFailureKind(kind: ModelFailureKind): string {
+  switch (kind) {
+    case 'abort':
+      return 'Abort';
+    case 'auth':
+      return 'Auth';
+    case 'context_overflow':
+      return 'ContextLength';
+    case 'network':
+      return 'Network';
+    case 'provider_billing':
+      return 'ProviderBilling';
+    case 'provider_unavailable':
+      return 'ProviderUnavailable';
+    case 'rate_limit':
+      return 'RateLimit';
+    case 'timeout':
+      return 'Timeout';
+    case 'unknown':
+      return 'Other';
+  }
+}
+
+function normalizeRequestMetadata(
+  metadata:
+    | {
+        messages?: ModelMessage[];
+      }
+    | undefined,
+): ModelRequestMetadata | undefined {
+  return metadata?.messages === undefined ? undefined : { messages: metadata.messages };
 }
 
 type TokenCountBreakdown = {
@@ -471,19 +601,12 @@ type TokenCountBreakdown = {
   reasoning?: number;
 };
 
-export interface AiSdkRawUsageFields {
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  total_tokens?: number;
-  prompt_cache_hit_tokens?: number;
-  prompt_cache_miss_tokens?: number;
-  prompt_tokens_details?: {
-    cached_tokens?: number;
-  };
-  completion_tokens_details?: {
-    reasoning_tokens?: number;
-  };
-}
+/**
+ * Internal, adapter-only mirror of the AI SDK raw usage fields. The public
+ * `RawUsageFields` contract lives in `model-protocol.ts`; this stays here as
+ * the lowering input shape and is assigned to `NormalizedUsage.raw`.
+ */
+export type AiSdkRawUsageFields = RawUsageFields;
 
 export interface AiSdkUsageLike {
   promptTokens?: number;
@@ -524,25 +647,17 @@ export interface AiSdkUsageLike {
   raw?: AiSdkRawUsageFields;
 }
 
-export interface NormalizedAiSdkUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheHitInputTokens: number;
-  cacheMissInputTokens: number;
-  cacheMissInputSource: CacheMissInputSource;
-  cacheWriteInputTokens: number;
-  reasoningTokens: number;
-  totalTokens: number;
-  rawFinishReason?: string;
-  raw?: AiSdkRawUsageFields;
-  /** Backward-compatible alias for cacheHitInputTokens. */
-  cachedInputTokens: number;
-}
+/**
+ * @deprecated alias for the Maka-owned `NormalizedUsage` contract exported
+ * from `model-protocol.ts`. Kept for backward compatibility with existing
+ * internal import sites during the slice-1 transition.
+ */
+export type NormalizedAiSdkUsage = NormalizedUsage;
 
 export function normalizeAiSdkUsage(
   usage: AiSdkUsageLike | undefined,
   options: { rawFinishReason?: unknown } = {},
-): NormalizedAiSdkUsage | undefined {
+): NormalizedUsage | undefined {
   if (!usage) return undefined;
   const reportedInputTokens =
     finiteTokenFromValueOrBreakdown(usage.inputTokens, 'total') ??

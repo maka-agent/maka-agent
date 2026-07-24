@@ -419,6 +419,9 @@ describe('Harbor adapter contract', () => {
     // A non-zero runner subprocess is flagged as an infra failure inside the
     // executor scope so teardown reclaims orphaned scoped background processes.
     assert.match(source, /executor\.mark_reclaim_scoped_processes\(\)/);
+    // A scored deadline preserves services from completed commands for the
+    // post-exit verifier while still reclaiming commands that remain active.
+    assert.match(source, /executor\.mark_reclaim_active_commands\(\)/);
     // The bridged tool exec is a bare container exec (real exit code returned as
     // a 200), not exec_as_agent (which raises on non-zero and injects agent env).
     assert.match(source, /self\._environment\.exec\(\s*\n\s*command=_scoped_command\(/);
@@ -1116,6 +1119,7 @@ function pierPython(): string | null {
 function pythonBridgeContractScript(root: string): string {
   return String.raw`
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 import os
@@ -1273,7 +1277,7 @@ async def fix3_infra_failure_reclaims_scoped_processes():
     assert preserved is None, "clean exit killed a verifier-visible scoped process"
 
 
-async def fix4_deadline_reclaims_all_scoped_commands():
+async def fix4_deadline_reclaims_only_active_commands():
     with tempfile.TemporaryDirectory() as tmp:
         agent = MakaAgent(Path(tmp))
         env = BlockingLocalShellEnv()
@@ -1299,15 +1303,14 @@ async def fix4_deadline_reclaims_all_scoped_commands():
                     {"command": "sleep 30"},
                 ))
                 await asyncio.wait_for(env.active_started.wait(), timeout=2)
-                server.mark_reclaim_scoped_processes()
+                server.mark_reclaim_active_commands()
             await request
             assert env.active_process is not None and env.active_process.returncode is not None, (
                 "deadline teardown left an active bridged command running"
             )
-            deadline = time.time() + 2
-            while service.poll() is None and time.time() < deadline:
-                time.sleep(0.02)
-            assert service.poll() is not None, "deadline teardown left a completed background command running"
+            assert service.poll() is None, (
+                "deadline teardown killed a completed verifier-visible service"
+            )
         finally:
             if request is not None and not request.done():
                 request.cancel()
@@ -1321,6 +1324,25 @@ async def fix4_deadline_reclaims_all_scoped_commands():
                 for path in scope_dir.glob("*"):
                     path.unlink()
                 scope_dir.rmdir()
+
+
+async def fix4b_deadline_ignores_done_but_still_mapped_commands():
+    with tempfile.TemporaryDirectory() as tmp:
+        server = m._ToolExecutorServer(MakaAgent(Path(tmp)), LocalShellEnv())
+        completed = concurrent.futures.Future()
+        completed.set_result(None)
+        server._futures.add(completed)
+        server._future_command_ids[completed] = "completed-command"
+        cleanup_calls = []
+
+        async def capture_cleanup(command_ids):
+            cleanup_calls.append(command_ids)
+            return None
+
+        server._cleanup_processes = capture_cleanup
+        server.mark_reclaim_active_commands()
+        await server.__aexit__(None, None, None)
+        assert cleanup_calls == [[]], cleanup_calls
 
 
 class TimedOutLocalShellEnv:
@@ -1460,7 +1482,8 @@ async def fix6_cleanup_failure_is_not_reported_as_a_typed_timeout():
 asyncio.run(fix1_bridge_exec_contract())
 asyncio.run(fix2_workdir_probe_falls_back())
 asyncio.run(fix3_infra_failure_reclaims_scoped_processes())
-asyncio.run(fix4_deadline_reclaims_all_scoped_commands())
+asyncio.run(fix4_deadline_reclaims_only_active_commands())
+asyncio.run(fix4b_deadline_ignores_done_but_still_mapped_commands())
 asyncio.run(fix5_timed_out_command_is_reclaimed_immediately())
 asyncio.run(fix6_cleanup_failure_is_not_reported_as_a_typed_timeout())
 print("bridge-contract ok")
@@ -2155,6 +2178,7 @@ with tempfile.TemporaryDirectory() as tmp:
             self.url = "http://127.0.0.1:4321"
             self.token = "tool-token"
             self.reclaim_scoped_processes = False
+            self.reclaim_active_commands = False
             self.instances.append(self)
 
         async def __aenter__(self):
@@ -2165,6 +2189,9 @@ with tempfile.TemporaryDirectory() as tmp:
 
         def mark_reclaim_scoped_processes(self):
             self.reclaim_scoped_processes = True
+
+        def mark_reclaim_active_commands(self):
+            self.reclaim_active_commands = True
 
     class FakeHostProcess:
         pid = 123
@@ -2316,7 +2343,8 @@ with tempfile.TemporaryDirectory() as tmp:
             )
         )
         assert captured_host_process["kwargs"]["env"]["MAKA_CELL_SOFT_TIMEOUT_MS"] == "50000"
-        assert FakeToolExecutor.instances[-1].reclaim_scoped_processes
+        assert FakeToolExecutor.instances[-1].reclaim_active_commands
+        assert not FakeToolExecutor.instances[-1].reclaim_scoped_processes
 
         captured_host_process.clear()
         captured_host_process.update(host_cell_process)
@@ -2332,9 +2360,10 @@ with tempfile.TemporaryDirectory() as tmp:
 
         asyncio.create_subprocess_exec = fake_deadline_subprocess_exec
         asyncio.run(host_process_agent._run_host_cell(host_process_environment, Path(tmp) / "instruction.txt"))
-        assert FakeToolExecutor.instances[-1].reclaim_scoped_processes, (
-            "a settled deadline must freeze the workspace by reclaiming every scoped process"
+        assert FakeToolExecutor.instances[-1].reclaim_active_commands, (
+            "a settled deadline must reclaim commands still active at the cutoff"
         )
+        assert not FakeToolExecutor.instances[-1].reclaim_scoped_processes
 
         class CancelledHostProcess:
             def __init__(self):
@@ -3068,6 +3097,9 @@ class Codex:
         self._version = version
         self.model_name = model_name
         self.parent_calls = []
+        # Real harbor/pier bases set self.logger in __init__; the adapter's
+        # best-effort log hydration logs through it.
+        self.logger = types.SimpleNamespace(debug=lambda *args, **kwargs: None)
 
     def _get_env(self, key):
         return self._extra_env.get(key) or os.environ.get(key)
@@ -3612,6 +3644,24 @@ class FakeEnvironment:
             self.trial_paths.test_stdout_path.write_text("E: Failed to fetch https://deb.example.invalid/pkg.deb 502 Bad Gateway", encoding="utf-8")
             self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+        if outcome == "infra_pytest_escaped_newline_with_fail_reward":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'TEST PASSED' in 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease\\n"
+                "  502  Bad Gateway [IP: 198.18.0.119 80]\\nErr:2 http://security.ubuntu.com/ubuntu noble-security InRelease\\n'\n"
+                "E        +  where ... = CompletedProcess(args=['bash', '/tests/verify.sh'], returncode=0).stdout",
+                encoding="utf-8",
+            )
+            self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
+        if outcome == "infra_pytest_real_newline_with_fail_reward":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'TEST PASSED' in 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease\n"
+                "  502  Bad Gateway [IP: 198.18.0.119 80]\nErr:2 http://security.ubuntu.com/ubuntu noble-security InRelease\n'\n"
+                "E        +  where ... = CompletedProcess(args=['bash', '/tests/verify.sh'], returncode=0).stdout",
+                encoding="utf-8",
+            )
+            self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
+            return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         if outcome == "infra_curl_ssl_with_fail_reward":
             self.trial_paths.test_stdout_path.write_text(
                 "curl: (35) OpenSSL SSL_connect: SSL_ERROR_SYSCALL in connection to astral.sh:443\n"
@@ -3625,8 +3675,11 @@ class FakeEnvironment:
             self.trial_paths.test_stdout_path.write_text("APT warning: Failed to fetch optional archive", encoding="utf-8")
             self.trial_paths.reward_text_path.write_text("1\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
-        if outcome == "warning_with_fail_reward":
-            self.trial_paths.test_stdout_path.write_text("assertion expected: 502 Bad Gateway", encoding="utf-8")
+        if outcome == "candidate_assertion_mentions_apt_502":
+            self.trial_paths.test_stdout_path.write_text(
+                "E       assert 'Err:1 http://archive.ubuntu.com/ubuntu noble InRelease expected status: 502 Bad Gateway' == 'success'",
+                encoding="utf-8",
+            )
             self.trial_paths.reward_text_path.write_text("0\n", encoding="utf-8")
             return types.SimpleNamespace(return_code=0, stdout="", stderr="")
         if outcome == "timeout":
@@ -3676,6 +3729,18 @@ assert outcome["outcome"] == "passed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
 assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
 
+result, outcome, commands = asyncio.run(run_case(["infra_pytest_escaped_newline_with_fail_reward", "pass"]))
+assert result.rewards == {"reward": 1.0}, result.rewards
+assert outcome["outcome"] == "passed", outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
+
+result, outcome, commands = asyncio.run(run_case(["infra_pytest_real_newline_with_fail_reward", "pass"]))
+assert result.rewards == {"reward": 1.0}, result.rewards
+assert outcome["outcome"] == "passed", outcome
+assert [item["classification"] for item in outcome["attempts"]] == ["infra_setup_failed", "passed"], outcome
+assert len([command for command in commands if "timeout --signal=KILL" in command]) == 2, commands
+
 result, outcome, commands = asyncio.run(run_case(["infra_curl_ssl_with_fail_reward", "pass"]))
 assert result.rewards == {"reward": 1.0}, result.rewards
 assert outcome["outcome"] == "passed", outcome
@@ -3700,7 +3765,7 @@ assert outcome["outcome"] == "passed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["passed"], outcome
 assert len([command for command in commands if "timeout --signal=KILL" in command]) == 1, commands
 
-result, outcome, commands = asyncio.run(run_case(["warning_with_fail_reward"]))
+result, outcome, commands = asyncio.run(run_case(["candidate_assertion_mentions_apt_502"]))
 assert result.rewards == {"reward": 0.0}, result.rewards
 assert outcome["outcome"] == "failed", outcome
 assert [item["classification"] for item in outcome["attempts"]] == ["failed"], outcome

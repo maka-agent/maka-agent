@@ -85,7 +85,7 @@ describe('session metadata migration maintenance', () => {
         /already exists/,
       );
     } finally {
-      store.close?.();
+      await store.close?.();
       await rm(container, { recursive: true, force: true });
     }
   });
@@ -108,7 +108,7 @@ describe('session metadata migration maintenance', () => {
         /differ from the source/,
       );
     } finally {
-      store.close?.();
+      await store.close?.();
       await rm(root, { recursive: true, force: true });
     }
   });

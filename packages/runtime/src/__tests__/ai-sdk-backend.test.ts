@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { describe, test } from 'node:test';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from '../model-protocol.js';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { APICallError, type LanguageModelV4StreamPart } from '@ai-sdk/provider';
 import type {
@@ -32,7 +32,7 @@ import {
   repairMakaToolCall,
   type RunTraceEvent,
 } from '../ai-sdk-backend.js';
-import type { MakaTool } from '../tool-runtime.js';
+import type { MakaTool, ToolRuntime } from '../tool-runtime.js';
 import { LOAD_TOOLS_NAME } from '../tool-availability.js';
 import { PermissionEngine } from '../permission-engine.js';
 import {
@@ -132,18 +132,7 @@ describe('AiSdkBackend model history', () => {
       permissionRequired: true,
       impl: async () => ({ kind: 'text', text: 'ok' }),
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = runtimeExecute(backend, tool, 'turn-1', { push: () => {} });
 
     await execute(
       { command: 'rm local-file' },
@@ -204,18 +193,7 @@ describe('AiSdkBackend model history', () => {
         });
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = runtimeExecute(backend, tool, 'turn-1', { push: () => {} });
 
     await execute(
       { command: 'true' },
@@ -5799,6 +5777,104 @@ describe('AiSdkBackend error surfaces', () => {
     assert.equal(JSON.stringify(events).includes('sk-live-secret-token-value'), false);
   });
 
+  test('propagates T1 settlement rejection as an AI SDK tool error without a tool result', async () => {
+    const messages: StoredMessage[] = [];
+    const events: SessionEvent[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'tool-1',
+                  toolName: 'Read',
+                  input: JSON.stringify({ path: 'notes.md' }),
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 0, reasoning: 0 },
+                  },
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                { type: 'text-start', id: 'text-1' },
+                { type: 'text-delta', id: 'text-1', delta: 'recovered' },
+                { type: 'text-end', id: 'text-1' },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 1, noCache: 1, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 1, text: 1, reasoning: 0 },
+                  },
+                },
+              ];
+        return {
+          stream: simulateReadableStream({
+            chunks,
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
+      },
+    });
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async (message) => {
+        messages.push(message);
+      },
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: idGenerator(), now: () => 1 }),
+      modelFactory: () => model,
+      tools: [testTool('Read', z.object({ path: z.string() }))],
+      runtimeCommitSink: {
+        commitToolPrepared: async () => {
+          throw new Error('T1 unavailable');
+        },
+        commitToolOutcome: async () => {
+          throw new Error('must not reach T2');
+        },
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    for await (const event of backend.send({
+      turnId: 'turn-1',
+      runId: 'run-1',
+      invocationId: 'invocation-1',
+      text: 'read notes',
+      context: [],
+    })) {
+      events.push(event);
+    }
+
+    assert.equal(streamCalls, 2);
+    assert.match(
+      JSON.stringify(model.doStreamCalls[1]?.prompt),
+      /RuntimeCommitBoundaryError: T1 runtime commit failed: T1 unavailable/,
+    );
+    assert.equal(
+      messages.some((message) => message.type === 'tool_result'),
+      false,
+    );
+    assert.equal(
+      events.some((event) => event.type === 'tool_result'),
+      false,
+    );
+  });
+
   test('redacts and caps synthetic tool error text before storage and model return', () => {
     const raw = `provider exploded: Authorization: Bearer sk-live-secret-token-value ${'x'.repeat(5000)}`;
     const text = formatSyntheticToolErrorText(new Error(raw));
@@ -5828,16 +5904,7 @@ describe('AiSdkBackend error surfaces', () => {
       now: () => 1,
     });
 
-    await (
-      backend as unknown as {
-        writeSyntheticToolResult(
-          toolUseId: string,
-          turnId: string,
-          text: string,
-          queue: { push(event: SessionEvent): void },
-        ): Promise<void>;
-      }
-    ).writeSyntheticToolResult(
+    await (backend as unknown as { toolRuntime: ToolRuntime }).toolRuntime.writeSyntheticToolResult(
       'tool-1',
       'turn-1',
       'failed with api_key=sk-live-secret-token-value',
@@ -5884,18 +5951,9 @@ describe('AiSdkBackend error surfaces', () => {
       },
     };
 
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const result = await execute(
       { command: 'printf out; printf err >&2; exit 2' },
@@ -8657,18 +8715,9 @@ describe('AiSdkBackend RunTrace', () => {
       permissionRequired: true,
       impl: async () => ({ ok: true }),
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const pending = execute(
       { path: 'notes.md', content: 'hello' },
@@ -8818,18 +8867,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { kind: 'text', text: 'hello' };
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const result = await execute(
       {
@@ -8902,18 +8942,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         return { kind: 'text', text: 'should not run' };
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     await execute(
       { path: 'notes.md' },
@@ -8979,18 +9010,9 @@ describe('AiSdkBackend tool permission category hints', () => {
       },
     };
 
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const result = await execute(
       { path: 'notes.md', content: 'hello' },
@@ -9074,18 +9096,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         resumeCount += 1;
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const pending = execute(
       { path: 'notes.md', content: 'hello' },
@@ -9178,18 +9191,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         throw error;
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const result = await execute(
       { path: 'notes.md', content: 'hello' },
@@ -9246,18 +9250,7 @@ describe('AiSdkBackend tool permission category hints', () => {
       },
     };
     const wrap = (tool: MakaTool) =>
-      (
-        backend as unknown as {
-          wrapToolExecute(
-            tool: MakaTool,
-            turnId: string,
-            queue: { push(event: SessionEvent): void },
-          ): (
-            args: unknown,
-            ctx: { toolCallId: string; abortSignal: AbortSignal },
-          ) => Promise<unknown>;
-        }
-      ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+      runtimeExecute(backend, tool, 'turn-1', { push: (event) => events.push(event) });
 
     await wrap(successTool)(
       {},
@@ -9316,18 +9309,9 @@ describe('AiSdkBackend tool permission category hints', () => {
       impl: async () => ({ ok: true }),
     };
 
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const result = await execute(
       { objective: 'map PawWork subagent lifecycle' },
@@ -9410,18 +9394,7 @@ describe('AiSdkBackend tool permission category hints', () => {
             });
         }),
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = runtimeExecute(backend, tool, 'turn-1', { push: () => {} });
 
     const pending = execute(
       {},
@@ -9495,18 +9468,7 @@ describe('AiSdkBackend tool permission category hints', () => {
             });
         }),
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: () => {} });
+    const execute = runtimeExecute(backend, tool, 'turn-1', { push: () => {} });
 
     const pending = execute(
       {},
@@ -9557,18 +9519,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         });
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     const pending = Array.from({ length: MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN }, (_, index) =>
       execute(
@@ -9649,18 +9602,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         };
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     await execute(
       { objective: 'bad scope' },
@@ -9742,18 +9686,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         };
       },
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     await execute(
       { status: 'failed' },
@@ -9844,18 +9779,9 @@ describe('AiSdkBackend tool permission category hints', () => {
         message: 'officecli 操作已取消。',
       }),
     };
-    const execute = (
-      backend as unknown as {
-        wrapToolExecute(
-          tool: MakaTool,
-          turnId: string,
-          queue: { push(event: SessionEvent): void },
-        ): (
-          args: unknown,
-          ctx: { toolCallId: string; abortSignal: AbortSignal },
-        ) => Promise<unknown>;
-      }
-    ).wrapToolExecute(tool, 'turn-1', { push: (event) => events.push(event) });
+    const execute = runtimeExecute(backend, tool, 'turn-1', {
+      push: (event) => events.push(event),
+    });
 
     await execute(
       { path: 'slides.pptx', operation: 'view' },
@@ -10808,24 +10734,25 @@ describe('AiSdkBackend thinking persistence', () => {
         modelAdapter: { startStream: (input: FakeStreamInput) => Promise<unknown> };
       }
     ).modelAdapter.startStream = async (input: FakeStreamInput) => ({
-      stream: (async function* () {
+      // The adapter boundary now exposes Maka-owned `ModelStreamEvent`s, not
+      // raw SDK chunks. This fake adapter yields events directly so the test
+      // drives the backend through the new contract: `step-finish` for the
+      // step boundary, `thinking` / `thinking-signature` for step 2's signed
+      // reasoning, and NO trailing `step-finish` / `finish` (the stream ends
+      // abruptly).
+      events: (async function* () {
         // Step 1 (pure tool): execute mid-step, then close the step.
         await input.tools['Read']!.execute(
           { path: 'a.md' },
           { toolCallId: 'tool-1', abortSignal: input.abortSignal },
         );
-        yield { type: 'finish-step', finishReason: { unified: 'tool-calls', raw: 'tool_calls' } };
+        yield { kind: 'step-finish', finishReason: 'tool_calls' };
         // Step 2 (thinking-only): signed reasoning, then the stream ends with
-        // NO trailing finish-step and NO finish chunk.
-        yield { type: 'reasoning-delta', delta: 'final thoughts' };
-        yield {
-          type: 'reasoning-delta',
-          delta: '',
-          providerMetadata: { anthropic: { signature: 'sig-last' } },
-        };
+        // NO trailing step-finish and NO finish event.
+        yield { kind: 'thinking', text: 'final thoughts' };
+        yield { kind: 'thinking-signature', signature: 'sig-last' };
       })(),
       usage: Promise.resolve(undefined),
-      finalStep: Promise.resolve(undefined),
       finishReason: Promise.resolve('tool-calls'),
     });
 
@@ -12007,4 +11934,27 @@ async function waitFor(predicate: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   assert.fail('condition was not met before timeout');
+}
+
+function runtimeExecute(
+  backend: AiSdkBackend,
+  tool: MakaTool,
+  turnId: string,
+  eventSink: { push(event: SessionEvent): void },
+) {
+  const runtime = (backend as unknown as { toolRuntime: ToolRuntime }).toolRuntime;
+  return async (
+    input: unknown,
+    context: { toolCallId: string; abortSignal: AbortSignal },
+  ): Promise<unknown> =>
+    (
+      await runtime.settleToolCall({
+        tool,
+        turnId,
+        toolCallId: context.toolCallId,
+        input,
+        abortSignal: context.abortSignal,
+        eventSink,
+      })
+    ).result;
 }

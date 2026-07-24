@@ -328,6 +328,10 @@ description: Workspace workflow.
       );
       const options = { cwd: projectRoot, homeDir };
 
+      const pending = await listGovernedSkillEntries(workspaceRoot, options);
+      assert.ok(
+        pending.filter((skill) => skill.id === 'shared').every((skill) => skill.needsReview),
+      );
       assert.deepEqual(await setSkillPinned(workspaceRoot, 'shared', true, options), {
         ok: false,
         reason: 'needs_review',
@@ -366,6 +370,35 @@ description: Workspace workflow.
       assert.equal(migrated.skills.shared, undefined);
       assert.equal(migrated.skills['project:maka:shared']?.enabled, false);
       assert.equal(migrated.skills['user:agents:shared']?.enabled, false);
+      const reviewed = await listGovernedSkillEntries(workspaceRoot, options);
+      assert.ok(
+        reviewed.filter((skill) => skill.id === 'shared').every((skill) => !skill.needsReview),
+      );
+    });
+  });
+
+  it('surfaces blocked discovery roots as non-actionable inventory diagnostics', async () => {
+    await withWorkspace(async (workspaceRoot) => {
+      const projectRoot = join(workspaceRoot, 'project');
+      const outside = await mkdtemp(join(tmpdir(), 'maka-desktop-skill-source-'));
+      try {
+        await mkdir(join(projectRoot, '.maka'), { recursive: true });
+        await symlink(outside, join(projectRoot, '.maka', 'skills'));
+        const entries = await listGovernedSkillEntries(workspaceRoot, {
+          cwd: projectRoot,
+          homeDir: join(workspaceRoot, 'empty-home'),
+        });
+        const diagnostic = entries.find(
+          (entry) => entry.kind === 'discovery_diagnostic',
+        );
+        assert.ok(diagnostic);
+        assert.equal(diagnostic.scope, 'project');
+        assert.equal(diagnostic.source, 'maka');
+        assert.equal(diagnostic.discoveryDiagnosticReason, 'blocked_path');
+        assert.equal(diagnostic.manageable, false);
+      } finally {
+        await rm(outside, { recursive: true, force: true });
+      }
     });
   });
 

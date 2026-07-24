@@ -716,6 +716,161 @@ test('harness A/B CLI rejects modified task contents before reading credentials'
   }
 });
 
+test('harness A/B resolves the DeepSWE benchmark axis orthogonally to competitors', async () => {
+  const {
+    buildHarnessAbManifest,
+    resolveHarnessAbRunId,
+    resolveHarnessAbTaskSelection,
+    resolveHarnessBenchmarkProfile,
+    resolveHarnessCompetitorProfile,
+  } = await import(new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href);
+  const benchmarkProfile = resolveHarnessBenchmarkProfile('deep-swe-1.1');
+
+  assert.throws(
+    () => resolveHarnessBenchmarkProfile('swe-bench'),
+    /MAKA_HARNESS_AB_BENCHMARK must be one of: terminal-bench-2\.1, deep-swe-1\.1/,
+  );
+
+  // Task identity comes from the benchmark: a Terminal-Bench task id is
+  // unknown here, and the 30-task subset replaces the 89-task full set.
+  const selection = resolveHarnessAbTaskSelection(undefined, '30', undefined, benchmarkProfile);
+  assert.equal(selection.taskIds.length, 30);
+  assert.throws(
+    () =>
+      resolveHarnessAbTaskSelection(
+        'extract-moves-from-video',
+        undefined,
+        undefined,
+        benchmarkProfile,
+      ),
+    /MAKA_HARNESS_AB_TASK_ID must name a DeepSWE subset-30 task/,
+  );
+  assert.throws(
+    () => resolveHarnessAbTaskSelection(undefined, '89', undefined, benchmarkProfile),
+    /MAKA_HARNESS_AB_LIMIT must be 5 or 30/,
+  );
+
+  // The derived run id carries model, competitor, credential mode, benchmark.
+  assert.equal(
+    resolveHarnessAbRunId(
+      resolveHarnessCompetitorProfile('kimi-code'),
+      undefined,
+      undefined,
+      undefined,
+      benchmarkProfile,
+    ),
+    'k3-maka-vs-kimi-code-deepswe-subset30-v1',
+  );
+  assert.equal(
+    resolveHarnessAbRunId(
+      resolveHarnessCompetitorProfile('codex'),
+      undefined,
+      undefined,
+      undefined,
+      benchmarkProfile,
+    ),
+    'gpt-5.6-sol-maka-vs-codex-oauth-deepswe-subset30-v1',
+  );
+
+  const manifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    benchmarkProfile,
+    competitorProfile: resolveHarnessCompetitorProfile('codex'),
+  });
+  assert.deepEqual(manifest.metadata.benchmark.dataset, 'deep-swe');
+  assert.equal(manifest.metadata.benchmark.version, '1.1');
+  assert.equal(manifest.metadata.order.seed, 'deep-swe-1.1:gpt-5.6-sol:harness-comparison:v1');
+  assert.equal(manifest.evaluationTaskIds.length, 30);
+
+  // The Pier executor identity is auditable in the manifest, not only hashed
+  // into the toolchain fingerprint.
+  const pierManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+    benchmarkProfile,
+    competitorProfile: resolveHarnessCompetitorProfile('codex'),
+    pierVersion: '0.3.0',
+  });
+  assert.deepEqual(pierManifest.metadata.benchmark.executor, { id: 'pier', version: '0.3.0' });
+
+  // The Terminal-Bench default keeps its historical order seed byte-for-byte.
+  const tbenchManifest = buildHarnessAbManifest({
+    subjectFingerprint: 'subject',
+    taskSourceFingerprint: 'tasks',
+    toolchainFingerprint: 'tools',
+  });
+  assert.equal(tbenchManifest.metadata.order.seed, 'terminal-bench-2.1:k3:harness-comparison:v1');
+  // No executor key for Harbor benchmarks: the manifest payload (and with it
+  // the resume fingerprint) must stay byte-identical to historical runs.
+  assert.equal('executor' in tbenchManifest.metadata.benchmark, false);
+});
+
+test('harness A/B benchmark profiles bind their executor and resolve from env', async () => {
+  const { HARNESS_BENCHMARK_PROFILES, resolveHarnessBenchmarkProfile } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+
+  // A benchmark is a bound task-source + executor pair; the executor field is
+  // what selects the runner and what freezes the Pier version into resume
+  // identity.
+  assert.equal(HARNESS_BENCHMARK_PROFILES['terminal-bench-2.1'].executor, 'harbor');
+  assert.equal(HARNESS_BENCHMARK_PROFILES['deep-swe-1.1'].executor, 'pier');
+
+  // The no-argument default reads MAKA_HARNESS_AB_BENCHMARK, so every
+  // defaulted call site agrees with the production entry points.
+  const saved = process.env.MAKA_HARNESS_AB_BENCHMARK;
+  try {
+    delete process.env.MAKA_HARNESS_AB_BENCHMARK;
+    assert.equal(resolveHarnessBenchmarkProfile().id, 'terminal-bench-2.1');
+    process.env.MAKA_HARNESS_AB_BENCHMARK = 'deep-swe-1.1';
+    assert.equal(resolveHarnessBenchmarkProfile().id, 'deep-swe-1.1');
+  } finally {
+    if (saved === undefined) delete process.env.MAKA_HARNESS_AB_BENCHMARK;
+    else process.env.MAKA_HARNESS_AB_BENCHMARK = saved;
+  }
+});
+
+test('harness A/B toolchain identity freezes the Pier version only for Pier benchmarks', async () => {
+  const { buildHarnessAbToolchainFingerprint, resolveHarnessCompetitorProfile } = await import(
+    new URL('../../harbor/run-harness-ab.mjs', import.meta.url).href
+  );
+  const { createHash } = await import('node:crypto');
+  const competitorProfile = resolveHarnessCompetitorProfile('kimi-code');
+
+  // Harbor benchmarks (pierVersion null) must reproduce the historical
+  // payload byte-for-byte, or every existing Terminal-Bench run loses resume.
+  const legacy = `sha256:${createHash('sha256')
+    .update(
+      JSON.stringify({
+        hostToolchainFingerprint: 'host',
+        competitor: competitorProfile.id,
+        competitorToolchainFingerprint: competitorProfile.toolchainFingerprint,
+      }),
+    )
+    .digest('hex')}`;
+  assert.equal(
+    buildHarnessAbToolchainFingerprint({ hostToolchainFingerprint: 'host', competitorProfile }),
+    legacy,
+  );
+
+  // A Pier executor version change forks the resume identity.
+  const pier030 = buildHarnessAbToolchainFingerprint({
+    hostToolchainFingerprint: 'host',
+    competitorProfile,
+    pierVersion: 'pier 0.3.0',
+  });
+  const pier040 = buildHarnessAbToolchainFingerprint({
+    hostToolchainFingerprint: 'host',
+    competitorProfile,
+    pierVersion: 'pier 0.4.0',
+  });
+  assert.notEqual(pier030, legacy);
+  assert.notEqual(pier030, pier040);
+});
+
 async function waitForJournal(
   path: string,
   predicate: (value: Record<string, unknown>) => boolean,

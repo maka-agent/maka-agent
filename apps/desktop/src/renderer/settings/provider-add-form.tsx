@@ -20,7 +20,7 @@ export function AddProviderForm(props: {
   providerType: ProviderType;
   existingSlugs: string[];
   onCancel(): void;
-  onCreated(slug: string): Promise<void>;
+  onCreated(slug: string, modelDiscoveryError?: unknown): Promise<void>;
 }) {
   const locale = useUiLocale();
   const copy = getProviderSettingsCopy(locale).add;
@@ -86,9 +86,19 @@ export function AddProviderForm(props: {
         ...(normalizedApiKey ? { apiKey: normalizedApiKey } : {}),
       });
       if (!addProviderMountedRef.current) return;
+      // Local connections should reflect the daemon actually running on this
+      // machine instead of remaining on a static or empty fallback catalog.
+      let modelDiscoveryError: unknown;
+      if (defaults.category === 'local') {
+        try {
+          await props.bridge.fetchModels(connection.slug);
+        } catch (error) {
+          modelDiscoveryError = error;
+        }
+      }
       if (isCustomRelay) await props.bridge.fetchModels(connection.slug).catch(() => undefined);
       if (!addProviderMountedRef.current) return;
-      await props.onCreated(connection.slug);
+      await props.onCreated(connection.slug, modelDiscoveryError);
     } catch (err) {
       if (addProviderMountedRef.current) setError(providerPanelActionErrorMessage(err, locale));
     } finally {

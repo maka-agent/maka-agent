@@ -3,7 +3,7 @@ import { describe, test } from 'node:test';
 import { z } from 'zod';
 import { MockLanguageModelV4, convertArrayToReadableStream } from 'ai/test';
 import type { LanguageModelV4StreamPart, LanguageModelV4Usage } from '@ai-sdk/provider';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, ModelToolSet } from '../model-protocol.js';
 
 import {
   activeToolResultLineageIdentity,
@@ -149,7 +149,7 @@ describe('active current-turn tool-result pruning', () => {
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.stream);
+    await drain(result.events);
 
     assert.equal(prompts.length, 2, 'expected a tool step and a follow-up step');
     assert.equal(archiveRequests.length, 1);
@@ -434,9 +434,9 @@ describe('active current-turn tool-result pruning', () => {
       },
     });
 
-    const aiSdkTools: Record<string, unknown> = {};
+    const modelTools: ModelToolSet = {};
     for (const tool of plan.providerTools) {
-      aiSdkTools[tool.name] = {
+      modelTools[tool.name] = {
         description: tool.description,
         inputSchema: tool.parameters,
         execute:
@@ -465,13 +465,13 @@ describe('active current-turn tool-result pruning', () => {
     const result = await newAdapter().startStream({
       model,
       messages: [{ role: 'user', content: 'load rive' }],
-      tools: aiSdkTools,
+      tools: modelTools,
       activeTools: plan.activeTools,
       prepareStep: composePrepareStep(plan.prepareStep, undefined, activePrune),
       abortSignal: new AbortController().signal,
       repairToolCall: async () => null,
     });
-    await drain(result.stream);
+    await drain(result.events);
 
     assert.ok(!toolsPerStep[0]?.includes('RiveWorkflow'), 'step 0 hides the group tool');
     assert.ok(toolsPerStep[1]?.includes('RiveWorkflow'), 'step 1 advertises the loaded group tool');

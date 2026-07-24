@@ -48,7 +48,7 @@ import {
 } from './history-compact-checkpoint.js';
 
 import { createHash } from 'node:crypto';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage } from './model-protocol.js';
 import {
   normalizeAiSdkUsage,
   type ModelAdapter,

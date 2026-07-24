@@ -339,7 +339,7 @@ describe('provider compatibility contract', () => {
 
     assert.ok(localai, 'LocalAI must be available through the shared provider registry');
     assert.equal(localai.label, 'LocalAI');
-    assert.equal(localai.baseUrl, 'http://localhost:8080/v1');
+    assert.equal(localai.baseUrl, 'http://127.0.0.1:8080/v1');
     assert.equal(localai.authKind, 'optional_api_key');
     assert.equal(localai.protocol, 'openai');
     assert.deepEqual(localai.runtimeAdapter, { kind: 'openai-compatible', name: 'provider' });
@@ -728,7 +728,7 @@ describe('provider compatibility contract', () => {
       'deprecated snapshot models must not be fallback choices',
     );
     assert.notEqual(cloud, providers.ollama);
-    assert.equal(providers.ollama?.baseUrl, 'http://localhost:11434/v1');
+    assert.equal(providers.ollama?.baseUrl, 'http://127.0.0.1:11434/v1');
     assert.equal(providers.ollama?.authKind, 'none');
     assert.deepEqual(providers.ollama?.modelDiscovery, { kind: 'ollama' });
   });
@@ -1425,7 +1425,7 @@ describe('provider URL defaults', () => {
 
     assert.ok(lmStudio, 'LM Studio must have its own persisted provider id');
     assert.equal(lmStudio.label, 'LM Studio');
-    assert.equal(lmStudio.baseUrl, 'http://localhost:1234/v1');
+    assert.equal(lmStudio.baseUrl, 'http://127.0.0.1:1234/v1');
     assert.equal(lmStudio.authKind, 'none');
     assert.equal(lmStudio.protocol, 'openai');
     assert.deepEqual(lmStudio.runtimeAdapter, {
@@ -1538,9 +1538,19 @@ describe('persistedBaseUrl', () => {
       'google default must not be persisted as an override',
     );
     assert.equal(
-      persistedBaseUrl('ollama', 'http://localhost:11434/v1'),
+      persistedBaseUrl('ollama', 'http://127.0.0.1:11434/v1'),
       undefined,
       'ollama default must not be persisted as an override',
+    );
+    assert.equal(
+      persistedBaseUrl('lm-studio', 'http://127.0.0.1:1234/v1'),
+      undefined,
+      'LM Studio default must not be persisted as an override',
+    );
+    assert.equal(
+      persistedBaseUrl('localai', 'http://127.0.0.1:8080/v1'),
+      undefined,
+      'LocalAI default must not be persisted as an override',
     );
   });
 

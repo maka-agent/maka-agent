@@ -117,7 +117,16 @@ const EXPLORE_MATCH_SHAPE = defineObjectShape<ExploreMatch>()(
 );
 const SUBAGENT_SHAPE = defineObjectShape<Result<'subagent'>>()(
   ['kind', 'agentName', 'turnId', 'status', 'permissionMode', 'summary', 'artifactIds'],
-  ['agentId', 'runId', 'startedAt', 'completedAt', 'durationMs', 'eventCount', 'failureClass'],
+  [
+    'childSessionId',
+    'agentId',
+    'runId',
+    'startedAt',
+    'completedAt',
+    'durationMs',
+    'eventCount',
+    'failureClass',
+  ],
 );
 const AGENT_SWARM_SHAPE = defineObjectShape<AgentSwarmResult>()(
   ['kind', 'status', 'items', 'startedAt', 'completedAt', 'durationMs'],
@@ -127,6 +136,7 @@ type AgentSwarmItem = AgentSwarmResult['items'][number];
 const AGENT_SWARM_ITEM_SHAPE = defineObjectShape<AgentSwarmItem>()(
   ['itemId', 'index', 'profile', 'started', 'status', 'summary', 'artifactIds'],
   [
+    'childSessionId',
     'agentId',
     'agentName',
     'turnId',
@@ -272,6 +282,7 @@ function isNonShellToolResultContent(value: unknown): value is ToolResultContent
     case 'subagent':
       return (
         hasExactShape(value, SUBAGENT_SHAPE) &&
+        isOptionalString(value.childSessionId) &&
         isOptionalString(value.agentId) &&
         typeof value.agentName === 'string' &&
         typeof value.turnId === 'string' &&
@@ -318,6 +329,7 @@ function isAgentSwarmItem(value: unknown): value is AgentSwarmItem {
     Number(value.index) >= 0 &&
     typeof value.profile === 'string' &&
     typeof value.started === 'boolean' &&
+    isOptionalString(value.childSessionId) &&
     isOptionalString(value.agentId) &&
     isOptionalString(value.agentName) &&
     isOptionalString(value.turnId) &&
