@@ -52,6 +52,7 @@ export type {
   StorageRef,
   AttachmentRef,
   QuoteRef,
+  MessageContent,
   AttachmentIngestItem,
   CompleteStopReason,
   ContextBudgetExhaustedDetail,
@@ -64,7 +65,15 @@ export type {
   UserQuestionResult,
 } from './user-question.js';
 export {
+  decodeMessageContent,
   failureClassFromCompleteStopReason,
+  isAttachmentRef,
+  isCanonicalAttachmentRef,
+  isCanonicalStorageRef,
+  isMessageContent,
+  isStorageRef,
+  messageContentsEqual,
+  normalizeMessageContent,
   TOOL_ACTIVITY_KINDS,
   TOOL_OUTPUT_DELTA_MAX_CHARS,
   TOOL_OUTPUT_STREAMS,
@@ -227,6 +236,7 @@ export type {
   AgentRunInputSummary,
   AgentRunStatus,
   AgentRunStore,
+  RootExecutionDescriptor,
 } from './agent-run.js';
 export {
   AGENT_RUN_STATUSES,

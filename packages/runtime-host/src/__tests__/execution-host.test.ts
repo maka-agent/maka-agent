@@ -7,10 +7,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import type { AgentRunHeader } from '@maka/core/agent-run';
+import type { MessageContent } from '@maka/core/events';
 import type { StoredMessage } from '@maka/core/session';
 import { isTerminalRuntimeEvent } from '@maka/core/runtime-event';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import { classifyTerminalRuntimeLedger, FAKE_ASK_USER_QUESTION_PROMPT } from '@maka/runtime';
+import {
+  buildRecoveredTerminalRuntimeEvent,
+  classifyTerminalRuntimeLedger,
+  commitTerminalRunWithRuntimeFact,
+  FAKE_ASK_USER_QUESTION_PROMPT,
+} from '@maka/runtime';
 import {
   openInteractiveExecutionStoresForRead,
   openInteractiveExecutionStoresForWrite,
@@ -30,6 +36,8 @@ import {
 import {
   decodeHostFrame,
   RUNTIME_HOST_PROTOCOL_VERSION,
+  type TurnMessageSubmitInput,
+  type TurnMessageSubmitResult,
   type TurnSnapshot,
 } from '../protocol/index.js';
 import { FramedTransport } from '../transport/framed-transport.js';
@@ -50,7 +58,7 @@ test('two Clients share one execution after the starting Client disconnects', as
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.equal(started.turnId, turnId);
     await assert.rejects(
@@ -58,7 +66,7 @@ test('two Clients share one execution after the starting Client disconnects', as
         second.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must stay busy',
+          content: { text: 'must stay busy' },
         }),
       operationError('session_busy'),
     );
@@ -84,13 +92,13 @@ test('two Clients share one execution after the starting Client disconnects', as
     const next = await second.startTurn({
       sessionId: fixture.sessionId,
       turnId: nextTurnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
     assert.deepEqual(
       await second.startTurn({
         sessionId: fixture.sessionId,
         turnId,
-        text: FAKE_ASK_USER_QUESTION_PROMPT,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
       }),
       stopped,
     );
@@ -142,12 +150,12 @@ test('concurrent root admission for one Session has a single winner', async () =
       first.startTurn({
         sessionId: fixture.sessionId,
         turnId: turnIds[0],
-        text: FAKE_ASK_USER_QUESTION_PROMPT,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
       }),
       second.startTurn({
         sessionId: fixture.sessionId,
         turnId: turnIds[1],
-        text: FAKE_ASK_USER_QUESTION_PROMPT,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
       }),
     ]);
     const winners = outcomes.filter(
@@ -191,7 +199,7 @@ test('an archived Session rejects a new Turn before durable admission', async ()
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: 'must not execute',
+          content: { text: 'must not execute' },
         }),
       operationError('session_archived'),
     );
@@ -217,7 +225,7 @@ test('a killed Host is recovered exactly once before its successor becomes ready
     const started = await first.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
 
     await fixture.killHost(firstHost);
@@ -261,7 +269,7 @@ test('graceful Host shutdown stops and drains an active Turn before releasing ow
     const started = await client.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text: FAKE_ASK_USER_QUESTION_PROMPT,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
     });
 
     const exit = await fixture.stopHost(host);
@@ -307,7 +315,7 @@ test('a durable admission without a Run resumes before the Host becomes ready', 
         client.startTurn({
           sessionId: fixture.sessionId,
           turnId: randomUUID(),
-          text: 'must remain behind the recovered admission',
+          content: { text: 'must remain behind the recovered admission' },
         }),
       operationError('session_busy'),
     );
@@ -361,6 +369,63 @@ test('startup recovery restores the admitted UserMessage before terminalizing it
     assert.equal(ledger.userMessages.length, 1);
     assert.equal(ledger.userMessages[0]?.id, userMessageId);
     assert.equal(ledger.terminalEvents.length, 1);
+  });
+});
+
+test('startup recovery canonically closes pending linked child admissions without inventing identity', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const initial = await fixture.seedPendingChildAdmission('linked_child_initial');
+    const resume = await fixture.seedPendingChildAdmission('linked_child_resume');
+    const retry = await fixture.seedPendingChildAdmission('linked_child_provider_retry');
+
+    const firstHost = await fixture.startHost();
+    await fixture.stopHost(firstHost);
+    const secondHost = await fixture.startHost();
+    await fixture.stopHost(secondHost);
+
+    const reader = await tryAcquireInteractiveRootReader(fixture.capability);
+    assert.ok(reader);
+    if (!reader) throw new Error('Unable to acquire recovery result reader');
+    try {
+      const stores = await openInteractiveExecutionStoresForRead(reader.lease);
+      for (const recovered of [initial, resume, retry]) {
+        const run = await stores.agentRunStore.readRun(recovered.sessionId, recovered.runId);
+        assert.equal(run.status, 'failed');
+        assert.equal(run.failureClass, 'app_restarted');
+        assert.equal(run.agentId, recovered.agentId);
+        assert.equal(run.agentName, recovered.agentName);
+        assert.equal(run.workspaceIdentity, undefined);
+        if (recovered.kind === 'linked_child_resume') {
+          assert.equal(run.resumedFromRunId, recovered.sourceRunId);
+          assert.equal(run.retriedFromRunId, undefined);
+        } else if (recovered.kind === 'linked_child_provider_retry') {
+          assert.equal(run.retriedFromRunId, recovered.sourceRunId);
+          assert.equal(run.resumedFromRunId, undefined);
+        } else {
+          assert.equal(run.resumedFromRunId, undefined);
+          assert.equal(run.retriedFromRunId, undefined);
+        }
+        const runtimeEvents = await stores.runtimeEventStore.readImmutableRuntimeEvents(
+          recovered.sessionId,
+          recovered.runId,
+        );
+        const terminal = classifyTerminalRuntimeLedger(run, runtimeEvents);
+        assert.equal(terminal.kind, 'fact');
+        if (terminal.kind === 'fact') {
+          assert.equal(terminal.fact.runStatus, 'failed');
+          assert.equal(terminal.fact.failureClass, 'app_restarted');
+        }
+        const userMessages = (await stores.sessionStore.readMessages(recovered.sessionId)).filter(
+          (message) => message.type === 'user' && message.turnId === recovered.turnId,
+        );
+        assert.equal(userMessages.length, recovered.kind === 'linked_child_provider_retry' ? 0 : 1);
+        if (recovered.kind !== 'linked_child_provider_retry') {
+          assert.equal(userMessages[0]?.id, recovered.userMessageId);
+        }
+      }
+    } finally {
+      await reader.close();
+    }
   });
 });
 
@@ -461,7 +526,7 @@ test('a pre-start durability failure rejects turn.start and drains the Host', {
           client.startTurn({
             sessionId: fixture.sessionId,
             turnId,
-            text: 'fail before the durable start barrier',
+            content: { text: 'fail before the durable start barrier' },
           }),
         operationError('internal_failure'),
       );
@@ -505,7 +570,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const retried = await observer.startTurn({
       sessionId: fixture.sessionId,
       turnId,
-      text,
+      content: { text },
     });
     assert.equal(retried.runId, committed.runId);
     await assert.rejects(
@@ -513,7 +578,7 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
         observer.startTurn({
           sessionId: fixture.sessionId,
           turnId,
-          text: `${text} changed`,
+          content: { text: `${text} changed` },
         }),
       operationError('operation_conflict'),
     );
@@ -525,14 +590,18 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
     const successorHost = await fixture.startHost();
     const successorClient = await connectClient(fixture.root, 'run');
     assert.deepEqual(
-      await successorClient.startTurn({ sessionId: fixture.sessionId, turnId, text }),
+      await successorClient.startTurn({
+        sessionId: fixture.sessionId,
+        turnId,
+        content: { text },
+      }),
       terminal,
     );
     const successorTurnId = randomUUID();
     await successorClient.startTurn({
       sessionId: fixture.sessionId,
       turnId: successorTurnId,
-      text: 'successor must extend the recovered durable tip',
+      content: { text: 'successor must extend the recovered durable tip' },
     });
     await waitForTerminalTurn(successorClient, fixture.sessionId, successorTurnId);
     await successorClient.close();
@@ -551,6 +620,292 @@ test('retry after a discarded turn.start response reuses the durable semantic ad
   });
 });
 
+test('same idle Message submit is connection-independent and starts one canonical root', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const messageId = randomUUID();
+    const content = {
+      text: '<context>canonical model input</context>',
+      displayText: 'canonical display input',
+      attachments: [attachment('idle-message', 'context.png')],
+    };
+    const input = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId,
+      content,
+      placement: 'next_turn' as const,
+    };
+
+    const [firstResult, secondResult] = await Promise.all([
+      first.request('turn.message.submit', input),
+      second.request('turn.message.submit', input),
+    ]);
+    assert.deepEqual(secondResult, firstResult);
+    assert.equal(firstResult.disposition, 'turn_started');
+    if (firstResult.disposition !== 'turn_started') return;
+    await waitForTerminalTurn(first, fixture.sessionId, firstResult.turnId);
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.deepEqual(chain[0]?.normalizedInput, content);
+    assert.deepEqual(chain[0]?.sourceMessages, [
+      { messageId, content, placement: 'next_turn', disposition: 'turn_started' },
+    ]);
+    const ledger = await fixture.readTurn(firstResult.turnId);
+    assert.equal(ledger.runs.length, 1);
+    assert.equal(ledger.userMessages.length, 1);
+    assert.equal(ledger.userMessages[0]?.id, messageId);
+    assert.equal(ledger.userMessages[0]?.text, content.text);
+    assert.equal(ledger.userMessages[0]?.displayText, content.displayText);
+    assert.deepEqual(ledger.userMessages[0]?.attachments, content.attachments);
+  });
+});
+
+test('steering becomes durable and ordered followups automatically start the next root', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const firstTurnId = randomUUID();
+    await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId: firstTurnId,
+      content: { text: `long-running root ${'x'.repeat(540)}` },
+    });
+    const steeringId = randomUUID();
+    const steeringContent = {
+      text: '<steer>use the correction</steer>',
+      displayText: 'use the correction',
+      attachments: [attachment('steering', 'correction.png')],
+    };
+    const followupSources: Array<{ messageId: string; content: MessageContent }> = [
+      {
+        messageId: randomUUID(),
+        content: {
+          text: '<followup>first queued task</followup>',
+          displayText: 'first queued task',
+          attachments: [attachment('followup-first', 'first.png')],
+        },
+      },
+      {
+        messageId: randomUUID(),
+        content: { text: 'second queued task' },
+      },
+    ];
+
+    assert.equal(
+      (
+        await second.request('turn.message.submit', {
+          originHostEpoch: host.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: steeringId,
+          content: steeringContent,
+          placement: 'current_turn',
+        })
+      ).disposition,
+      'steering',
+    );
+    for (const source of followupSources) {
+      assert.equal(
+        (
+          await second.request('turn.message.submit', {
+            originHostEpoch: host.hostEpoch,
+            sessionId: fixture.sessionId,
+            ...source,
+            placement: 'next_turn',
+          })
+        ).disposition,
+        'followup',
+      );
+    }
+
+    assert.equal(
+      (await waitForTerminalTurn(first, fixture.sessionId, firstTurnId)).status,
+      'completed',
+    );
+    await waitForDurableMessageDisposition(second, {
+      originHostEpoch: 'previous-host-epoch',
+      sessionId: fixture.sessionId,
+      ...followupSources[0],
+      placement: 'next_turn',
+    });
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const firstLedger = await fixture.readTurn(firstTurnId);
+    const steeringEvents = firstLedger.runtimeEvents.filter(
+      (event) =>
+        event.refs?.providerEventId === steeringId &&
+        event.content?.kind === 'text' &&
+        event.content.steering === true,
+    );
+    assert.equal(steeringEvents.length, 1);
+    assert.equal(steeringEvents[0]?.content?.kind, 'text');
+    if (steeringEvents[0]?.content?.kind === 'text') {
+      const { kind: _kind, steering: _steering, ...durableContent } = steeringEvents[0].content;
+      assert.deepEqual(durableContent, steeringContent);
+    }
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 2);
+    assert.equal(chain[1]?.previousRootTurnId, firstTurnId);
+    assert.deepEqual(
+      chain[1]?.sourceMessages,
+      followupSources.map((source) => ({
+        ...source,
+        placement: 'next_turn',
+        disposition: 'followup',
+      })),
+    );
+    assert.deepEqual(chain[1]?.normalizedInput, {
+      text: `${followupSources[0].content.text}\n\n${followupSources[1].content.text}`,
+      displayText: `${followupSources[0].content.displayText}\n\n${followupSources[1].content.text}`,
+      attachments: followupSources[0].content.attachments,
+    });
+  });
+});
+
+test('interrupt atomically retracts queued followup, stops the exact run, and is idempotent', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const host = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const second = await connectClient(fixture.root, 'tui');
+    const turnId = randomUUID();
+    const started = await first.startTurn({
+      sessionId: fixture.sessionId,
+      turnId,
+      content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+    });
+    const followupId = randomUUID();
+    const followupContent = {
+      text: '<followup>must be withdrawn</followup>',
+      displayText: 'must be withdrawn',
+      attachments: [attachment('interrupt-followup', 'withdraw.png')],
+    };
+    await second.request('turn.message.submit', {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: followupId,
+      content: followupContent,
+      placement: 'next_turn',
+    });
+    const interruptInput = {
+      originHostEpoch: host.hostEpoch,
+      sessionId: fixture.sessionId,
+      interruptId: randomUUID(),
+      turnId,
+      runId: started.runId,
+    };
+
+    const [interrupted, concurrentRetry] = await Promise.all([
+      first.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+      second.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+    ]);
+    assert.deepEqual(concurrentRetry, interrupted);
+    assert.deepEqual(
+      await second.request('turn.interrupt', interruptInput, PROCESS_TIMEOUT_MS),
+      interrupted,
+    );
+    assert.equal(interrupted.turn.turnId, turnId);
+    assert.equal(interrupted.turn.runId, started.runId);
+    assert.equal(interrupted.turn.status, 'cancelled');
+    assert.equal(interrupted.retracted.length, 1);
+    assert.ok(interrupted.retracted[0]?.entryId);
+    assert.deepEqual(interrupted.retracted, [
+      {
+        entryId: interrupted.retracted[0]?.entryId,
+        messageId: followupId,
+        content: followupContent,
+        placement: 'next_turn',
+        state: 'retracted',
+      },
+    ]);
+    await first.close();
+    await second.close();
+    await fixture.stopHost(host);
+
+    const chain = await fixture.readAdmissionChain();
+    assert.equal(chain.length, 1);
+    assert.equal(chain[0]?.turnId, turnId);
+  });
+});
+
+test('old-Epoch Message submit resolves durable proofs and rejects unproven outcomes', async () => {
+  await withExecutionRoot(async (fixture) => {
+    const firstHost = await fixture.startHost();
+    const first = await connectClient(fixture.root, 'desktop');
+    const rootMessageId = randomUUID();
+    const rootContent = { text: `durable root ${'x'.repeat(360)}` };
+    const rootResult = await first.request('turn.message.submit', {
+      originHostEpoch: firstHost.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: rootMessageId,
+      content: rootContent,
+      placement: 'next_turn',
+    });
+    assert.equal(rootResult.disposition, 'turn_started');
+    if (rootResult.disposition !== 'turn_started') return;
+    await waitForRunningTurn(first, fixture.sessionId, rootResult.turnId);
+    const steeringId = randomUUID();
+    const steeringContent = { text: 'durable steering proof' };
+    await first.request('turn.message.submit', {
+      originHostEpoch: firstHost.hostEpoch,
+      sessionId: fixture.sessionId,
+      messageId: steeringId,
+      content: steeringContent,
+      placement: 'current_turn',
+    });
+    await waitForTerminalTurn(first, fixture.sessionId, rootResult.turnId);
+    await first.close();
+    await fixture.stopHost(firstHost);
+
+    const successorHost = await fixture.startHost();
+    const successor = await connectClient(fixture.root, 'run');
+    assert.deepEqual(
+      await successor.request('turn.message.submit', {
+        originHostEpoch: firstHost.hostEpoch,
+        sessionId: fixture.sessionId,
+        messageId: rootMessageId,
+        content: rootContent,
+        placement: 'next_turn',
+      }),
+      rootResult,
+    );
+    assert.equal(
+      (
+        await successor.request('turn.message.submit', {
+          originHostEpoch: firstHost.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: steeringId,
+          content: steeringContent,
+          placement: 'current_turn',
+        })
+      ).disposition,
+      'steering',
+    );
+    await assert.rejects(
+      () =>
+        successor.request('turn.message.submit', {
+          originHostEpoch: firstHost.hostEpoch,
+          sessionId: fixture.sessionId,
+          messageId: randomUUID(),
+          content: { text: 'no durable proof exists' },
+          placement: 'next_turn',
+        }),
+      operationError('outcome_unknown'),
+    );
+    await successor.close();
+    await fixture.stopHost(successorHost);
+  });
+});
+
 interface ExecutionHostHandle {
   child: ChildProcess;
   hostEpoch: string;
@@ -559,7 +914,8 @@ interface ExecutionHostHandle {
 
 interface TurnLedger {
   runs: AgentRunHeader[];
-  userMessages: StoredMessage[];
+  userMessages: Array<Extract<StoredMessage, { type: 'user' }>>;
+  runtimeEvents: RuntimeEvent[];
   terminalEvents: RuntimeEvent[];
   classification: ReturnType<typeof classifyTerminalRuntimeLedger>;
 }
@@ -584,6 +940,143 @@ class ExecutionFixture {
 
   eventsPath(runId: string): string {
     return join(this.root, 'sessions', this.sessionId, 'runs', runId, 'events.jsonl');
+  }
+
+  async seedPendingChildAdmission(
+    kind: 'linked_child_initial' | 'linked_child_resume' | 'linked_child_provider_retry',
+  ): Promise<{
+    kind: 'linked_child_initial' | 'linked_child_resume' | 'linked_child_provider_retry';
+    sessionId: string;
+    turnId: string;
+    runId: string;
+    sourceRunId: string | undefined;
+    userMessageId: string | null;
+    agentId: string;
+    agentName: string;
+  }> {
+    const owner = await tryAcquireInteractiveRootOwner(this.capability);
+    assert.ok(owner);
+    if (!owner) throw new Error('Unable to acquire execution root for child admission setup');
+    try {
+      const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+      const turnId = randomUUID();
+      const runId = randomUUID();
+      const sourceRunId = kind === 'linked_child_initial' ? undefined : randomUUID();
+      const agentId = 'local-read';
+      const agentName = 'Local Read';
+      const child = await stores.sessionStore.createSubagent({
+        cwd: this.root,
+        name: `${agentName} ${kind}`,
+        backend: 'fake',
+        llmConnectionSlug: 'fake',
+        model: 'fake-model',
+        permissionMode: 'explore',
+        collaborationMode: 'agent',
+        orchestrationMode: 'default',
+        subagentParent: {
+          kind: 'subagent',
+          parentSessionId: this.sessionId,
+          spawnedBy: {
+            parentRunId: `parent-${kind}`,
+            parentTurnId: `parent-turn-${kind}`,
+            toolCallId: `tool-${kind}`,
+          },
+          lifecycle: 'foreground',
+        },
+        subagentRuntime: {
+          schemaVersion: 1,
+          definitionVersion: 1,
+          agentId,
+          agentName,
+          profile: 'local_read',
+          systemPrompt: 'Read the assigned workspace task.',
+          toolNames: ['Read', 'Glob', 'Grep'],
+          categoryPolicy: { read: 'allow' },
+          permissionCeiling: 'ask',
+        },
+        subagentSpawn: {
+          schemaVersion: 1,
+          requestFingerprint: (kind === 'linked_child_initial'
+            ? 'a'
+            : kind === 'linked_child_resume'
+              ? 'b'
+              : 'c'
+          ).repeat(64),
+          initialTurnId: kind === 'linked_child_initial' ? turnId : `initial-${kind}`,
+          initialRunId: kind === 'linked_child_initial' ? runId : sourceRunId!,
+        },
+      });
+      assert.equal(child.created, true);
+      if (sourceRunId) {
+        const sourceTs = Date.now();
+        const sourceRun: AgentRunHeader = {
+          runId: sourceRunId,
+          invocationId: sourceRunId,
+          sessionId: child.header.id,
+          turnId: `source-turn-${kind}`,
+          status: 'created',
+          backendKind: 'fake',
+          llmConnectionSlug: 'fake',
+          modelId: 'fake-model',
+          cwd: this.root,
+          permissionMode: 'explore',
+          collaborationMode: 'agent',
+          createdAt: sourceTs,
+          updatedAt: sourceTs,
+          agentId,
+          agentName,
+        };
+        await stores.agentRunStore.createRun(sourceRun, { durable: true });
+        const sourceTerminal = buildRecoveredTerminalRuntimeEvent({
+          id: randomUUID(),
+          run: sourceRun,
+          status: 'failed',
+          ts: sourceTs,
+          failureClass: kind === 'linked_child_provider_retry' ? 'RateLimit' : 'source_failed',
+          recoveryReason: 'test_source_terminal',
+        });
+        await commitTerminalRunWithRuntimeFact({
+          runStore: stores.agentRunStore,
+          runtimeEventStore: stores.runtimeEventStore,
+          newId: randomUUID,
+          sessionId: child.header.id,
+          runId: sourceRunId,
+          turnId: sourceRun.turnId,
+          status: 'failed',
+          ts: sourceTs,
+          terminalEvent: sourceTerminal,
+          failureClass: kind === 'linked_child_provider_retry' ? 'RateLimit' : 'source_failed',
+        });
+      }
+      const userMessageId = kind === 'linked_child_provider_retry' ? null : randomUUID();
+      const admitted = await stores.agentRunStore.admitRootTurn({
+        sessionId: child.header.id,
+        turnId,
+        proposedRunId: runId,
+        proposedUserMessageId: userMessageId,
+        execution:
+          kind === 'linked_child_initial'
+            ? { kind, agentId, agentName }
+            : { kind, agentId, agentName, sourceRunId: sourceRunId! },
+        previousRootTurnId: null,
+        normalizedInput: { text: `pending ${kind}` },
+        sourceMessages: [],
+        admittedAt: Date.now(),
+      });
+      assert.equal(admitted.kind, 'admitted');
+      return {
+        kind,
+        sessionId: child.header.id,
+        turnId,
+        runId,
+        sourceRunId,
+        userMessageId,
+        agentId,
+        agentName,
+      };
+    } finally {
+      await owner.close();
+    }
   }
 
   seedAdmission(turnId: string, text: string): Promise<{ runId: string; userMessageId: string }> {
@@ -625,8 +1118,10 @@ class ExecutionFixture {
         turnId,
         proposedRunId: randomUUID(),
         proposedUserMessageId: randomUUID(),
+        execution: { kind: 'external_message' },
         previousRootTurnId: null,
         normalizedInput: { text },
+        sourceMessages: [],
         admittedAt,
       });
       assert.equal(result.kind, 'admitted');
@@ -646,6 +1141,7 @@ class ExecutionFixture {
           updatedAt: admittedAt,
         });
       }
+      assert.ok(result.admission.userMessageId);
       return {
         runId: result.admission.runId,
         userMessageId: result.admission.userMessageId,
@@ -726,8 +1222,10 @@ class ExecutionFixture {
       return {
         runs,
         userMessages: messages.filter(
-          (message) => message.type === 'user' && message.turnId === turnId,
+          (message): message is Extract<StoredMessage, { type: 'user' }> =>
+            message.type === 'user' && message.turnId === turnId,
         ),
+        runtimeEvents,
         terminalEvents: runtimeEvents.filter(isTerminalRuntimeEvent),
         classification: classifyTerminalRuntimeLedger(run, runtimeEvents),
       };
@@ -861,7 +1359,11 @@ async function sendStartWithoutReadingResponse(
   await transport.write({
     requestId: randomUUID(),
     operation: 'turn.start',
-    input,
+    input: {
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      content: { text: input.text },
+    },
   });
   return transport;
 }
@@ -919,6 +1421,38 @@ async function waitForTerminalTurn(
   }
 }
 
+async function waitForRunningTurn(
+  connection: RuntimeHostConnection,
+  sessionId: string,
+  turnId: string,
+): Promise<TurnSnapshot> {
+  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+  while (true) {
+    const snapshot = await connection.queryTurn({ sessionId, turnId });
+    if (snapshot.status === 'running' || snapshot.status === 'waiting_permission') return snapshot;
+    if (Date.now() >= deadline) throw new Error('Turn did not become active');
+    await sleep(20);
+  }
+}
+
+async function waitForDurableMessageDisposition(
+  connection: RuntimeHostConnection,
+  input: TurnMessageSubmitInput,
+): Promise<TurnMessageSubmitResult> {
+  const deadline = Date.now() + PROCESS_TIMEOUT_MS;
+  while (true) {
+    try {
+      return await connection.request('turn.message.submit', input);
+    } catch (error) {
+      if (!(error instanceof RuntimeHostOperationError) || error.code !== 'outcome_unknown') {
+        throw error;
+      }
+      if (Date.now() >= deadline) throw new Error('Durable Message disposition was not observed');
+      await sleep(20);
+    }
+  }
+}
+
 function operationError(code: RuntimeHostOperationError['code']) {
   return (error: unknown): boolean =>
     error instanceof RuntimeHostOperationError && error.code === code;
@@ -928,6 +1462,16 @@ function assertJsonLines(bytes: string): void {
   for (const line of bytes.split('\n').filter(Boolean)) {
     assert.doesNotThrow(() => JSON.parse(line));
   }
+}
+
+function attachment(id: string, name: string) {
+  return {
+    kind: 'image' as const,
+    name,
+    mimeType: 'image/png',
+    bytes: 10,
+    ref: { kind: 'workspace_file' as const, relativePath: `attachments/${id}.png` },
+  };
 }
 
 function waitForHostReady(child: ChildProcess): Promise<{ hostEpoch: string; endpoint: string }> {

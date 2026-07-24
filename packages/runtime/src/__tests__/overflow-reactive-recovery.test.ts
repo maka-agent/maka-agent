@@ -406,7 +406,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
 async function runTurn(
   fixture: ReactiveFixture,
   consumer: 'immediate' | 'slow' = 'immediate',
-  pullSteering?: () => Array<{ id: string; text: string }>,
+  pullSteering?: () => Array<{ id: string; messageId: string; content: { text: string } }>,
 ): Promise<void> {
   for await (const event of fixture.backend.send({
     runId: 'run-1',
@@ -874,7 +874,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [{ id: 'lease-1', messageId: 'message-1', content: { text: STEER_SENTINEL } }];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 2);
@@ -902,7 +902,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [{ id: 'lease-1', messageId: 'message-1', content: { text: STEER_SENTINEL } }];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 2);
@@ -929,7 +929,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       if (pulled) return [];
       pulled = true;
-      return [{ id: 'lease-1', text: STEER_SENTINEL }];
+      return [{ id: 'lease-1', messageId: 'message-1', content: { text: STEER_SENTINEL } }];
     });
 
     assert.equal(fixture.model.doStreamCalls.length, 3);
@@ -966,9 +966,21 @@ describe('reactive overflow recovery in the streaming backend', () => {
     await runTurn(fixture, 'immediate', () => {
       pullCount += 1;
       if (pullCount === 2)
-        return [{ id: 'lease-pin-1', text: `PIN_STEER_ONE ${'A'.repeat(6_000)}` }];
+        return [
+          {
+            id: 'lease-pin-1',
+            messageId: 'message-pin-1',
+            content: { text: `PIN_STEER_ONE ${'A'.repeat(6_000)}` },
+          },
+        ];
       if (pullCount === 3)
-        return [{ id: 'lease-pin-2', text: `PIN_STEER_TWO ${'B'.repeat(12_000)}` }];
+        return [
+          {
+            id: 'lease-pin-2',
+            messageId: 'message-pin-2',
+            content: { text: `PIN_STEER_TWO ${'B'.repeat(12_000)}` },
+          },
+        ];
       return [];
     });
 
@@ -1004,7 +1016,9 @@ describe('reactive overflow recovery in the streaming backend', () => {
       pullCount += 1;
       // Steer at the SECOND step boundary, after the tool step: the verdict
       // owner (step >= 1) must see the grown payload, not the step-0 baseline.
-      return pullCount === 2 ? [{ id: 'lease-bulk', text: bulkSteer }] : [];
+      return pullCount === 2
+        ? [{ id: 'lease-bulk', messageId: 'message-bulk', content: { text: bulkSteer } }]
+        : [];
     });
 
     const outcome = complete(fixture);

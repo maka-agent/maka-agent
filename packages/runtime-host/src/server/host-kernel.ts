@@ -27,7 +27,7 @@ import {
 } from './connection-session.js';
 import {
   composeOperationHandlers,
-  type DomainOperationHandlerMap,
+  type AllDomainOperationHandlerMap,
   type OperationResidency,
   type OperationHandlerMap,
 } from './operation-dispatcher.js';
@@ -55,12 +55,13 @@ export class RuntimeHostProcessTerminationRequiredError extends Error {
 
 export interface RuntimeHostCompositionContext {
   owner: InteractiveRootOwner;
+  hostEpoch: string;
   acquireResidency(): RuntimeHostResidency;
   requestDrain(): void;
 }
 
 export interface RuntimeHostComposition {
-  readonly handlers: DomainOperationHandlerMap;
+  readonly handlers: AllDomainOperationHandlerMap;
   recover(): Promise<void>;
   close(): Promise<void>;
 }
@@ -186,6 +187,7 @@ export class RuntimeHostKernel {
       await this.#publishRegistration();
       this.#composition = await this.#options.compositionFactory({
         owner: this.#options.owner,
+        hostEpoch: this.hostEpoch,
         acquireResidency: () => this.#acquireResidency(),
         requestDrain: () => this.#requestDrain(),
       });
@@ -379,7 +381,7 @@ export class RuntimeHostKernel {
     };
   }
 
-  #createOperationHandlers(domainHandlers: DomainOperationHandlerMap): OperationHandlerMap {
+  #createOperationHandlers(domainHandlers: AllDomainOperationHandlerMap): OperationHandlerMap {
     return composeOperationHandlers(
       {
         'host.status': async () => ({
@@ -621,7 +623,7 @@ function assertDuration(value: number, label: string, minimum: 0 | 1): void {
   }
 }
 
-function unavailableDomainHandlers(): DomainOperationHandlerMap {
+function unavailableDomainHandlers(): AllDomainOperationHandlerMap {
   const unavailable = {
     ok: false,
     error: {
@@ -633,5 +635,8 @@ function unavailableDomainHandlers(): DomainOperationHandlerMap {
     'turn.start': async () => unavailable,
     'turn.query': async () => unavailable,
     'turn.stop': async () => unavailable,
+    'turn.message.submit': async () => unavailable,
+    'queue.retract': async () => unavailable,
+    'turn.interrupt': async () => unavailable,
   };
 }

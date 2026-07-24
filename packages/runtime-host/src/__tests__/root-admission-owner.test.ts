@@ -3,7 +3,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createAgentRunStore, type RootTurnAdmissionStore } from '@maka/storage';
+import {
+  createAgentRunStore,
+  type RootTurnAdmission,
+  type RootTurnAdmissionStore,
+  type RootTurnSourceMessage,
+} from '@maka/storage';
 import { RootAdmissionOwner } from '../server/root-admission-owner.js';
 import { SessionAdmissionGate } from '../server/session-admission-gate.js';
 
@@ -21,6 +26,8 @@ test('poisons a Session after an ambiguous durable admission failure', async () 
       },
       readRootTurnAdmission: (sessionId, turnId) =>
         durableStore.readRootTurnAdmission(sessionId, turnId),
+      readRootTurnSourceMessageReceipt: (sessionId, sourceMessageId) =>
+        durableStore.readRootTurnSourceMessageReceipt(sessionId, sourceMessageId),
       listRootTurnAdmissionsForRecovery: (sessionId) =>
         durableStore.listRootTurnAdmissionsForRecovery(sessionId),
     };
@@ -75,7 +82,7 @@ test('recovery installs the validated tip and the successor extends it', async (
 test('fails closed when a known durable admission identity drifts', async () => {
   await withStore(async (store) => {
     const first = await store.admitRootTurn({
-      ...admitInput('session', 'turn-1', 10),
+      ...multiSourceAdmitInput('session', 'turn-1', 10),
       previousRootTurnId: null,
     });
     const owner = new RootAdmissionOwner(store);
@@ -85,8 +92,136 @@ test('fails closed when a known durable admission identity drifts', async () => 
       () => owner.assertKnownAdmission({ ...first.admission, runId: 'run-drifted' }),
       /identity changed/,
     );
+    assert.throws(
+      () =>
+        owner.assertKnownAdmission({
+          ...first.admission,
+          normalizedInput: { ...first.admission.normalizedInput, displayText: 'drifted' },
+        }),
+      /identity changed/,
+    );
+    assert.throws(
+      () =>
+        owner.assertKnownAdmission({
+          ...first.admission,
+          execution: {
+            kind: 'linked_child_resume',
+            agentId: 'local-read',
+            agentName: 'Local Read',
+            sourceRunId: 'source-run',
+          },
+        }),
+      /identity changed/,
+    );
+    assert.throws(
+      () =>
+        owner.assertKnownAdmission({
+          ...first.admission,
+          normalizedInput: {
+            ...first.admission.normalizedInput,
+            attachments: first.admission.normalizedInput.attachments?.map((attachment, index) =>
+              index === 0 ? { ...attachment, name: 'drifted.png' } : attachment,
+            ),
+          },
+        }),
+      /identity changed/,
+    );
+    const [firstSource] = first.admission.sourceMessages;
+    assert.ok(firstSource);
+    const sourceDrifts: RootTurnAdmission[] = [
+      {
+        ...first.admission,
+        sourceMessages: [...first.admission.sourceMessages].reverse(),
+      },
+      {
+        ...first.admission,
+        sourceMessages: [
+          { ...firstSource, messageId: 'source-drifted' },
+          ...first.admission.sourceMessages.slice(1),
+        ],
+      },
+      {
+        ...first.admission,
+        sourceMessages: [
+          { ...firstSource, content: { ...firstSource.content, displayText: 'drifted source' } },
+          ...first.admission.sourceMessages.slice(1),
+        ],
+      },
+      {
+        ...first.admission,
+        sourceMessages: [
+          { ...firstSource, placement: 'next_turn' },
+          ...first.admission.sourceMessages.slice(1),
+        ],
+      },
+      {
+        ...first.admission,
+        sourceMessages: [
+          { ...firstSource, disposition: 'followup' },
+          ...first.admission.sourceMessages.slice(1),
+        ],
+      },
+    ];
+    for (const drifted of sourceDrifts) {
+      assert.throws(() => owner.assertKnownAdmission(drifted), /identity changed/);
+    }
     await assert.rejects(() => owner.recoverSession('session'), /already installed/);
   });
+});
+
+test('snapshots recovered admissions without retaining mutable caller references', async () => {
+  const admission = mutableAdmission();
+  const store: RootTurnAdmissionStore = {
+    admitRootTurn: async () => ({ kind: 'admitted', admission }),
+    readRootTurnAdmission: async () => admission,
+    readRootTurnSourceMessageReceipt: async () => undefined,
+    listRootTurnAdmissionsForRecovery: async () => [admission],
+  };
+  const owner = new RootAdmissionOwner(store);
+  const [snapshot] = await owner.recoverSession('session');
+  assert.ok(snapshot);
+  const mutableSources = admission.sourceMessages as RootTurnSourceMessage[];
+
+  admission.normalizedInput.displayText = 'mutated display';
+  admission.normalizedInput.attachments![0]!.name = 'mutated.png';
+  admission.normalizedInput.attachments![0]!.ref = {
+    kind: 'external_file',
+    absolutePath: '/mutated.png',
+  };
+  mutableSources[0]!.content.text = 'mutated source';
+  mutableSources[0]!.content.attachments![0]!.ref = {
+    kind: 'external_file',
+    absolutePath: '/mutated-source.png',
+  };
+  mutableSources[0]!.placement = 'next_turn';
+  mutableSources.reverse();
+
+  assert.equal(snapshot.normalizedInput.displayText, 'display text\n\nfollowup text');
+  assert.equal(snapshot.normalizedInput.attachments?.[0]?.name, 'image.png');
+  assert.deepEqual(snapshot.normalizedInput.attachments?.[0]?.ref, {
+    kind: 'workspace_file',
+    relativePath: 'image.png',
+  });
+  assert.deepEqual(
+    snapshot.sourceMessages.map((source) => [source.messageId, source.content.text]),
+    [
+      ['source-1', 'model text'],
+      ['source-2', 'followup text'],
+    ],
+  );
+  assert.ok(Object.isFrozen(snapshot));
+  assert.ok(Object.isFrozen(snapshot.normalizedInput));
+  assert.ok(Object.isFrozen(snapshot.normalizedInput.attachments));
+  assert.ok(Object.isFrozen(snapshot.normalizedInput.attachments?.[0]));
+  assert.ok(Object.isFrozen(snapshot.normalizedInput.attachments?.[0]?.ref));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages[0]));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages[0]?.content));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages[0]?.content.attachments));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages[0]?.content.attachments?.[0]));
+  assert.ok(Object.isFrozen(snapshot.sourceMessages[0]?.content.attachments?.[0]?.ref));
+  assert.doesNotThrow(() => owner.assertKnownAdmission(snapshot));
+  assert.throws(() => owner.assertKnownAdmission(admission), /identity changed/);
 });
 
 function admitInput(sessionId: string, turnId: string, admittedAt: number) {
@@ -95,8 +230,63 @@ function admitInput(sessionId: string, turnId: string, admittedAt: number) {
     turnId,
     proposedRunId: `run-${turnId}`,
     proposedUserMessageId: `message-${turnId}`,
+    execution: { kind: 'external_message' as const },
     normalizedInput: { text: `text-${turnId}` },
+    sourceMessages: [],
     admittedAt,
+  };
+}
+
+function multiSourceAdmitInput(sessionId: string, turnId: string, admittedAt: number) {
+  const attachment = {
+    kind: 'image' as const,
+    name: 'image.png',
+    mimeType: 'image/png',
+    bytes: 42,
+    ref: { kind: 'workspace_file' as const, relativePath: 'image.png' },
+  };
+  return {
+    sessionId,
+    turnId,
+    proposedRunId: `run-${turnId}`,
+    proposedUserMessageId: `message-${turnId}`,
+    execution: { kind: 'external_message' as const },
+    normalizedInput: {
+      text: 'model text\n\nfollowup text',
+      displayText: 'display text\n\nfollowup text',
+      attachments: [attachment],
+    },
+    sourceMessages: [
+      {
+        messageId: 'source-1',
+        content: { text: 'model text', displayText: 'display text', attachments: [attachment] },
+        placement: 'current_turn' as const,
+        disposition: 'steering' as const,
+      },
+      {
+        messageId: 'source-2',
+        content: { text: 'followup text' },
+        placement: 'next_turn' as const,
+        disposition: 'followup' as const,
+      },
+    ],
+    admittedAt,
+  };
+}
+
+function mutableAdmission(): RootTurnAdmission {
+  const input = multiSourceAdmitInput('session', 'turn-1', 10);
+  return {
+    schemaVersion: 1,
+    sessionId: input.sessionId,
+    turnId: input.turnId,
+    runId: input.proposedRunId,
+    userMessageId: input.proposedUserMessageId,
+    execution: input.execution,
+    previousRootTurnId: null,
+    normalizedInput: input.normalizedInput,
+    sourceMessages: input.sourceMessages,
+    admittedAt: input.admittedAt,
   };
 }
 

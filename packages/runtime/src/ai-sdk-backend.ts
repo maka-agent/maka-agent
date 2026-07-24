@@ -85,7 +85,13 @@ import type {
   ToolInvocationRecord,
 } from '@maka/core/usage-stats/types';
 import type { ContextBudgetDiagnostic, PromptSegmentEstimate } from '@maka/core/usage-stats/types';
-import type { JSONValue, ModelMessage, ModelToolSet, ToolResultOutput } from './model-protocol.js';
+import type {
+  JSONValue,
+  ModelMessage,
+  ModelToolSet,
+  ToolResultOutput,
+  UserContent,
+} from './model-protocol.js';
 import { z } from 'zod';
 
 import { PermissionEngine } from './permission-engine.js';
@@ -156,7 +162,6 @@ import {
   formatTextWithInlineRefs,
   steeringMessagesMissingFromBase,
   steeringModelMessage,
-  steeringProviderOptions,
   stripSteeringMessages,
   type RuntimeEventModelReplayItem,
   type RuntimeEventModelReplayPlan,
@@ -2606,13 +2611,14 @@ export class AiSdkBackend implements AgentBackend {
       case 'text':
         if (item.role === 'user') {
           if (item.steering) {
-            // Already envelope-wrapped by the plan; carry the structured
-            // identity so injection dedupe recognizes the replayed message.
-            return {
-              role: 'user',
-              content: item.content,
-              providerOptions: steeringProviderOptions(item.steering.eventId),
-            };
+            return steeringModelMessage(
+              item.steering.eventId,
+              await this.appendImageParts(
+                item.content,
+                item.attachments,
+                `steering:${item.steering.eventId}`,
+              ),
+            );
           }
           return {
             role: 'user',
@@ -2677,7 +2683,16 @@ export class AiSdkBackend implements AgentBackend {
         // still presents steering exactly once, in its one provider form.
         const sidecar = steeringSidecar?.get(m.id);
         if (sidecar) {
-          out.push(steeringModelMessage(sidecar.eventId, formatTextWithInlineRefs(m.text, m)));
+          out.push(
+            steeringModelMessage(
+              sidecar.eventId,
+              await this.appendImageParts(
+                buildSteeringEnvelope(formatTextWithInlineRefs(m.text, m)),
+                m.attachments,
+                `steering:${sidecar.eventId}`,
+              ),
+            ),
+          );
           continue;
         }
         out.push({
@@ -2734,7 +2749,8 @@ export class AiSdkBackend implements AgentBackend {
   private async appendImageParts(
     textContent: string,
     attachments?: AttachmentRef[],
-  ): Promise<ModelMessage['content']> {
+    decisionKeyPrefix?: string,
+  ): Promise<UserContent> {
     const images = attachments?.filter((a) => a.kind === 'image') ?? [];
     if (images.length === 0) {
       return textContent;
@@ -2750,7 +2766,8 @@ export class AiSdkBackend implements AgentBackend {
       | { type: 'file'; data: { type: 'data'; data: Uint8Array }; mediaType: string }
     > = [{ type: 'text', text: textContent }];
     let omittedByBudget = 0;
-    for (const image of images) {
+    for (const [attachmentIndex, image] of (attachments ?? []).entries()) {
+      if (image.kind !== 'image') continue;
       const read = await this.input.readAttachmentBytes(image.ref);
       if (!read.ok) {
         parts.push({
@@ -2759,7 +2776,11 @@ export class AiSdkBackend implements AgentBackend {
         });
         continue;
       }
-      if (!this.chargeImageBudget(read.bytes.length)) {
+      const decisionKey =
+        decisionKeyPrefix === undefined
+          ? undefined
+          : `${decisionKeyPrefix}:attachment:${attachmentIndex}`;
+      if (!this.chargeImageBudget(read.bytes.length, decisionKey)) {
         omittedByBudget += 1;
         continue;
       }
@@ -2775,7 +2796,7 @@ export class AiSdkBackend implements AgentBackend {
         text: `[${omittedByBudget} image attachment(s) omitted: the per-request image budget was exceeded. Earlier images were sent; ask the user to send fewer or smaller images.]`,
       });
     }
-    return parts as ModelMessage['content'];
+    return parts as UserContent;
   }
 
   private async materializeToolResultOutput(
@@ -2823,7 +2844,7 @@ export class AiSdkBackend implements AgentBackend {
     text: string,
     attachments?: AttachmentRef[],
     quotes?: QuoteRef[],
-  ): Promise<ModelMessage['content']> {
+  ): Promise<UserContent> {
     return this.appendImageParts(
       formatTextWithInlineRefs(text, {
         ...(attachments !== undefined ? { attachments } : {}),
@@ -2947,14 +2968,29 @@ export class AiSdkBackend implements AgentBackend {
         if (queue.consumerDetached) {
           throw new Error('steering message was not durably consumed: event consumer detached');
         }
+        // Materialize provider content before publishing the durable event.
+        // After consumption there must be no fallible gap before ack/injection.
         const eventId = this.newId();
+        const providerContent = await this.appendImageParts(
+          buildSteeringEnvelope(formatTextWithInlineRefs(lease.content.text, lease.content)),
+          lease.content.attachments,
+          `steering:${eventId}`,
+        );
+        if (this.aborted || abortSignal?.aborted) {
+          throw Object.assign(new Error('aborted before steering was pushed'), {
+            name: 'AbortError',
+          });
+        }
+        if (queue.consumerDetached) {
+          throw new Error('steering message was not durably consumed: event consumer detached');
+        }
         queue.push({
           type: 'steering_message',
           id: eventId,
           turnId,
           ts: this.now(),
-          messageId: this.newId(),
-          text: lease.text,
+          messageId: lease.messageId,
+          content: lease.content,
         } satisfies SessionEvent);
         const pushedThrough = queue.pushedCount;
         for (;;) {
@@ -2966,7 +3002,7 @@ export class AiSdkBackend implements AgentBackend {
         }
         // The mapped RuntimeEvent inherits this session event's id, so the
         // injected message and its future ledger replay share one identity.
-        this.injectedSteeringMessages.push(steeringModelMessage(eventId, lease.text));
+        this.injectedSteeringMessages.push(steeringModelMessage(eventId, providerContent));
         input.ackSteering?.([lease.id]);
         undelivered.shift();
         if (this.aborted || abortSignal?.aborted) {
