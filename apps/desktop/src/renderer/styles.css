@@ -41,6 +41,7 @@
 @import "./styles/theme-glass.css";
 @import "./styles/prompt-rail.css";
 @import "./styles/quote-chip.css";
+@import "./styles/quote-side-panel.css";
 
 @theme inline {
   --color-background: var(--background);

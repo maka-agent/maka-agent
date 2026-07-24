@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import type { KeyboardEvent, PointerEvent } from 'react';
-import { useUiLocale } from '@maka/ui';
+import { useUiLocale, type ChatModelChoice } from '@maka/ui';
+import type { QuoteRef, SessionSummary } from '@maka/core';
 import type { SessionWorkbarTab } from './session-workbar-layout';
 import { SESSION_WORKBAR_MAX_WIDTH, SESSION_WORKBAR_MIN_WIDTH } from './session-workbar-layout';
 import { getShellCopy } from './locales/shell-copy';
@@ -35,6 +36,14 @@ interface ChatWorkbarProps {
   onDismiss: () => void;
   startWorkbarResize: (event: PointerEvent<HTMLDivElement>) => void;
   onWorkbarResizeHandleKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  /** Active quote side panel: staged excerpts + source; threads to the workbar's
+   *  "追问引用" tab. */
+  quote?: { sourceSessionId: string; quotes: QuoteRef[] } | null;
+  onClearQuote?: () => void;
+  onQuotesConsumed?: () => void;
+  onForkChange?: (forkId: string | undefined) => void;
+  sourceSession?: SessionSummary;
+  modelChoices?: readonly ChatModelChoice[];
 }
 
 export function ChatWorkbar({
@@ -47,6 +56,12 @@ export function ChatWorkbar({
   onDismiss,
   startWorkbarResize,
   onWorkbarResizeHandleKeyDown,
+  quote,
+  onClearQuote,
+  onQuotesConsumed,
+  onForkChange,
+  sourceSession,
+  modelChoices,
 }: ChatWorkbarProps) {
   const copy = getShellCopy(useUiLocale()).app;
   return (
@@ -73,6 +88,12 @@ export function ChatWorkbar({
           onDismiss={onDismiss}
           activeTab={activeTab}
           onActiveTabChange={onActiveTabChange}
+          quote={quote}
+          onClearQuote={onClearQuote}
+          onQuotesConsumed={onQuotesConsumed}
+          onForkChange={onForkChange}
+          sourceSession={sourceSession}
+          modelChoices={modelChoices}
         />
       </Suspense>
     </>

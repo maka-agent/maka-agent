@@ -61,7 +61,29 @@ export interface DesktopConversationCopy {
     regeneratedToTooltip: string;
   };
   groups: Record<'pinned' | SessionStatus, string>;
-  workbar: { ariaLabel: string; sectionsAriaLabel: string; tasks: string; browser: string; files: string };
+  workbar: { ariaLabel: string; sectionsAriaLabel: string; tasks: string; browser: string; files: string; quoteTab: string };
+  quoteCompanion: {
+    /** Read-only exploration hint shown in the empty companion panel. */
+    hint: string;
+    /** The exit / dismiss action label. */
+    exit: string;
+    /** Prefix for the companion fork's session name (followed by the excerpt). */
+    namePrefix: string;
+    errors: {
+      /** Reading the source boundary or creating the companion fork failed. */
+      forkSetupFailed: string;
+      /** Fork could not be pinned read-only (`explore`), so the send was aborted. */
+      permissionPinFailed: string;
+      /** The companion run reported an error event. */
+      runError: string;
+      /** `sessions.send` was rejected without throwing (e.g. an unresolved skill). */
+      sendRejected: string;
+      /** `sessions.send` threw / the turn could not be started. */
+      sendFailed: string;
+      /** Responding to a permission / question prompt failed. */
+      respondFailed: string;
+    };
+  };
   health: {
     blocked: Record<ChatConfigurationReason, { label: string; tooltip: (connection: string, model: string) => string }>;
     reauth: { label: string; tooltip: string };
@@ -109,7 +131,20 @@ const COPY = {
     footer: { labels: { regenerate: '重新生成', branch: '分支', copy: '复制', info: '详情' }, pending: '正在处理…', regenerateRunning: '当前回答仍在进行中，结束后再重新生成', regenerateAgain: '已重新生成过，再次点击将创建新的并行回答', regenerate: '让模型重新生成本轮回答', branchRunning: '当前回答仍在进行中，结束后再分支', branchAborted: '从中断前的上下文分支出新对话', branch: '基于此回答的上下文分支出新对话', copy: '复制回答到剪贴板', copyEmpty: '此回答尚无可复制的内容' },
     lineage: { regeneratedFrom: '重新生成自旧回答', regeneratedFromTooltip: '这是重新生成的并行回答，点击查看被保留的旧回答', regeneratedTo: '已重新生成 → 新回答', regeneratedToTooltip: '点击跳转到重新生成的新回答' },
     groups: { pinned: '已置顶', running: '进行中', waiting_for_user: '等待你', blocked: '需要处理', active: '会话', review: '待审核', done: '已完成', archived: '归档', aborted: '已中止' },
-    workbar: { ariaLabel: '会话工作栏', sectionsAriaLabel: '会话工作栏栏目', tasks: '任务', browser: '浏览器', files: '文件' },
+    workbar: { ariaLabel: '会话工作栏', sectionsAriaLabel: '会话工作栏栏目', tasks: '任务', browser: '浏览器', files: '文件', quoteTab: '追问引用' },
+    quoteCompanion: {
+      hint: '这里的追问会带上主对话的完整上下文：只做解释和只读探索，不会改动文件，也不写回主对话。在主对话里继续选中文本追问，会加进这个侧栏。',
+      exit: '退出',
+      namePrefix: '追问：',
+      errors: {
+        forkSetupFailed: '无法创建追问会话，请稍后重试。',
+        permissionPinFailed: '无法将追问会话设为只读探索模式，已取消（避免以主对话的高权限执行）。',
+        runError: '追问出错了，请重试。',
+        sendRejected: '追问未能开始，请稍后重试。',
+        sendFailed: '追问失败，请稍后重试。',
+        respondFailed: '响应失败，请稍后重试。',
+      },
+    },
     health: {
       blocked: {
         fake_backend: { label: '会话已过期 · 请先配置真实模型', tooltip: () => '原会话使用旧的本地模拟连接，需要先到 设置 · 模型 添加并启用一个真实模型才能发送。' },
@@ -152,7 +187,20 @@ const COPY = {
     footer: { labels: { regenerate: 'Regenerate', branch: 'Branch', copy: 'Copy', info: 'Details' }, pending: 'Working…', regenerateRunning: 'Wait for the current response to finish before regenerating', regenerateAgain: 'A regenerated response already exists; click again to create another parallel response', regenerate: 'Generate another response to this turn', branchRunning: 'Wait for the current response to finish before branching', branchAborted: 'Branch from the context before the interruption', branch: 'Branch a new conversation from this response', copy: 'Copy response to clipboard', copyEmpty: 'This response has no content to copy' },
     lineage: { regeneratedFrom: 'Regenerated from previous response', regeneratedFromTooltip: 'This is a parallel regenerated response; click to view the retained previous response', regeneratedTo: 'Regenerated → New response', regeneratedToTooltip: 'Jump to the regenerated response' },
     groups: { pinned: 'Pinned', running: 'Running', waiting_for_user: 'Waiting for you', blocked: 'Needs attention', active: 'Conversations', review: 'Review', done: 'Done', archived: 'Archived', aborted: 'Stopped' },
-    workbar: { ariaLabel: 'Conversation workbar', sectionsAriaLabel: 'Conversation workbar sections', tasks: 'Tasks', browser: 'Browser', files: 'Files' },
+    workbar: { ariaLabel: 'Conversation workbar', sectionsAriaLabel: 'Conversation workbar sections', tasks: 'Tasks', browser: 'Browser', files: 'Files', quoteTab: 'Quoted' },
+    quoteCompanion: {
+      hint: 'Questions here carry the full context of the main conversation: read-only exploration and explanation, no file changes, and nothing is written back to the main conversation. Select more text in the main transcript to add it to this side panel.',
+      exit: 'Exit',
+      namePrefix: 'Quote: ',
+      errors: {
+        forkSetupFailed: 'Could not create the companion conversation. Please try again.',
+        permissionPinFailed: 'Could not set the companion to read-only exploration mode; canceled (to avoid running with the main conversation’s elevated permissions).',
+        runError: 'The companion run errored. Please try again.',
+        sendRejected: 'The companion could not start. Please try again.',
+        sendFailed: 'The companion request failed. Please try again.',
+        respondFailed: 'The response failed. Please try again.',
+      },
+    },
     health: {
       blocked: {
         fake_backend: { label: 'Stale conversation · Configure a real model', tooltip: () => 'This conversation used the retired local simulation. Add and enable a real model in Settings · Models before sending.' },
