@@ -1,5 +1,6 @@
 import type { Decorator, Preview } from '@storybook/react-vite';
 import '../src/renderer/styles.css';
+import './density-benchmark.css';
 import { THEME_PALETTES } from '../../../packages/core/src/settings.js';
 import { LocaleProvider } from '@maka/ui';
 
@@ -21,6 +22,13 @@ const withMakaRoot: Decorator = (Story, context) => {
     root.removeAttribute('data-maka-theme');
   } else {
     root.setAttribute('data-maka-theme', palette);
+  }
+
+  const density = typeof context.globals.density === 'string' ? context.globals.density : 'current';
+  if (density === 'current') {
+    root.removeAttribute('data-density');
+  } else {
+    root.setAttribute('data-density', density);
   }
 
   return (
@@ -55,10 +63,22 @@ const preview: Preview = {
         })),
       },
     },
+    density: {
+      description: 'Density benchmark experiment (Storybook-only, see .storybook/density-benchmark.css)',
+      toolbar: {
+        icon: 'grow',
+        items: [
+          { title: 'Current (11/13/15)', value: 'current' },
+          { title: 'Type only (12/14/16)', value: 'type' },
+          { title: 'Full benchmark (+borders/rows)', value: 'benchmark' },
+        ],
+      },
+    },
   },
   initialGlobals: {
     colorScheme: 'light',
     palette: 'default',
+    density: 'current',
   },
   parameters: {
     backgrounds: {

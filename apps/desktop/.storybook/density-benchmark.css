@@ -1,0 +1,45 @@
+/* Density benchmark — Storybook-only A/B experiment, NOT imported by the app.
+ * Added by preview.tsx via the `density` toolbar global:
+ *
+ *   [data-density="type"]      → type scale + font weights only
+ *   [data-density="benchmark"] → type + weights + dark hairlines + row heights
+ *
+ * Benchmarked against Paseo (packages/app/src/styles/theme.ts + measured
+ * contrast): FONT_SIZE xs 12 / sm 14 / base 16; 56% of explicit font-weights
+ * at 400; dark border 1.20:1 (near-invisible, surfaces carry separation);
+ * sidebar rows 36px. Maka current: caption 11 / base 13 / heading 15; 61% of
+ * explicit weights at 600; dark border 2.31:1 (visible grid of boxes); rows 32.
+ */
+
+:root[data-density='type'],
+:root[data-density='benchmark'] {
+  --font-size-caption: 12px; /* 11 → 12 (Paseo xs) */
+  --font-size-base: 14px; /* 13 → 14 (Paseo sm); html font-size tracks this
+                             token, so rem-based spacing scales ×1.077 too —
+                             that is the production-equivalent of changing it. */
+  --font-size-heading: 16px; /* 15 → 16 (Paseo base) */
+  --font-size-stat: 22px; /* 20 → 22 (Paseo 2xl) */
+  --font-weight-semibold: 500; /* bigger type carries hierarchy; 600 → 500 */
+}
+
+/* Reading tier: prose is the one place Paseo goes to 16px. Maka ties prose
+   to --font-size-base (14 under benchmark) — give the experiment the real
+   Paseo body size instead. Headings scale in em off this. */
+:root[data-density='type'] .maka-prose,
+:root[data-density='benchmark'] .maka-prose {
+  font-size: 16px;
+}
+
+/* Rows: 32 → 36px (Paseo sidebar row). */
+:root[data-density='benchmark'] .maka-list-row,
+:root[data-density='benchmark'] .maka-nav-row {
+  min-height: 36px;
+}
+
+/* Dark hairlines: 0.10 → 0.05 foreground alpha. Measured 2.31:1 → ~1.2:1 —
+   borders stop drawing a visible box grid; the surface lightness steps
+   (surface-canvas vs background vs elevated) carry the separation instead. */
+:root[data-density='benchmark'].dark {
+  --border: oklch(from var(--foreground) l c h / 0.05);
+  --border-strong: oklch(from var(--foreground) l c h / 0.1);
+}
