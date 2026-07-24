@@ -31,7 +31,11 @@ test('session tools share one user-controlled workbar', async ({ sessionWorkbarW
 });
 
 test('workbar toggle stays unmounted without an active session', async ({ window: page }) => {
-  const toggle = page.locator('.maka-workspace-top-actions button[aria-expanded]');
+  // The overflow trigger also carries aria-expanded (its menu opens/closes),
+  // so pin the workbar toggle by its label instead of the shared attribute.
+  const toggle = page
+    .getByRole('toolbar', { name: '工作区辅助操作' })
+    .getByRole('button', { name: /会话工作栏/ });
 
   await expect(toggle).toHaveCount(0);
 });

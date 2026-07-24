@@ -40,10 +40,16 @@ async function expectCompactShortcutHints(dialog: Locator): Promise<void> {
 }
 
 test('command palette header geometry and dismissal stay intact', async ({ window: page }) => {
-  const openButton = page.getByRole('button', { name: '打开命令面板' });
   const dialog = page.getByRole('dialog', { name: '命令面板' });
 
-  await openButton.click();
+  // The palette entry now lives behind the workspace topbar overflow menu
+  // (see topbar-overflow.spec.ts); open it via trigger → menuitem.
+  const openPalette = async (): Promise<void> => {
+    await page.getByRole('button', { name: '更多操作' }).click();
+    await page.getByRole('menuitem', { name: '打开命令面板' }).click();
+  };
+
+  await openPalette();
   await expect(dialog).toBeVisible();
   await expectPaletteHeaderGeometry(dialog);
   await expectCompactShortcutHints(dialog);
@@ -55,7 +61,7 @@ test('command palette header geometry and dismissal stay intact', async ({ windo
   await dialog.getByRole('button', { name: '关闭命令面板' }).click();
   await expect(dialog).toBeHidden();
 
-  await openButton.click();
+  await openPalette();
   await expect(dialog).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();

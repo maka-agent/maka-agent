@@ -380,10 +380,10 @@ type ShellCopy = {
     collapseWorkbar: string;
     workspaceActions: string;
     feedback: string;
-    feedbackTooltip: string;
     openCommandPalette: string;
     openHelp: string;
     openHealth: string;
+    moreActions: string;
   };
   app: {
     loadingWorkbarLabel: string;
@@ -1051,10 +1051,10 @@ const SHELL_COPY_BY_LOCALE = {
       collapseWorkbar: '收起会话工作栏',
       workspaceActions: '工作区辅助操作',
       feedback: '问题反馈',
-      feedbackTooltip: '问题反馈 · 打开关于与环境信息',
       openCommandPalette: '打开命令面板',
       openHelp: '打开帮助',
       openHealth: '打开健康中心',
+      moreActions: '更多操作',
     },
     app: {
       loadingWorkbarLabel: '正在加载会话工作栏',
@@ -1551,10 +1551,10 @@ const SHELL_COPY_BY_LOCALE = {
       collapseWorkbar: 'Collapse conversation workbar',
       workspaceActions: 'Workspace actions',
       feedback: 'Send feedback',
-      feedbackTooltip: 'Send feedback · Open About and environment information',
       openCommandPalette: 'Open command palette',
       openHelp: 'Open help',
       openHealth: 'Open Health Center',
+      moreActions: 'More actions',
     },
     app: {
       loadingWorkbarLabel: 'Loading conversation workbar',
