@@ -44,24 +44,6 @@
   flex: 0 0 auto;
 }
 
-.maka-composer-plan-mode-control,
-.maka-composer-swarm-mode-control {
-  height: 26px;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1-5);
-  padding: 0 var(--space-0-5) 0 var(--space-1);
-  color: var(--foreground-secondary);
-  font-size: var(--font-size-ui);
-  font-weight: var(--font-weight-medium);
-  white-space: nowrap;
-}
-
-.maka-composer-plan-mode-label,
-.maka-composer-swarm-mode-label {
-  line-height: var(--leading-none);
-}
-
 .maka-composer-right-controls {
   flex: 0 0 auto;
   justify-content: flex-end;

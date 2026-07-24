@@ -34,13 +34,13 @@ import { ComposerMentionPopup, mentionOptionId } from './composer-mention-popup.
 import { useMentionPopup } from './use-mention-popup.js';
 import { ComposerWorkspaceRow, type ComposerBranchPicker, type ComposerWorkspacePicker } from './composer-workspace-row.js';
 import type { AttachmentRef, PermissionMode, ProviderType, QuoteRef, SessionSummary } from '@maka/core';
-import { Button as UiButton, Switch } from './ui.js';
+import { Button as UiButton } from './ui.js';
 import { Textarea as UiTextarea } from './primitives/textarea.js';
 import { AttachmentFileCard } from './attachment-file-card.js';
 import { QuoteRefChip } from './quote-ref-chip.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
-import { Menu, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
+import { Menu, MenuCheckboxItem, MenuItem, MenuPopup, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -771,7 +771,7 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0) ? (
+            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0 || props.onPlanModeChange || props.onSwarmModeChange) ? (
               <Menu>
                 <MenuTrigger
                   render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -818,6 +818,59 @@ export const Composer = forwardRef<
                       </MenuSubPopup>
                     </MenuSub>
                   ) : null}
+                  {/* #1433 subtraction: Plan/Swarm live here as switch
+                      items instead of standalone toolbar switches — the
+                      toolbar keeps only add / permission / model / send. */}
+                  {props.onPlanModeChange || props.onSwarmModeChange ? (
+                    <>
+                      {/* Separator only when an attachment/expert-team group
+                          precedes it — a modes-only menu must not lead with
+                          a divider (review P3). */}
+                      {props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0 ? (
+                        <MenuSeparator />
+                      ) : null}
+                      {props.onPlanModeChange ? (
+                        <MenuCheckboxItem
+                          variant="switch"
+                          checked={props.planModeActive === true}
+                          disabled={
+                            props.disabled
+                            || props.planModePending === true
+                            || Boolean(props.planModeDisabledReason)
+                          }
+                          onCheckedChange={(checked) => {
+                            void props.onPlanModeChange?.(checked);
+                          }}
+                          title={
+                            props.planModeDisabledReason
+                            ?? (props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode)
+                          }
+                        >
+                          {copy.planModeLabel}
+                        </MenuCheckboxItem>
+                      ) : null}
+                      {props.onSwarmModeChange ? (
+                        <MenuCheckboxItem
+                          variant="switch"
+                          checked={props.swarmModeActive === true}
+                          disabled={
+                            props.disabled
+                            || props.swarmModePending === true
+                            || Boolean(props.swarmModeDisabledReason)
+                          }
+                          onCheckedChange={(checked) => {
+                            void props.onSwarmModeChange?.(checked);
+                          }}
+                          title={
+                            props.swarmModeDisabledReason
+                            ?? (props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode)
+                          }
+                        >
+                          {copy.swarmModeLabel}
+                        </MenuCheckboxItem>
+                      ) : null}
+                    </>
+                  ) : null}
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -841,54 +894,6 @@ export const Composer = forwardRef<
                 disabled={props.disabled || props.permissionModePending === true || Boolean(props.permissionModeDisabledReason)}
                 disabledReason={props.permissionModeDisabledReason}
               />
-            ) : null}
-            {props.onPlanModeChange ? (
-              <span
-                className="maka-composer-plan-mode-control"
-                data-active={props.planModeActive ? 'true' : 'false'}
-              >
-                <span className="maka-composer-plan-mode-label">{copy.planModeLabel}</span>
-                <Switch
-                  checked={props.planModeActive === true}
-                  disabled={
-                    props.disabled
-                    || props.planModePending === true
-                    || Boolean(props.planModeDisabledReason)
-                  }
-                  onCheckedChange={(checked) => {
-                    void props.onPlanModeChange?.(checked);
-                  }}
-                  aria-label={props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode}
-                  title={
-                    props.planModeDisabledReason
-                    ?? (props.planModeActive ? copy.disablePlanMode : copy.enablePlanMode)
-                  }
-                />
-              </span>
-            ) : null}
-            {props.onSwarmModeChange ? (
-              <span
-                className="maka-composer-swarm-mode-control"
-                data-active={props.swarmModeActive ? 'true' : 'false'}
-              >
-                <span className="maka-composer-swarm-mode-label">{copy.swarmModeLabel}</span>
-                <Switch
-                  checked={props.swarmModeActive === true}
-                  disabled={
-                    props.disabled
-                    || props.swarmModePending === true
-                    || Boolean(props.swarmModeDisabledReason)
-                  }
-                  onCheckedChange={(checked) => {
-                    void props.onSwarmModeChange?.(checked);
-                  }}
-                  aria-label={props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode}
-                  title={
-                    props.swarmModeDisabledReason
-                    ?? (props.swarmModeActive ? copy.disableSwarmMode : copy.enableSwarmMode)
-                  }
-                />
-              </span>
             ) : null}
           </div>
           <span className="maka-composer-status-slot">
