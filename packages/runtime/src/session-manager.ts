@@ -538,6 +538,7 @@ export class SessionManager {
     string,
     { requestFingerprint: string; promise: Promise<ClaimedAgentGraphIntentResult> }
   >();
+  private readonly claimedAgentGraphSessionTails = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: SessionManagerDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
@@ -1427,7 +1428,7 @@ export class SessionManager {
       }
       return await inFlight.promise;
     }
-    const promise = this.runClaimedAgentGraphIntentOnce(resolved);
+    const promise = this.enqueueClaimedAgentGraphIntent(resolved);
     this.claimedAgentGraphIntentRuns.set(claim.claimId, {
       requestFingerprint,
       promise,
@@ -1439,6 +1440,29 @@ export class SessionManager {
         this.claimedAgentGraphIntentRuns.delete(claim.claimId);
       }
     }
+  }
+
+  private enqueueClaimedAgentGraphIntent(
+    input: ResolvedClaimedAgentGraphIntentInput,
+  ): Promise<ClaimedAgentGraphIntentResult> {
+    const sessionId = input.claim.targetSessionId;
+    const previous = this.claimedAgentGraphSessionTails.get(sessionId) ?? Promise.resolve();
+    const execution = previous
+      .catch(() => {
+        // A failed predecessor releases the Session slot for the next claim.
+      })
+      .then(() => this.runClaimedAgentGraphIntentOnce(input));
+    const tail = execution.then(
+      () => {},
+      () => {},
+    );
+    this.claimedAgentGraphSessionTails.set(sessionId, tail);
+    void tail.then(() => {
+      if (this.claimedAgentGraphSessionTails.get(sessionId) === tail) {
+        this.claimedAgentGraphSessionTails.delete(sessionId);
+      }
+    });
+    return execution;
   }
 
   private async runClaimedAgentGraphIntentOnce(
@@ -1460,6 +1484,9 @@ export class SessionManager {
       !snapshot
     ) {
       throw new Error('Claimed graph execution target must be a linked child session');
+    }
+    if (child.isArchived || child.status === 'archived' || child.status === 'aborted') {
+      throw new Error('Claimed graph execution target child session is terminated');
     }
     const readyInfo = {
       claimId: claim.claimId,

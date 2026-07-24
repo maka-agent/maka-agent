@@ -250,6 +250,82 @@ describe('SessionManager claimed graph intent execution', () => {
     expect((await runStore.listSessionRuns(child.id)).length).toBe(1);
   });
 
+  test('serializes different claims per child session without letting a queued abort stop active work', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    const firstGate = makeGate();
+    const firstReady = makeGate();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx, firstGate);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      newId: nextId(),
+      now: nextNow(70),
+    });
+    const parent = await manager.createSession(makeInput());
+    const child = await createGraphOperatorSession(store, parent.id);
+    const firstClaim = graphIntentClaim({ targetSessionId: child.id });
+    const secondClaim = graphIntentClaim({
+      claimId: `graph_claim_${'e'.repeat(32)}`,
+      intentId: `graph_intent_${'f'.repeat(32)}`,
+      targetSessionId: child.id,
+      targetTurnId: 'graph-turn-2',
+      targetRunId: 'graph-run-2',
+    });
+    const thirdClaim = graphIntentClaim({
+      claimId: `graph_claim_${'1'.repeat(32)}`,
+      intentId: `graph_intent_${'2'.repeat(32)}`,
+      targetSessionId: child.id,
+      targetTurnId: 'graph-turn-3',
+      targetRunId: 'graph-run-3',
+    });
+    const first = manager.runClaimedAgentGraphIntent({
+      ...graphExecutionInput(firstClaim, 'first activation'),
+      onReady: () => firstReady.release(),
+    });
+    await firstReady.promise;
+
+    const queuedAbort = new AbortController();
+    let secondReadyCount = 0;
+    const second = manager.runClaimedAgentGraphIntent({
+      ...graphExecutionInput(secondClaim, 'queued activation'),
+      abortSignal: queuedAbort.signal,
+      onReady: () => {
+        secondReadyCount += 1;
+      },
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(secondReadyCount).toBe(0);
+    expect(backend?.sendInputs.length).toBe(1);
+
+    queuedAbort.abort();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(backend?.stopCalls).toBe(0);
+    expect((await runStore.listSessionRuns(child.id)).length).toBe(1);
+
+    firstGate.release();
+    expect((await first).status).toBe('completed');
+    await expectRejects(second, /cancelled before runtime admission/);
+    expect(secondReadyCount).toBe(0);
+    expect(backend?.stopCalls).toBe(0);
+    expect(backend?.sendInputs.length).toBe(1);
+
+    const third = await manager.runClaimedAgentGraphIntent(
+      graphExecutionInput(thirdClaim, 'third activation'),
+    );
+    expect(third.status).toBe('completed');
+    expect(backend?.sendInputs.length).toBe(2);
+    expect((await runStore.listSessionRuns(child.id)).length).toBe(2);
+  });
+
   test('recovers an existing nonterminal claimed run without invoking the backend again', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -365,6 +441,38 @@ describe('SessionManager claimed graph intent execution', () => {
     await expectRejects(
       manager.runClaimedAgentGraphIntent(graphExecutionInput(claim, 'must not run')),
       /already owned by run different-run/,
+    );
+
+    const archivedChild = await createGraphOperatorSession(store, parent.id);
+    await store.archive(archivedChild.id);
+    const archivedClaim = graphIntentClaim({
+      claimId: `graph_claim_${'3'.repeat(32)}`,
+      intentId: `graph_intent_${'4'.repeat(32)}`,
+      targetSessionId: archivedChild.id,
+      targetTurnId: 'archived-turn',
+      targetRunId: 'archived-run',
+    });
+    await expectRejects(
+      manager.runClaimedAgentGraphIntent(
+        graphExecutionInput(archivedClaim, 'must not revive archived work'),
+      ),
+      /target child session is terminated/,
+    );
+
+    const abortedChild = await createGraphOperatorSession(store, parent.id);
+    await store.updateHeader(abortedChild.id, { status: 'aborted' });
+    const abortedClaim = graphIntentClaim({
+      claimId: `graph_claim_${'5'.repeat(32)}`,
+      intentId: `graph_intent_${'6'.repeat(32)}`,
+      targetSessionId: abortedChild.id,
+      targetTurnId: 'aborted-turn',
+      targetRunId: 'aborted-run',
+    });
+    await expectRejects(
+      manager.runClaimedAgentGraphIntent(
+        graphExecutionInput(abortedClaim, 'must not revive aborted work'),
+      ),
+      /target child session is terminated/,
     );
     expect(backendBuilds).toBe(0);
   });
