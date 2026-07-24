@@ -23,7 +23,7 @@ import {
   LINUX_BWRAP_PROBE_ARGS,
   LINUX_BWRAP_REQUIRED_OPTIONS,
 } from '../sandbox/linux-capability.js';
-import type { SandboxTransformRequest } from '../sandbox/types.js';
+import type { SandboxPathContext, SandboxTransformRequest } from '../sandbox/types.js';
 
 function workspaceRequest(profile: PermissionProfile): SandboxTransformRequest {
   return {
@@ -181,6 +181,69 @@ describe('buildBubblewrapArgv', () => {
 
     assert.ok(hasPair(argv, '--dir', '/opt'));
     assert.ok(hasTriple(argv, '--ro-bind-try', runtimeRoot, runtimeRoot));
+  });
+
+  it('mounts required worker resources and uses a trusted parent for a missing exact write', () => {
+    const profile: PermissionProfile = {
+      type: 'managed',
+      name: 'custom',
+      fileSystem: {
+        kind: 'restricted',
+        entries: [{ kind: 'path', access: 'write', path: '/outside/new.txt', match: 'exact' }],
+      },
+      network: { kind: 'restricted' },
+    };
+    const request = workspaceRequest(profile);
+    const pathContext: SandboxPathContext = {
+      ...request.command.pathContext,
+      runtimeReadableRoots: ['/runtime/filesystem-worker.js'],
+      executableRoots: ['/opt/node/bin/node', '/opt/rg/bin/rg'],
+      runtimeWritableRoots: ['/outside'],
+    };
+    const argv = buildBubblewrapArgv({
+      bwrapPath: '/usr/bin/bwrap',
+      command: {
+        ...request.command,
+        pathContext,
+      },
+    });
+
+    assert.ok(
+      hasTriple(
+        argv,
+        '--ro-bind',
+        '/runtime/filesystem-worker.js',
+        '/runtime/filesystem-worker.js',
+      ),
+    );
+    assert.ok(hasTriple(argv, '--ro-bind', '/opt/node/bin/node', '/opt/node/bin/node'));
+    assert.ok(hasTriple(argv, '--ro-bind', '/opt/rg/bin/rg', '/opt/rg/bin/rg'));
+    assert.ok(hasTriple(argv, '--bind', '/outside', '/outside'));
+    assert.equal(hasTriple(argv, '--bind', '/outside/new.txt', '/outside/new.txt'), false);
+  });
+
+  it('materializes an otherwise-unmounted worker cwd without exposing its contents', () => {
+    const profile: PermissionProfile = {
+      type: 'managed',
+      name: 'custom',
+      fileSystem: {
+        kind: 'restricted',
+        entries: [{ kind: 'path', access: 'read', path: '/outside/allowed.txt', match: 'exact' }],
+      },
+      network: { kind: 'restricted' },
+    };
+    const request = workspaceRequest(profile);
+    const argv = buildBubblewrapArgv({
+      bwrapPath: '/usr/bin/bwrap',
+      command: {
+        ...request.command,
+        cwd: '/workspace/session',
+      },
+    });
+
+    assert.ok(hasPair(argv, '--dir', '/workspace/session'));
+    assert.equal(hasTriple(argv, '--ro-bind', '/workspace/session', '/workspace/session'), false);
+    assert.equal(hasTriple(argv, '--bind', '/workspace/session', '/workspace/session'), false);
   });
 });
 

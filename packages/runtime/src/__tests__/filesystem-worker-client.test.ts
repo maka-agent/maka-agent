@@ -18,6 +18,7 @@ import {
 import {
   FilesystemWorkerClient,
   FilesystemWorkerClientError,
+  filesystemWorkerRuntimeWritableRoots,
 } from '../filesystem-worker/client.js';
 import {
   FILESYSTEM_WORKER_MAX_RESPONSE_BYTES,
@@ -228,6 +229,39 @@ describe('filesystem worker operation-scoped Seatbelt profile', () => {
         ? transform.command.profile.fileSystem.protectedMetadata?.names
         : undefined,
       ['.git', '.agents', '.codex'],
+    );
+  });
+});
+
+describe('filesystem worker Linux path context', () => {
+  test('requests a trusted parent mount only for a missing write target', () => {
+    const target = join(tmpdir(), 'maka-linux-worker-parent', 'new.txt');
+    assert.deepEqual(
+      filesystemWorkerRuntimeWritableRoots({
+        platform: 'linux',
+        access: 'write',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      [join(tmpdir(), 'maka-linux-worker-parent')],
+    );
+    assert.equal(
+      filesystemWorkerRuntimeWritableRoots({
+        platform: 'darwin',
+        access: 'write',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      undefined,
+    );
+    assert.equal(
+      filesystemWorkerRuntimeWritableRoots({
+        platform: 'linux',
+        access: 'read',
+        enforcementPath: target,
+        targetType: 'missing',
+      }),
+      undefined,
     );
   });
 });

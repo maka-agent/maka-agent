@@ -27,6 +27,7 @@ export type FilesystemWorkerLaunchSpecProvider = () => Promise<FilesystemWorkerL
 
 export interface CreateFilesystemWorkerLaunchSpecProviderInput {
   runtime: 'node' | 'electron';
+  platform?: NodeJS.Platform;
   executable?: string;
   resourceLocation: FilesystemWorkerResourceLocation;
   hostEnv?: NodeJS.ProcessEnv;
@@ -87,10 +88,14 @@ async function resolveLaunchSpec(
     input.rgCandidates ?? defaultRipgrepCandidates(input.hostEnv ?? process.env),
   );
   const electronFrameworks =
-    input.runtime === 'electron'
+    input.runtime === 'electron' && (input.platform ?? process.platform) === 'darwin'
       ? await resolveReadableRoot(resolve(dirname(program), '..', 'Frameworks'))
       : undefined;
-  if (input.runtime === 'electron' && !electronFrameworks) {
+  if (
+    input.runtime === 'electron' &&
+    (input.platform ?? process.platform) === 'darwin' &&
+    !electronFrameworks
+  ) {
     return {
       ok: false,
       reason: 'runtime_executable_unavailable',

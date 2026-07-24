@@ -153,19 +153,38 @@ describe('builtin Bash description declares the executing shell', () => {
 });
 
 describe('builtin Bash streaming output', () => {
-  test('requires a sandbox manager before enabling Bash additional permissions', () => {
+  test('requires a sandbox manager and supports Linux Bash one-shot permissions', () => {
     assert.throws(
       () => buildBuiltinTools({ enableBashAdditionalPermissions: true }),
       /require a sandbox manager/,
     );
+
+    const linuxBash = buildBuiltinTools({
+      sandboxManager: availableLinuxManager(),
+      sandboxPlatform: 'linux',
+      enableBashAdditionalPermissions: true,
+    }).find((tool) => tool.name === 'Bash');
+    assert.ok(linuxBash?.planAdditionalPermissions);
+    assert.ok(linuxBash.planSandboxEscalation);
+    assert.equal(
+      (linuxBash.parameters as z.ZodTypeAny).safeParse({
+        command: 'echo unsafe',
+        sandbox_permissions: {
+          mode: 'require_escalated',
+          justification: 'The sandbox cannot perform this action.',
+        },
+      }).success,
+      true,
+    );
+
     assert.throws(
       () =>
         buildBuiltinTools({
           sandboxManager: availableLinuxManager(),
-          sandboxPlatform: 'linux',
+          sandboxPlatform: 'win32',
           enableBashAdditionalPermissions: true,
         }),
-      /supported only on macOS/,
+      /supported only on macOS and Linux/,
     );
   });
 

@@ -6,6 +6,7 @@ import { createWorkspaceWritePermissionProfile } from '@maka/core/permission-pro
 import {
   createBuiltinSandboxManager,
   createDefaultSandboxManager,
+  isBuiltinFilesystemWorkerSandboxAvailable,
 } from '../sandbox/default-sandbox-manager.js';
 
 describe('createDefaultSandboxManager', () => {
@@ -34,5 +35,38 @@ describe('createBuiltinSandboxManager', () => {
     assert.ok(createBuiltinSandboxManager('linux'));
     assert.ok(createBuiltinSandboxManager('darwin'));
     assert.equal(createBuiltinSandboxManager('win32'), undefined);
+  });
+});
+
+describe('isBuiltinFilesystemWorkerSandboxAvailable', () => {
+  it('requires a usable Linux backend but keeps the built-in macOS worker available', () => {
+    assert.equal(isBuiltinFilesystemWorkerSandboxAvailable('darwin'), true);
+    assert.equal(isBuiltinFilesystemWorkerSandboxAvailable('win32'), false);
+    assert.equal(
+      isBuiltinFilesystemWorkerSandboxAvailable('linux', {
+        available: true,
+        bwrapPath: '/usr/bin/bwrap',
+      }),
+      true,
+    );
+    assert.equal(
+      isBuiltinFilesystemWorkerSandboxAvailable('linux', {
+        available: false,
+        reason: 'missing-bwrap',
+        bwrapPath: '/usr/bin/bwrap',
+      }),
+      false,
+    );
+    assert.equal(
+      isBuiltinFilesystemWorkerSandboxAvailable(
+        'linux',
+        {
+          available: true,
+          bwrapPath: '/usr/bin/bwrap',
+        },
+        's390x',
+      ),
+      false,
+    );
   });
 });

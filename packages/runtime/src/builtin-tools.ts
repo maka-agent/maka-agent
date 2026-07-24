@@ -7,9 +7,17 @@
 
 import { z } from 'zod';
 import { jsonSchema, zodSchema } from 'ai';
-import { realpathSync } from 'node:fs';
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  openSync,
+  realpathSync,
+  unlinkSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, isAbsolute } from 'node:path';
+import { basename, dirname, isAbsolute } from 'node:path';
 import {
   applyAdditionalPermissionProfile,
   compilePermissionProfile,
@@ -53,6 +61,7 @@ import {
   normalizeAdditionalPermissionPath,
   planDeclaredBashAdditionalPermission,
   planFileToolAdditionalPermission,
+  type AdditionalPermissionGrant,
   type AdditionalPermissionPlannerContext,
   type AdditionalPermissionPlanResult,
 } from './additional-permissions.js';
@@ -173,11 +182,21 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
     : fileReadParameters;
   const shell = options.shell ?? defaultShellPlan();
   const sandboxPlatform = options.sandboxPlatform ?? process.platform;
-  if (options.enableBashAdditionalPermissions && sandboxPlatform !== 'darwin') {
-    throw new Error('Bash additional permissions are currently supported only on macOS.');
+  if (
+    options.enableBashAdditionalPermissions &&
+    sandboxPlatform !== 'darwin' &&
+    sandboxPlatform !== 'linux'
+  ) {
+    throw new Error('Bash additional permissions are currently supported only on macOS and Linux.');
   }
-  if (options.enableFileToolAdditionalPermissions && sandboxPlatform !== 'darwin') {
-    throw new Error('File tool additional permissions are currently supported only on macOS.');
+  if (
+    options.enableFileToolAdditionalPermissions &&
+    sandboxPlatform !== 'darwin' &&
+    sandboxPlatform !== 'linux'
+  ) {
+    throw new Error(
+      'File tool additional permissions are currently supported only on macOS and Linux.',
+    );
   }
   const bashAdditionalPermissionPlanner =
     options.sandboxManager && options.enableBashAdditionalPermissions
@@ -863,37 +882,59 @@ function sandboxCommand(
     return undefined;
   }
 
-  const result = manager.transform({
-    platform,
-    command: {
-      program: '/bin/sh',
-      args: ['-c', command],
-      cwd,
-      env,
-      profile: effective.profile,
-      pathContext: {
-        workspaceRoots: effective.workspaceRoots,
-        tmpdir: tmpdir(),
-        slashTmp: '/tmp',
-        ...(platform === 'darwin'
-          ? {
-              executableRoots: macosRuntimeExecutableRoots(process.execPath),
-            }
-          : {}),
-        ...(platform === 'linux'
-          ? {
-              minimalRoots: linuxExecutableRoots({
-                execPath: process.execPath,
-                path: env.PATH,
-              }),
-            }
-          : {}),
+  let preparedTargets: readonly PreparedExactWriteTarget[] = [];
+  try {
+    preparedTargets = prepareLinuxBashExactWriteTargets(platform, additionalGrant);
+  } catch {
+    throw new SandboxCommandError({
+      domain,
+      stage: 'validation',
+      reason: 'exact_write_target_changed',
+      backend: 'linux',
+      recoverable: false,
+      profileName: effective.profile.name ?? effective.profile.type,
+      message: 'An approved exact write target could not be prepared safely.',
+    });
+  }
+
+  let result: ReturnType<SandboxManager['transform']>;
+  try {
+    result = manager.transform({
+      platform,
+      command: {
+        program: '/bin/sh',
+        args: ['-c', command],
+        cwd,
+        env,
+        profile: effective.profile,
+        pathContext: {
+          workspaceRoots: effective.workspaceRoots,
+          tmpdir: tmpdir(),
+          slashTmp: '/tmp',
+          ...(platform === 'darwin'
+            ? {
+                executableRoots: macosRuntimeExecutableRoots(process.execPath),
+              }
+            : {}),
+          ...(platform === 'linux'
+            ? {
+                minimalRoots: linuxExecutableRoots({
+                  execPath: process.execPath,
+                  path: env.PATH,
+                }),
+              }
+            : {}),
+        },
       },
-    },
-    ...(additionalGrant ? { additionalPermissions: additionalGrant.profile } : {}),
-    ...(escalationGrant ? { preference: 'forbid' as const } : {}),
-  });
+      ...(additionalGrant ? { additionalPermissions: additionalGrant.profile } : {}),
+      ...(escalationGrant ? { preference: 'forbid' as const } : {}),
+    });
+  } catch (error) {
+    rollbackPreparedExactWriteTargets(preparedTargets);
+    throw error;
+  }
   if (!result.ok) {
+    rollbackPreparedExactWriteTargets(preparedTargets);
     throw new SandboxCommandError({
       domain,
       stage: 'transform',
@@ -912,6 +953,77 @@ function sandboxCommand(
     sandboxType: result.exec.sandboxType,
     profileName: result.exec.effectiveProfile.name ?? result.exec.effectiveProfile.type,
   };
+}
+
+interface PreparedExactWriteTarget {
+  readonly path: string;
+  readonly device: number;
+  readonly inode: number;
+}
+
+function prepareLinuxBashExactWriteTargets(
+  platform: SandboxPlatform,
+  grant: AdditionalPermissionGrant | undefined,
+): readonly PreparedExactWriteTarget[] {
+  if (platform !== 'linux' || !grant) return [];
+  const exactWrites = new Set(
+    grant.profile.fileSystem?.entries
+      .filter((entry) => entry.access === 'write' && entry.scope === 'exact')
+      .map((entry) => entry.path) ?? [],
+  );
+  const prepared: PreparedExactWriteTarget[] = [];
+  try {
+    for (const target of grant.normalizedPaths) {
+      if (
+        target.access !== 'write' ||
+        target.scope !== 'exact' ||
+        target.targetType !== 'missing' ||
+        !exactWrites.has(target.enforcementPath)
+      ) {
+        continue;
+      }
+      if (realpathSync(dirname(target.enforcementPath)) !== dirname(target.enforcementPath)) {
+        throw new Error('Exact write target parent changed.');
+      }
+      const fd = openSync(
+        target.enforcementPath,
+        constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0),
+        0o666,
+      );
+      try {
+        const metadata = fstatSync(fd);
+        prepared.push({
+          path: target.enforcementPath,
+          device: metadata.dev,
+          inode: metadata.ino,
+        });
+      } finally {
+        closeSync(fd);
+      }
+    }
+    return prepared;
+  } catch (error) {
+    rollbackPreparedExactWriteTargets(prepared);
+    throw error;
+  }
+}
+
+function rollbackPreparedExactWriteTargets(targets: readonly PreparedExactWriteTarget[]): void {
+  for (const target of targets) {
+    try {
+      const metadata = lstatSync(target.path);
+      if (
+        metadata.isFile() &&
+        metadata.dev === target.device &&
+        metadata.ino === target.inode &&
+        metadata.size === 0
+      ) {
+        unlinkSync(target.path);
+      }
+    } catch {
+      // The target was already removed or changed; never delete an unverified replacement.
+    }
+  }
 }
 
 function profileRequiresSandbox(profile: PermissionProfile): boolean {

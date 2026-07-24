@@ -10,6 +10,7 @@ import {
   buildParentAgentTools,
   assertProductBindingCatalogClean,
   createBuiltinSandboxManager,
+  isBuiltinFilesystemWorkerSandboxAvailable,
   createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
@@ -99,9 +100,10 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
 
   const sandboxManager = createBuiltinSandboxManager();
   const filesystemWorkerLaunchSpecProvider =
-    process.platform === 'darwin'
+    sandboxManager && isBuiltinFilesystemWorkerSandboxAvailable()
       ? createFilesystemWorkerLaunchSpecProvider({
           runtime: 'electron',
+          platform: process.platform,
           executable: process.execPath,
           resourceLocation: app.isPackaged
             ? { kind: 'desktop-packaged', resourcesPath: process.resourcesPath }
@@ -214,7 +216,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
         enableBashAdditionalPermissions: true,
         enableFileToolAdditionalPermissions: true,
       } : {}),
-    }).filter((tool: MakaTool) => tool.name !== 'Edit'),
+    }),
   ];
   const toolsAfterSkill: MakaTool[] = [
     // External reference plan-mode borrow: a bounded read-only local worker for
@@ -285,7 +287,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
         enableBashAdditionalPermissions: true,
         enableFileToolAdditionalPermissions: true,
       } : {}),
-    }).filter((tool: MakaTool) => tool.name !== 'Edit'),
+    }),
     webSearchTool,
     ...agentTeamChildTools,
   ]);
