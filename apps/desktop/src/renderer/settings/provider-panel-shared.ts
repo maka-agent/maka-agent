@@ -22,6 +22,7 @@ export interface ConnectionsBridge {
   test(slug: string, opts?: { model?: string }): Promise<ConnectionTestResult>;
   fetchModels(slug: string): Promise<ModelDiscoveryResult>;
   hasSecret(slug: string): Promise<boolean>;
+  getApiKey(slug: string): Promise<string | null>;
   subscribeEvents?(handler: () => void): () => void;
 }
 

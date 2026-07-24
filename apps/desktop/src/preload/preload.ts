@@ -342,6 +342,9 @@ const makaBridge = {
     hasSecret(slug: string): Promise<boolean> {
       return ipcRenderer.invoke('connections:hasSecret', slug);
     },
+    getApiKey(slug: string): Promise<string | null> {
+      return ipcRenderer.invoke('connections:getApiKey', slug);
+    },
     subscribeEvents(handler: (event: ConnectionEvent) => void): () => void {
       const listener = (_event: Electron.IpcRendererEvent, payload: ConnectionEvent) => handler(payload);
       ipcRenderer.on('connections:event', listener);

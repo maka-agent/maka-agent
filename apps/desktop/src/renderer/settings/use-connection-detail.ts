@@ -54,12 +54,13 @@ export interface ConnectionDetailProps {
   connection: LlmConnection;
   isDefault: boolean;
   onChanged(): Promise<void>;
+  onSaved?(): void;
   onDeleted(): Promise<void>;
 }
 
 // Controller for the API/OAuth model connection detail sheet. Owns the whole
-// mutually-exclusive action state machine (save / test / fetch-models /
-// save-enabled-models / set-default / delete, all gated through one keyed
+// mutually-exclusive action state machine (credential save / settings save /
+// test / fetch-models / set-default / delete, all gated through one keyed
 // action guard) plus the credential-presence probe and the prop-sync effects.
 // The sheet view (provider-connection-detail.tsx) is a thin render over this
 // return; extracting it kept the 12 useState + 4 refs + 4 effects together so
@@ -71,6 +72,7 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
   const { connection } = props;
   const defaults = PROVIDER_DEFAULTS[connection.providerType];
   const [apiKey, setApiKey] = useState('');
+  const [revealedApiKey, setRevealedApiKey] = useState<string | null>(null);
   const [hasSecret, setHasSecret] = useState<CredentialPresenceStatus>(
     defaults.authKind === 'none' ? true : 'loading',
   );
@@ -88,11 +90,10 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
   const [busy, setBusy] = useState(false);
   const [testing, setTesting] = useState(false);
   const [fetchingModels, setFetchingModels] = useState(false);
-  const [savingEnabledModels, setSavingEnabledModels] = useState(false);
   const [settingDefault, setSettingDefault] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const connectionDetailActionGuard = useKeyedActionGuard<
-    'save' | 'test' | 'fetch-models' | 'save-enabled-models' | 'set-default' | 'delete'
+    'save-credential' | 'save-settings' | 'test' | 'fetch-models' | 'set-default' | 'delete'
   >();
   const connectionDetailMountedRef = useMountedRef();
   const connectionDetailLifecycleRef = useRef(0);
@@ -113,8 +114,11 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
       : copy.endpointTroubleshooting;
   const savedBaseUrl = connection.baseUrl ?? defaults.baseUrl;
   const draftBaseUrl = baseUrl;
-  const hasApiKeyChange = apiKey.length > 0;
+  const savedEnabledModelIds = connectionEnabledModelIds(connection);
+  const hasApiKeyChange = apiKey.length > 0 && apiKey !== revealedApiKey;
   const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;
+  const hasEnabledModelsChange = !modelIdListsEqual(enabledModelIds, savedEnabledModelIds);
+  const hasAdvancedSettingsChange = hasBaseUrlChange || hasEnabledModelsChange;
   // Persistent single-line credential hint. Rendered in every hasSecret state
   // (including `false`) so the description row never adds or drops a line as the
   // async secret probe resolves — the dialog height stays constant.
@@ -126,13 +130,15 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
         : hasSecret === 'error'
           ? copy.credentialUnknown
           : copy.keyMissing;
-  const detailActionBusy = busy || testing || fetchingModels || savingEnabledModels || settingDefault || deleting;
+  const detailActionBusy = busy || testing || fetchingModels || settingDefault || deleting;
   const issue = connectionChipStatus(connection, locale);
   const lastTestMessage = connectionLastTestMessageDisplay(connection.lastTestMessage, locale);
   const lastTestAtMs = connection.lastTestAt ? Date.parse(connection.lastTestAt) : NaN;
 
   useEffect(() => {
     connectionDetailLifecycleRef.current += 1;
+    setApiKey('');
+    setRevealedApiKey(null);
     return () => {
       connectionDetailLifecycleRef.current += 1;
       connectionDetailActionGuard.reset();
@@ -166,18 +172,21 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
     const nextSnapshot = connectionDetailSnapshot(connection, defaults.baseUrl);
     const previousSnapshot = syncedConnectionSnapshotRef.current;
     const localStillSynced = connectionDetailDraftMatchesSnapshot(
-      { baseUrl, models, modelSource },
+      { baseUrl, enabledModelIds, models, modelSource },
       previousSnapshot,
     );
     const localAlreadyMatchesNext = connectionDetailDraftMatchesSnapshot(
-      { baseUrl, models, modelSource },
+      { baseUrl, enabledModelIds, models, modelSource },
       nextSnapshot,
     );
 
-    if (connection.slug !== previousSnapshot.slug || (apiKey.length === 0 && localStillSynced)) {
-      setBaseUrl(nextSnapshot.baseUrl);
-      setModels(nextSnapshot.models);
-      setModelSource(nextSnapshot.modelSource);
+    if (connection.slug !== previousSnapshot.slug || localStillSynced) {
+      if (baseUrl !== nextSnapshot.baseUrl) setBaseUrl(nextSnapshot.baseUrl);
+      if (!modelIdListsEqual(enabledModelIds, nextSnapshot.enabledModelIds)) {
+        setEnabledModelIds(nextSnapshot.enabledModelIds);
+      }
+      if (!modelListsEqual(models, nextSnapshot.models)) setModels(nextSnapshot.models);
+      if (modelSource !== nextSnapshot.modelSource) setModelSource(nextSnapshot.modelSource);
       syncedConnectionSnapshotRef.current = nextSnapshot;
       return;
     }
@@ -186,17 +195,13 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
       syncedConnectionSnapshotRef.current = nextSnapshot;
     }
   }, [
-    apiKey.length,
     baseUrl,
     connection,
     defaults.baseUrl,
+    enabledModelIds,
     modelSource,
     models,
   ]);
-
-  useEffect(() => {
-    setEnabledModelIds(connectionEnabledModelIds(connection));
-  }, [connection.defaultModel, connection.enabledModelIds, connection.slug]);
 
   // Picker entries come from the same catalog merge path as Chat and Daily
   // Review, but use the local unsaved editor draft for model/default changes.
@@ -209,21 +214,40 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
     modelsFetchedAt: connection.modelsFetchedAt,
   });
 
-  async function save() {
-    const releaseSave = connectionDetailActionGuard.beginExclusive('save');
+  async function revealApiKey(): Promise<boolean> {
+    if (apiKey) return true;
+    const lifecycle = connectionDetailLifecycleRef.current;
+    try {
+      const storedApiKey = await props.bridge.getApiKey(connection.slug);
+      if (!isConnectionDetailCurrent(lifecycle)) return false;
+      if (!storedApiKey) {
+        setHasSecret(false);
+        return false;
+      }
+      setApiKey(storedApiKey);
+      setRevealedApiKey(storedApiKey);
+      return true;
+    } catch (error) {
+      if (isConnectionDetailCurrent(lifecycle)) {
+        toast.error(copy.credentialReadFailed, providerPanelActionErrorMessage(error, locale));
+      }
+      return false;
+    }
+  }
+
+  async function saveCredential() {
+    if (!hasApiKeyChange) return;
+    const releaseSave = connectionDetailActionGuard.beginExclusive('save-credential');
     if (!releaseSave) return;
     const lifecycle = connectionDetailLifecycleRef.current;
     setBusy(true);
     let saved = false;
     try {
-      await props.bridge.update(connection.slug, {
-        baseUrl,
-        ...(apiKey ? { apiKey } : {}),
-      });
+      await props.bridge.update(connection.slug, { apiKey });
       saved = true;
       if (!isConnectionDetailCurrent(lifecycle)) return;
-      const wroteNewKey = apiKey.length > 0;
       setApiKey('');
+      setRevealedApiKey(null);
       const nextHasSecret = probesCredential ? await props.bridge.hasSecret(connection.slug) : true;
       if (!isConnectionDetailCurrent(lifecycle)) return;
       setHasSecret(nextHasSecret);
@@ -234,7 +258,7 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
       // dropdown only contains the static fallback list (e.g. Z.ai → just
       // glm-4.7 / 4.6 / 4.5), which looks like Maka doesn't support newer
       // models. Auto-fetch on save closes that gap.
-      if ((!requiresCredential || nextHasSecret) && (wroteNewKey || models.length === 0)) {
+      if ((!requiresCredential || nextHasSecret) && (hasApiKeyChange || models.length === 0)) {
         void refreshModels({ silent: true });
       }
     } catch (error) {
@@ -252,36 +276,44 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
     }
   }
 
-  async function updateEnabledModels(nextIds: string[]) {
-    if (connectionDetailActionGuard.has('save-enabled-models') || detailActionBusy) return;
+  async function saveAdvancedSettings() {
+    if (!hasAdvancedSettingsChange) return;
+    const releaseSave = connectionDetailActionGuard.beginExclusive('save-settings');
+    if (!releaseSave) return;
+    const lifecycle = connectionDetailLifecycleRef.current;
+    setBusy(true);
+    let saved = false;
+    try {
+      await props.bridge.update(connection.slug, {
+        baseUrl,
+        enabledModelIds,
+      });
+      saved = true;
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      await props.onChanged();
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      toast.success(copy.settingsSaved(connection.name));
+      props.onSaved?.();
+    } catch (error) {
+      if (!isConnectionDetailCurrent(lifecycle)) return;
+      toast.error(
+        saved ? copy.refreshFailed : copy.saveFailed,
+        providerPanelActionErrorMessage(error, locale),
+      );
+    } finally {
+      releaseSave();
+      if (isConnectionDetailCurrent(lifecycle)) setBusy(false);
+    }
+  }
+
+  function updateEnabledModels(nextIds: string[]) {
+    if (detailActionBusy) return;
     const next = connectionEnabledModelIds({
       defaultModel: connection.defaultModel,
       enabledModelIds: nextIds,
     });
     if (modelIdListsEqual(next, enabledModelIds)) return;
-    const previous = enabledModelIds;
-    const lifecycle = connectionDetailLifecycleRef.current;
-    const releaseSaveModels = connectionDetailActionGuard.begin('save-enabled-models');
-    if (!releaseSaveModels) return;
-    setSavingEnabledModels(true);
     setEnabledModelIds(next);
-    let saved = false;
-    try {
-      await props.bridge.update(connection.slug, { enabledModelIds: next });
-      saved = true;
-      if (!isConnectionDetailCurrent(lifecycle)) return;
-      await props.onChanged();
-    } catch (error) {
-      if (!isConnectionDetailCurrent(lifecycle)) return;
-      if (!saved) setEnabledModelIds(previous);
-      toast.error(
-        saved ? copy.refreshFailed : copy.saveModelsFailed,
-        providerPanelActionErrorMessage(error, locale),
-      );
-    } finally {
-      releaseSaveModels();
-      if (isConnectionDetailCurrent(lifecycle)) setSavingEnabledModels(false);
-    }
   }
 
   async function runTest() {
@@ -459,11 +491,13 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
     hasUsableCredential,
     apiKeyStatusHint,
     hasApiKeyChange,
-    hasBaseUrlChange,
+    hasAdvancedSettingsChange,
     issue,
     lastTestMessage,
     lastTestAtMs,
-    save,
+    revealApiKey,
+    saveCredential,
+    saveAdvancedSettings,
     updateEnabledModels,
     runTest,
     refreshModels,
@@ -476,6 +510,7 @@ export function useConnectionDetail(props: ConnectionDetailProps) {
 type ConnectionDetailSnapshot = {
   slug: string;
   baseUrl: string;
+  enabledModelIds: string[];
   models: ModelInfo[];
   modelSource: 'fetched' | 'fallback';
 };
@@ -487,6 +522,7 @@ function connectionDetailSnapshot(
   return {
     slug: connection.slug,
     baseUrl: connection.baseUrl ?? defaultBaseUrl ?? '',
+    enabledModelIds: connectionEnabledModelIds(connection),
     models: connection.models ?? [],
     modelSource: connection.modelSource ?? 'fallback',
   };
@@ -495,12 +531,14 @@ function connectionDetailSnapshot(
 function connectionDetailDraftMatchesSnapshot(
   draft: {
     baseUrl: string;
+    enabledModelIds: string[];
     models: ModelInfo[];
     modelSource: 'fetched' | 'fallback';
   },
   snapshot: ConnectionDetailSnapshot,
 ): boolean {
   return draft.baseUrl === snapshot.baseUrl &&
+    modelIdListsEqual(draft.enabledModelIds, snapshot.enabledModelIds) &&
     draft.modelSource === snapshot.modelSource &&
     modelListsEqual(draft.models, snapshot.models);
 }

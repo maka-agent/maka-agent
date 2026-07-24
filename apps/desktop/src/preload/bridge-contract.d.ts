@@ -283,6 +283,7 @@ export interface MakaBridge {
     test(slug: string, opts?: { model?: string }): Promise<ConnectionTestResult>;
     fetchModels(slug: string): Promise<ModelDiscoveryResult>;
     hasSecret(slug: string): Promise<boolean>;
+    getApiKey(slug: string): Promise<string | null>;
     subscribeEvents(handler: (event: ConnectionEvent) => void): () => void;
   };
   mcp: {

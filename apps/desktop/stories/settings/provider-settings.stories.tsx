@@ -188,6 +188,9 @@ function createBridge(input: {
     async hasSecret() {
       return true;
     },
+    async getApiKey() {
+      return 'sk-storybook-example';
+    },
     subscribeEvents() {
       return () => undefined;
     },

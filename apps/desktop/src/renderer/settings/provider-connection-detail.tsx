@@ -111,11 +111,13 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
     hasUsableCredential,
     apiKeyStatusHint,
     hasApiKeyChange,
-    hasBaseUrlChange,
+    hasAdvancedSettingsChange,
     issue,
     lastTestMessage,
     lastTestAtMs,
-    save,
+    revealApiKey,
+    saveCredential,
+    saveAdvancedSettings,
     updateEnabledModels,
     runTest,
     refreshModels,
@@ -137,6 +139,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
               placeholder={hasSecret === true ? '••••••••' : copy.pasteModelKey}
               ariaLabel={copy.modelKeyAria(display.name)}
               disabled={detailActionBusy}
+              onReveal={hasSecret === true ? revealApiKey : undefined}
             />
           </FieldRoot>
           <div className="providerCredentialActions">
@@ -154,7 +157,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             {/* Persistent button (disabled until a new key is typed) so the
                 credential actions row keeps a fixed height — no jitter when the
                 user starts pasting a key. */}
-            <Button type="button" disabled={detailActionBusy || !hasApiKeyChange} onClick={save}>
+            <Button type="button" disabled={detailActionBusy || !hasApiKeyChange} onClick={saveCredential}>
               {busy ? copy.saving : copy.updateKey}
             </Button>
           </div>
@@ -219,7 +222,7 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
             enabledModelIds={enabledModelIds}
             defaultModel={connection.defaultModel}
             disabled={detailActionBusy}
-            onChange={(next) => void updateEnabledModels(next)}
+            onChange={updateEnabledModels}
           />
           <div className="providerEndpointSettings">
             <ConnectionEndpointField
@@ -229,17 +232,15 @@ function ConnectionDetailInner(props: ConnectionDetailProps) {
               disabled={detailActionBusy}
               onChange={setBaseUrl}
             />
-            {/* Persistent button (disabled until the endpoint is edited) so the
-                advanced settings body height stays constant while typing. An
-                OAuth-fixed endpoint is readOnly with no dirty path — no jitter
-                risk — so it renders no permanently-disabled Save at all. */}
-            {!hasFixedOAuthBaseUrl && (
-              <div className="providerEndpointActions">
-                <Button type="button" disabled={detailActionBusy || !hasBaseUrlChange} onClick={save}>
-                  {busy ? copy.saving : copy.saveEndpoint}
-                </Button>
-              </div>
-            )}
+            <div className="providerEndpointActions">
+              <Button
+                type="button"
+                disabled={detailActionBusy || !hasAdvancedSettingsChange}
+                onClick={saveAdvancedSettings}
+              >
+                {busy ? copy.saving : copy.saveSettings}
+              </Button>
+            </div>
           </div>
           <div className="providerAdvancedActions">
             <Button variant="secondary" type="button" disabled={detailActionBusy || !hasUsableCredential} onClick={runTest}>

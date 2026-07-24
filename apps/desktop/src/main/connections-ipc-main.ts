@@ -8,7 +8,11 @@ import type {
   CreateConnectionInput,
   UpdateConnectionInput,
 } from '@maka/core';
-import { PROVIDER_DEFAULTS, providerAuthRequiresSecret } from '@maka/core/llm-connections';
+import {
+  PROVIDER_DEFAULTS,
+  providerAuthRequiresSecret,
+  providerAuthSupportsApiKey,
+} from '@maka/core/llm-connections';
 import type { LlmConnection } from '@maka/core/llm-connections';
 import { fetchProviderModels, testConnection } from '@maka/runtime';
 import { createConnectionStore } from '@maka/storage';
@@ -256,5 +260,11 @@ export function registerConnectionsIpc(deps: ConnectionsIpcDeps): void {
     const connection = await connectionStore.get(slug);
     if (!connection) return false;
     return hasConnectionSecret(connection);
+  });
+  ipcMain.handle('connections:getApiKey', async (_event, slug: string) => {
+    slug = normalizeConnectionSlugForIpc(slug, 'connection slug');
+    const connection = await connectionStore.get(slug);
+    if (!connection || !providerAuthSupportsApiKey(connection.providerType)) return null;
+    return credentialStore.getSecret(slug, 'api_key');
   });
 }

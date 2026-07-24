@@ -158,13 +158,18 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /const connectionDetailActionGuard = useKeyedActionGuard<[\s\S]*'save' \| 'test' \| 'fetch-models' \| 'save-enabled-models' \| 'set-default' \| 'delete'[\s\S]*>\(\)/,
+      /const connectionDetailActionGuard = useKeyedActionGuard<[\s\S]*'save-credential' \| 'save-settings' \| 'test' \| 'fetch-models' \| 'set-default' \| 'delete'[\s\S]*>\(\)/,
       'ConnectionDetail actions must have synchronous duplicate-action guards from the shared keyed guard, not only React state',
     );
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*const releaseSave = connectionDetailActionGuard\.beginExclusive\('save'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*props\.bridge\.update\(/,
-      'ConnectionDetail save must set its duplicate-submit guard before awaiting bridge.update()',
+      /async function saveCredential\(\) \{[\s\S]*const releaseSave = connectionDetailActionGuard\.beginExclusive\('save-credential'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*props\.bridge\.update\(/,
+      'ConnectionDetail credential save must set its duplicate-submit guard before awaiting bridge.update()',
+    );
+    assert.match(
+      detail,
+      /async function saveAdvancedSettings\(\) \{[\s\S]*const releaseSave = connectionDetailActionGuard\.beginExclusive\('save-settings'\);[\s\S]*if \(!releaseSave\) return;[\s\S]*props\.bridge\.update\(/,
+      'ConnectionDetail settings save must set its duplicate-submit guard before awaiting bridge.update()',
     );
     assert.match(
       detail,
@@ -188,7 +193,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| savingEnabledModels \|\| settingDefault \|\| deleting/,
+      /const detailActionBusy = busy \|\| testing \|\| fetchingModels \|\| settingDefault \|\| deleting/,
       'ConnectionDetail must expose one visible busy state that freezes payload-affecting controls',
     );
     assert.match(
@@ -208,13 +213,13 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*\{busy \? copy\.saving : copy\.updateKey\}/,
+      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{saveCredential\}>[\s\S]*\{busy \? copy\.saving : copy\.updateKey\}/,
       'ConnectionDetail key save button stays present but disabled until the key draft is dirty (constant dialog height)',
     );
     assert.match(
       detail,
-      /className="providerEndpointActions"[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>[\s\S]*\{busy \? copy\.saving : copy\.saveEndpoint\}/,
-      'ConnectionDetail endpoint save button stays present but disabled until the endpoint draft is dirty',
+      /className="providerEndpointActions"[\s\S]*disabled=\{detailActionBusy \|\| !hasAdvancedSettingsChange\}[\s\S]*onClick=\{saveAdvancedSettings\}[\s\S]*\{busy \? copy\.saving : copy\.saveSettings\}/,
+      'ConnectionDetail settings save button stays present but disabled until the endpoint or model draft is dirty',
     );
     assert.match(
       detail,
@@ -445,6 +450,8 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     assert.match(detail, /<FieldDescription>\{apiKeyStatusHint\}<\/FieldDescription>/);
     assert.match(detail, /hasSecret === true\s*\?\s*copy\.keySet/);
     assert.match(detail, /placeholder=\{hasSecret === true \? '••••••••' : copy\.pasteModelKey\}/);
+    assert.match(detail, /onReveal=\{hasSecret === true \? revealApiKey : undefined\}/);
+    assert.match(detail, /props\.bridge\.getApiKey\(connection\.slug\)/);
     assert.match(detail, /ariaLabel=\{copy\.modelKeyAria\(display\.name\)\}/);
     assert.match(detail, /\{copy\.getModelKey\}/);
     assert.match(detail, /copy\.keyTroubleshooting/);
@@ -664,29 +671,39 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('keeps each Save action beside its field, disabled until that field is dirty', async () => {
+  it('keeps credential save separate and saves advanced drafts together', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
 
     assert.match(
       detail,
-      /const hasApiKeyChange = apiKey\.length > 0;[\s\S]*const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;/,
-      'ConnectionDetail must compute dirty state separately for each field it writes',
+      /const hasApiKeyChange = apiKey\.length > 0 && apiKey !== revealedApiKey;[\s\S]*const hasBaseUrlChange = draftBaseUrl !== savedBaseUrl;[\s\S]*const hasEnabledModelsChange = !modelIdListsEqual\(enabledModelIds, savedEnabledModelIds\);[\s\S]*const hasAdvancedSettingsChange = hasBaseUrlChange \|\| hasEnabledModelsChange;/,
+      'ConnectionDetail must distinguish credential edits from the combined advanced-settings draft',
     );
-    // The Save buttons stay mounted (disabled while the field is clean) so the
-    // dialog does not add or drop a row — and thus does not jitter in height —
-    // the moment the user starts typing a key or editing the endpoint.
     assert.match(
       detail,
-      /<Button type="button" disabled=\{detailActionBusy \|\| !hasApiKeyChange\} onClick=\{save\}>[\s\S]*<Button type="button" disabled=\{detailActionBusy \|\| !hasBaseUrlChange\} onClick=\{save\}>/,
-      'each Save action stays beside its field and disabled (not unmounted) until that field changes',
+      /async function saveCredential\(\)[\s\S]*props\.bridge\.update\(connection\.slug, \{ apiKey \}\)/,
+      'credential save must not implicitly submit advanced-setting drafts',
     );
-    // An OAuth-fixed endpoint is readOnly with no dirty path (no jitter risk),
-    // so it must not render a permanently-disabled 保存服务地址 button.
     assert.match(
       detail,
-      /\{!hasFixedOAuthBaseUrl && \(\s*<div className="providerEndpointActions">/,
-      'OAuth-fixed endpoints render no endpoint Save action instead of a forever-disabled one',
+      /async function saveAdvancedSettings\(\)[\s\S]*props\.bridge\.update\(connection\.slug, \{\s*baseUrl,\s*enabledModelIds,\s*\}\)/,
+      'advanced settings must persist service address and enabled models in one update',
+    );
+    assert.match(
+      detail,
+      /disabled=\{detailActionBusy \|\| !hasAdvancedSettingsChange\}[\s\S]*onClick=\{saveAdvancedSettings\}[\s\S]*copy\.saveSettings/,
+      'one Save action must cover either advanced-setting change',
+    );
+    assert.match(
+      detail,
+      /await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.success\(copy\.settingsSaved\(connection\.name\)\);[\s\S]*props\.onSaved\?\.\(\)/,
+      'a successful advanced save must refresh, toast, and then request dialog closure',
+    );
+    assert.match(
+      src,
+      /onSaved=\{closeDialog\}/,
+      'ProvidersPanel must close the connection dialog after advanced settings are saved',
     );
   });
 
@@ -696,7 +713,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       detail,
-      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,[\s\S]*?\.\.\.\(apiKey/,
+      /props\.bridge\.update\(connection\.slug, \{[\s\S]*?baseUrl,[\s\S]*?enabledModelIds/,
       'ConnectionDetail must send an empty string as an explicit service-address clear',
     );
     assert.doesNotMatch(
@@ -740,20 +757,30 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
   });
 
-  it('automatically persists enabled-model edits without a second Save action', async () => {
+  it('keeps enabled-model edits as drafts until the shared advanced Save action', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
     const enabledModels = src.match(/function EnabledModelManager[\s\S]*?function modelDisplayLabel/)?.[0] ?? '';
 
     assert.match(
       detail,
-      /async function updateEnabledModels\(nextIds: string\[\]\)[\s\S]*connectionEnabledModelIds\([\s\S]*props\.bridge\.update\(connection\.slug, \{ enabledModelIds: next \}\)[\s\S]*await props\.onChanged\(\)/,
+      /function updateEnabledModels\(nextIds: string\[\]\)[\s\S]*connectionEnabledModelIds\([\s\S]*setEnabledModelIds\(next\)/,
+    );
+    assert.doesNotMatch(
+      detail.match(/function updateEnabledModels[\s\S]*?\n  \}/)?.[0] ?? '',
+      /props\.bridge\.update/,
+      'checking a model must not persist before the user clicks Save',
+    );
+    assert.match(
+      detail,
+      /async function saveAdvancedSettings\(\)[\s\S]*baseUrl,\s*enabledModelIds,/,
+      'the shared advanced Save action must persist enabled models with the service address',
     );
     // The default model row is checked and locked (disabled), never toggled off,
-    // and there is no second Save action inside the editor.
+    // and there is no second Save action inside the model list itself.
     assert.match(enabledModels, /disabled=\{props\.disabled \|\| isDefault\}/);
     assert.match(enabledModels, /isDefault && \([\s\S]*providerEnabledModelMeta">\{copy\.defaultModel\}/);
-    assert.doesNotMatch(enabledModels, /copy\.saving|copy\.saveEndpoint/);
+    assert.doesNotMatch(enabledModels, /copy\.saving|copy\.saveSettings/);
   });
 
   it('surfaces provider detail save/delete failures instead of leaking rejected promises from actions', async () => {
@@ -762,7 +789,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
 
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*let saved = false;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*saved \? copy\.refreshFailed : copy\.saveFailed/,
+      /async function saveAdvancedSettings\(\) \{[\s\S]*let saved = false;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*catch \(error\) \{[\s\S]*toast\.error\([\s\S]*saved \? copy\.refreshFailed : copy\.saveFailed/,
       'ConnectionDetail save failures and post-save refresh failures must be visible',
     );
     assert.match(
@@ -780,6 +807,9 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
   it('surfaces provider detail credential-presence probe failures', async () => {
     const src = await readProviderSettingsCombinedSource();
     const detail = src.match(/function ConnectionDetail[\s\S]*?function modelIdListsEqual\(/)?.[0] ?? '';
+    const credentialProbe = detail.match(
+      /useEffect\(\(\) => \{[\s\S]*?props\.bridge[\s\S]*?\.hasSecret\(connection\.slug\)[\s\S]*?\}, \[props\.bridge, connection\.slug, probesCredential, toast\]\);/,
+    )?.[0] ?? '';
 
     assert.match(src, /type CredentialPresenceStatus = boolean \| 'loading' \| 'error'/);
     assert.match(detail, /useState<CredentialPresenceStatus>\([\s\S]*defaults\.authKind === 'none' \? true : 'loading'/);
@@ -791,7 +821,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
       'ConnectionDetail must show a visible error and keep unknown credential state distinct when probing fails',
     );
     assert.doesNotMatch(
-      detail,
+      credentialProbe,
       /catch\(\(error\) => \{[\s\S]*setHasSecret\(false\)/,
       'credential-presence probe failures must not be downgraded to missing credentials',
     );
@@ -835,7 +865,7 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /async function save\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
+      /async function saveAdvancedSettings\(\) \{[\s\S]*const lifecycle = connectionDetailLifecycleRef\.current;[\s\S]*await props\.bridge\.update\(connection\.slug,[\s\S]*saved = true;[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*await props\.onChanged\(\);[\s\S]*catch \(error\) \{[\s\S]*if \(!isConnectionDetailCurrent\(lifecycle\)\) return;[\s\S]*toast\.error/,
       'ConnectionDetail save must not write stale state or toast after close',
     );
     assert.match(
@@ -890,12 +920,12 @@ describe('Model OAuth catalog contract (PR-MODEL-OAUTH-ALL-0 + PR-CLAUDE-CARD-MO
     );
     assert.match(
       detail,
-      /connection\.slug !== previousSnapshot\.slug \|\| \(apiKey\.length === 0 && localStillSynced\)/,
+      /connection\.slug !== previousSnapshot\.slug \|\| localStillSynced/,
       'same-slug prop refresh should sync only when the local draft is still clean',
     );
     assert.match(
       detail,
-      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
+      /setBaseUrl\(nextSnapshot\.baseUrl\)[\s\S]*setEnabledModelIds\(nextSnapshot\.enabledModelIds\)[\s\S]*setModels\(nextSnapshot\.models\)[\s\S]*setModelSource\(nextSnapshot\.modelSource\)/,
       'prop refresh must update every draft field derived from connection props',
     );
     assert.match(

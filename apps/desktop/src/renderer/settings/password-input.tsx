@@ -28,12 +28,14 @@ export function PasswordInput(props: {
   disabled?: boolean;
   inputRef?: Ref<HTMLInputElement>;
   onBlur?(): void;
+  onReveal?(): Promise<boolean>;
 }) {
   const copy = getSettingsPreferencesCopy(useUiLocale()).password;
   const toast = useToast();
   const [visible, setVisible] = useState(false);
   const [justCopied, setJustCopied] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [revealing, setRevealing] = useState(false);
   const copyGuard = useActionGuard<'copy'>();
   const mountedRef = useMountedRef();
   const copyFeedbackTimerRef = useRef<number | null>(null);
@@ -72,6 +74,23 @@ export function PasswordInput(props: {
       if (mountedRef.current) setCopying(false);
     }
   }
+
+  async function toggleVisibility() {
+    if (visible) {
+      setVisible(false);
+      return;
+    }
+    if (!props.value && props.onReveal) {
+      setRevealing(true);
+      try {
+        if (!(await props.onReveal())) return;
+      } finally {
+        if (mountedRef.current) setRevealing(false);
+      }
+    }
+    if (mountedRef.current) setVisible(true);
+  }
+
   return (
     <div className="settingsPasswordField">
       <Input
@@ -82,10 +101,10 @@ export function PasswordInput(props: {
         onBlur={props.onBlur}
         placeholder={props.placeholder}
         aria-label={props.ariaLabel}
-        aria-describedby={props.ariaDescribedBy}
+          aria-describedby={props.ariaDescribedBy}
         autoComplete="off"
         spellCheck={false}
-        disabled={props.disabled}
+          disabled={props.disabled}
       />
       <div className="settingsPasswordActions">
         {props.value && !props.disabled && (
@@ -106,8 +125,8 @@ export function PasswordInput(props: {
           type="button"
           variant="quiet"
           size="icon-sm"
-          onClick={() => setVisible((current) => !current)}
-          disabled={props.disabled}
+          onClick={() => void toggleVisibility()}
+          disabled={props.disabled || revealing}
           aria-label={visible ? copy.hide : copy.show}
           aria-pressed={visible}
         >

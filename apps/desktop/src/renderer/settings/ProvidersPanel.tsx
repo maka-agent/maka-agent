@@ -356,6 +356,7 @@ export function ProvidersPanel({ bridge, initialPage = 'connections', initialCon
             connection={selected}
             isDefault={selected.slug === defaultSlug}
             onChanged={async () => { await reload(); }}
+            onSaved={closeDialog}
             onDeleted={async () => {
               closeDialog();
               const reloaded = await reload();

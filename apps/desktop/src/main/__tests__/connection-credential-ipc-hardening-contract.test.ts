@@ -101,6 +101,7 @@ describe('connection credential IPC hardening contract', () => {
       'connections:delete',
       'connections:test',
       'connections:fetchModels',
+      'connections:getApiKey',
     ]) {
       const handler = handlerBlock(channel);
       const normalizeAt = handler.indexOf('normalizeConnectionSlugForIpc');
@@ -128,6 +129,18 @@ describe('connection credential IPC hardening contract', () => {
       hasSecret,
       /resolveConnectionSecret\(/,
       'hasSecret is a read-only status probe: it must never call the network-refreshing resolveConnectionSecret',
+    );
+
+    const getApiKey = handlerBlock('connections:getApiKey');
+    assert.match(
+      getApiKey,
+      /slug = normalizeConnectionSlugForIpc\(slug, 'connection slug'\);[\s\S]*const connection = await connectionStore\.get\(slug\);[\s\S]*!providerAuthSupportsApiKey\(connection\.providerType\)[\s\S]*credentialStore\.getSecret\(slug, 'api_key'\)/,
+      'explicit key reveal must be limited to API-key providers and the api_key credential kind',
+    );
+    assert.doesNotMatch(
+      getApiKey,
+      /resolveConnectionSecret\(/,
+      'explicit API-key reveal must never expose or refresh OAuth tokens',
     );
   });
 
