@@ -499,6 +499,8 @@ export interface AiSdkBackendInput {
   streamConnectTimeoutMs?: number;
   /** Timeout between SDK/tool events; paused while waiting on permission. Default 120s. */
   streamIdleTimeoutMs?: number;
+  /** Test seam for the Runtime-owned provider retry clock. */
+  providerRetrySleep?: (delayMs: number, signal: AbortSignal) => Promise<void>;
   /** Timeout for a renderer/user permission decision. Default 300s. */
   permissionTimeoutMs?: number;
   /** Invocation-local allow/deny rules evaluated before the session mode. */
@@ -664,6 +666,40 @@ function toolResultText(text: string): ToolResultOutput {
   return { type: 'content', value: [{ type: 'text', text }] };
 }
 
+const MAX_PROVIDER_ATTEMPTS_PER_STEP = 10;
+const PROVIDER_RETRY_BASE_DELAY_MS = 1_000;
+const PROVIDER_RETRY_MAX_DELAY_MS = 32_000;
+const PROVIDER_RETRY_JITTER_FACTOR = 0.25;
+
+function providerRetryDelayMs(failedAttempt: number, retryAfterMs?: number): number {
+  if (retryAfterMs !== undefined) return retryAfterMs;
+  const base = Math.min(
+    PROVIDER_RETRY_BASE_DELAY_MS * 2 ** Math.max(0, failedAttempt - 1),
+    PROVIDER_RETRY_MAX_DELAY_MS,
+  );
+  return Math.ceil(base + Math.random() * PROVIDER_RETRY_JITTER_FACTOR * base);
+}
+
+function sleepForProviderRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(finish, delayMs);
+    signal.addEventListener('abort', abort, { once: true });
+
+    function finish(): void {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    }
+
+    function abort(): void {
+      clearTimeout(timer);
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }
+  });
+}
+
 // ============================================================================
 // Implementation
 // ============================================================================
@@ -677,6 +713,7 @@ export class AiSdkBackend implements AgentBackend {
   private readonly newId: () => string;
   private readonly now: () => number;
   private readonly maxSteps: number | undefined;
+  private readonly providerRetrySleep: (delayMs: number, signal: AbortSignal) => Promise<void>;
   private readonly toolRuntime: ToolRuntime;
   private readonly modelAdapter: ModelAdapter;
   private readonly toolAvailabilityRuntime: ToolAvailabilityRuntime;
@@ -717,6 +754,7 @@ export class AiSdkBackend implements AgentBackend {
     this.newId = input.newId ?? (() => crypto.randomUUID());
     this.now = input.now ?? (() => Date.now());
     this.maxSteps = input.maxSteps;
+    this.providerRetrySleep = input.providerRetrySleep ?? sleepForProviderRetry;
     this.modelAdapter = new ModelAdapter({
       connection: input.connection,
       apiKey: input.apiKey,
@@ -1397,7 +1435,6 @@ export class AiSdkBackend implements AgentBackend {
         const completedProviderSteps: RequestProjectionContext['completedSteps'][number][] = [];
         let requestMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
-        let providerRetryUsed = false;
         let result: ModelStreamResult;
         let finishReason: ModelFinishReason = 'stop';
         agentLoop: for (;;) {
@@ -1424,6 +1461,7 @@ export class AiSdkBackend implements AgentBackend {
           const activeToolsForRequest = shaped?.activeTools ?? currentRepairToolNames();
           providerRequestTracker?.setStep(runtimeSteps);
           let attemptMessages = projectedMessages;
+          let providerAttempt = 1;
           const returnedToolCalls: ToolCallPart[] = [];
           const providerStepId = currentStepMessageId;
           let providerStepUsage: NormalizedUsage | undefined;
@@ -1581,26 +1619,27 @@ export class AiSdkBackend implements AgentBackend {
                 attemptMessages = recoveredProjection?.messages ?? recovered.messages;
                 continue;
               }
-              const errorClass = this.modelAdapter.classifyError(streamFailure);
+              const failure = this.modelAdapter.normalizeFailure(streamFailure);
               if (
-                (errorClass === 'Network' ||
-                  errorClass === 'ProviderUnavailable' ||
-                  errorClass === 'RateLimit') &&
-                !providerRetryUsed &&
+                failure.retryable &&
+                providerAttempt < MAX_PROVIDER_ATTEMPTS_PER_STEP &&
                 stepBudgetRemains &&
                 returnedToolCalls.length === 0 &&
                 stepText.length === 0 &&
                 stepThinking.length === 0 &&
                 stepSignature === undefined
               ) {
-                providerRetryUsed = true;
                 // The failed request did not return authoritative usage. Keep
                 // effectiveness recoverable, but fail final metering closed.
                 sawUnusableStepUsage = true;
-                attemptMessages = projectedMessages;
-                stepText = '';
-                stepThinking = '';
-                stepSignature = undefined;
+                const delayMs = providerRetryDelayMs(providerAttempt, failure.retryAfterMs);
+                providerAttempt += 1;
+                watchdog.pause();
+                try {
+                  await this.providerRetrySleep(delayMs, turnAbortController.signal);
+                } finally {
+                  watchdog.resume();
+                }
                 continue;
               }
               // Unrecoverable (not context-length, latch spent, no seam, or no

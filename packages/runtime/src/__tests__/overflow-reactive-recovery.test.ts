@@ -98,6 +98,10 @@ interface ReactiveFixtureOptions {
   activeToolResultPrune?: boolean;
   /** Test-only gate before a numbered provider request starts. */
   beforeStream?: (call: number) => Promise<void>;
+  /** Test-only replacement for the Runtime-owned retry clock. */
+  providerRetrySleep?: (delayMs: number, signal: AbortSignal) => Promise<void>;
+  /** Override the stream idle watchdog for retry-wait coordination tests. */
+  streamIdleTimeoutMs?: number;
 }
 
 interface ReactiveLlmCall {
@@ -118,6 +122,7 @@ interface ReactiveFixture {
   priorEvents: RuntimeEvent[];
   events: SessionEvent[];
   llmCalls: ReactiveLlmCall[];
+  retryDelays: number[];
   /** JSON of each summarizer call's folded runtime events (coverage evidence). */
   summarizedSources: string[];
   persist: (event: SessionEvent) => void;
@@ -130,6 +135,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
   const toolExecutions: string[] = [];
   const events: SessionEvent[] = [];
   const llmCalls: ReactiveLlmCall[] = [];
+  const retryDelays: number[] = [];
   const counters = { summarizerCalls: 0 };
   const usage = (input: number, output: number) => ({
     inputTokens: { total: input, noCache: input, cacheRead: 0, cacheWrite: 0 },
@@ -192,6 +198,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       throw Object.assign(new Error('too many requests'), {
         name: 'AI_APICallError',
         statusCode: 429,
+        responseHeaders: { 'retry-after-ms': '1' },
       });
     }
     if (kind === 'terminated') {
@@ -420,6 +427,13 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     recordLlmCall: (record) => {
       llmCalls.push(record as (typeof llmCalls)[number]);
     },
+    providerRetrySleep: async (delayMs, signal) => {
+      retryDelays.push(delayMs);
+      await options.providerRetrySleep?.(delayMs, signal);
+    },
+    ...(options.streamIdleTimeoutMs !== undefined
+      ? { streamIdleTimeoutMs: options.streamIdleTimeoutMs }
+      : {}),
     newId: idGenerator(),
     now: monotonicClock(),
   });
@@ -434,6 +448,7 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
     priorEvents,
     events,
     llmCalls,
+    retryDelays,
     summarizedSources,
     persist,
   };
@@ -544,6 +559,79 @@ describe('reactive overflow recovery in the streaming backend', () => {
       fixture.events.some((event) => event.type === 'error'),
       false,
     );
+    assert.deepEqual(fixture.retryDelays, [1]);
+  });
+
+  test('applies a fresh provider retry budget to each completed step', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['rateLimit', 'tool', 'rateLimit', 'done'],
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 4);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.deepEqual(fixture.toolExecutions, ['one.md']);
+  });
+
+  test('stops after ten provider attempts with bounded exponential backoff', async () => {
+    const fixture = buildReactiveFixture({
+      script: Array.from({ length: 10 }, () => 'error500'),
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 10);
+    assert.equal(complete(fixture)?.stopReason, 'error');
+    assert.equal(fixture.retryDelays.length, 9);
+    const bases = [1_000, 2_000, 4_000, 8_000, 16_000, 32_000, 32_000, 32_000, 32_000];
+    for (const [index, delay] of fixture.retryDelays.entries()) {
+      const base = bases[index]!;
+      assert.equal(delay >= base && delay <= base * 1.25, true);
+    }
+  });
+
+  test('pauses the stream watchdog during an intentional provider backoff', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['rateLimit', 'done'],
+      streamIdleTimeoutMs: 5,
+      providerRetrySleep: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      },
+    });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+  });
+
+  test('cancels a provider backoff when the turn is stopped', async () => {
+    let retryStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      retryStarted = resolve;
+    });
+    const fixture = buildReactiveFixture({
+      script: ['rateLimit', 'done'],
+      providerRetrySleep: async (_delayMs, signal) => {
+        retryStarted();
+        await new Promise<void>((resolve, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+            { once: true },
+          );
+        });
+      },
+    });
+
+    const turn = runTurn(fixture);
+    await started;
+    await fixture.backend.stop('user_stop', 'immediate');
+    await turn;
+
+    assert.equal(fixture.model.doStreamCalls.length, 1);
+    assert.equal(
+      fixture.events.some((event) => event.type === 'abort' && event.reason === 'user_stop'),
+      true,
+    );
   });
 
   test('retries one transient transport failure from the completed-step request boundary', async () => {
@@ -597,11 +685,13 @@ describe('reactive overflow recovery in the streaming backend', () => {
     );
   });
 
-  test('surfaces a second transport failure without spending another sample', async () => {
-    const fixture = buildReactiveFixture({ script: ['tool', 'terminated', 'terminated', 'done'] });
+  test('surfaces the tenth transport failure without spending another sample', async () => {
+    const fixture = buildReactiveFixture({
+      script: ['tool', ...Array.from({ length: 10 }, () => 'terminated' as const)],
+    });
     await runTurn(fixture);
 
-    assert.equal(fixture.model.doStreamCalls.length, 3);
+    assert.equal(fixture.model.doStreamCalls.length, 11);
     assert.equal(complete(fixture)?.stopReason, 'error');
     assert.deepEqual(fixture.toolExecutions, ['one.md']);
     assert.equal(fixture.recorded.length, 0);

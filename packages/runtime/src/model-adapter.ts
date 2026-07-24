@@ -293,6 +293,10 @@ export class ModelAdapter {
     };
   }
 
+  normalizeFailure(error: unknown): ModelFailure {
+    return normalizeModelFailure(error);
+  }
+
   classifyError(error: unknown): string {
     if (isModelFailure(error)) return errorClassFromFailureKind(error.kind);
     return classifyError(error);
