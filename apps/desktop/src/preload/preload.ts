@@ -95,7 +95,7 @@ import type { GoalState } from '@maka/runtime';
 import type { BundledSkillCatalogEntry, ManagedSkillSourceEntry, ManagedSkillUpdatePreview, SkillEntry, SkillGovernanceDetails } from '@maka/ui';
 import type { ConfigCategory } from '@maka/storage';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
-import type { Result } from '@maka/core/settings/result';
+import type { Result } from '@maka/core/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
   McpConfigFile,
@@ -1058,8 +1058,16 @@ const makaBridge = {
     list(): Promise<SkillEntry[]> {
       return ipcRenderer.invoke('skills:list');
     },
-    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]> {
-      return ipcRenderer.invoke('skills:listInvocable', sessionId);
+    listInvocable(
+      sessionId?: string,
+      newSessionContext?: {
+        llmConnectionSlug?: string;
+        model?: string;
+        collaborationMode?: 'agent' | 'plan';
+        mode?: QuickChatMode;
+      },
+    ): Promise<import('@maka/runtime').InvocableSkillEntry[]> {
+      return ipcRenderer.invoke('skills:listInvocable', sessionId, newSessionContext);
     },
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]> {

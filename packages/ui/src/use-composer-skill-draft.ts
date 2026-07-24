@@ -49,7 +49,35 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
 
   function clear(key: string | undefined) {
     if (key) storeRef.current.delete(key);
-    if (key === activeKeyRef.current) commit([]);
+    if (key === activeKeyRef.current) {
+      // Keep clear terminal: commit([]) would immediately recreate
+      // the active store entry.
+      currentRef.current = [];
+      setSkillsState([]);
+    }
+  }
+
+  function get(key: string | undefined) {
+    return key === activeKeyRef.current
+      ? [...currentRef.current]
+      : key
+        ? [...(storeRef.current.get(key) ?? [])]
+        : [];
+  }
+
+  function replace(
+    key: string | undefined,
+    skills: readonly ComposerSkillSelection[],
+  ) {
+    const next = [...skills];
+    if (key) {
+      if (next.length > 0) storeRef.current.set(key, next);
+      else storeRef.current.delete(key);
+    }
+    if (key === activeKeyRef.current) {
+      currentRef.current = next;
+      setSkillsState(next);
+    }
   }
 
   useEffect(() => {
@@ -68,6 +96,8 @@ export function useComposerSkillDraft(draftKey: string | undefined) {
     remove,
     removeLast,
     clear,
+    get,
+    replace,
     activeDraftKey: () => activeKeyRef.current,
   };
 }

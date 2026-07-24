@@ -315,16 +315,22 @@ export function buildProviderOptions(
     case 'anthropic':
     case 'MiniMax':
     case 'MiniMax-cn':
-    case 'claude-subscription':
+    case 'claude-subscription': {
+      let reasoning = {};
+      if (level === 'off' && thinkingOptions?.offBehavior === 'anthropic-thinking-disabled') {
+        reasoning = { thinking: { type: 'disabled' as const } };
+      } else if (level && level !== 'off') {
+        reasoning = { effort: level };
+      }
       return {
-        anthropic: level
-          ? level === 'off'
-            ? thinkingOptions?.offBehavior === 'anthropic-thinking-disabled'
-              ? { thinking: { type: 'disabled' as const } }
-              : {}
-            : { effort: level }
-          : {},
+        anthropic: {
+          ...(connection.providerType === 'anthropic'
+            ? { cacheControl: { type: 'ephemeral' as const } }
+            : {}),
+          ...reasoning,
+        },
       };
+    }
     case 'openai-codex':
       return {
         openai: {

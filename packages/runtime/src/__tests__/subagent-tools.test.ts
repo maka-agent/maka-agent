@@ -401,6 +401,19 @@ describe('subagent tools', () => {
     expect(tools.some((tool) => tool.name === 'Edit')).toBe(false);
   });
 
+  test('keeps host-provided ArchiveRead available for child recovery', () => {
+    const archiveRead = testCatalogTool('ArchiveRead', 'read');
+    const tools = buildChildAgentTools([
+      testCatalogTool('Read', 'read'),
+      testCatalogTool('Glob', 'read'),
+      testCatalogTool('Grep', 'read'),
+      testCatalogTool('WebSearch', 'web_read'),
+      archiveRead,
+    ]);
+
+    expect(tools.find((tool) => tool.name === 'ArchiveRead')).toBe(archiveRead);
+  });
+
   test('child agent toolset enforces explore-mode read-only behavior without prompting', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'maka-child-tools-'));
     try {

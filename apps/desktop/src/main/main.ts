@@ -16,6 +16,7 @@ import type {
   SessionChangedEvent,
   SessionChangedReason,
   SessionEvent,
+  SessionHeader,
 } from '@maka/core';
 import { deriveBotStatusPersistenceUpdate } from './bot-status-persistence.js';
 import { runThreadSearch } from './search/thread-search.js';
@@ -27,7 +28,7 @@ import { GitHubCopilotSubscriptionService } from './oauth/github-copilot-subscri
 import { CursorSubscriptionService } from './oauth/cursor-subscription-service.js';
 import { AntigravitySubscriptionService } from './oauth/antigravity-subscription-service.js';
 import type { WorkspacePrivacyContext } from '@maka/core/incognito';
-import { ok } from '@maka/core/settings/result';
+import { ok } from '@maka/core/result';
 import {
   BackendRegistry,
   FakeBackend,
@@ -108,6 +109,7 @@ import { registerConnectionsIpc } from './connections-ipc-main.js';
 import { registerConfigIpc } from './config-ipc-main.js';
 import { registerPlanReminderIpc } from './plan-reminders-ipc-main.js';
 import { registerWorkspaceResourcesIpc } from './workspace-resources-ipc-main.js';
+import type { NewSessionSkillContext } from './workspace-resources-ipc-main.js';
 import { registerDailyReviewIpc } from './daily-review-ipc-main.js';
 import { registerUsageIpc } from './usage-ipc-main.js';
 import { registerWebSearchIpc } from './web-search-ipc-main.js';
@@ -125,6 +127,11 @@ import { createE2eFixtureBotOnboardingAdapters } from './bot-onboarding-e2e-fixt
 import { createKeepSystemAwakeController } from './keep-system-awake.js';
 import { createSettingsRuntimeEffects } from './settings-runtime-effects.js';
 import { createAiSdkBackendFactory, createSessionStreamer } from './session-stream.js';
+import {
+  resolveDesktopBackendToolSurface,
+  resolveDesktopNewSessionSkillHost,
+  resolveDesktopSessionSkillHost,
+} from './desktop-backend-tool-surface.js';
 import { registerGatewayIpc } from './gateway-ipc-main.js';
 import { registerSessionsIpc } from './sessions-ipc-main.js';
 import {
@@ -495,9 +502,10 @@ const localMemory = new LocalMemoryService({
   updateSettings: (patch) => settingsStore.update(patch),
   getPrivacyContext: getWorkspacePrivacyContext,
 });
-// Resolve a session's backend host at Skill invocation time. The fallback is
-// the binding-derived Desktop surface created after the product tool catalog
-// is assembled below.
+// The synchronous Runtime Skill tools execute inside an already-built backend.
+// Their resolver uses the exact host cached by that backend. Pre-send
+// invocation and slash discovery derive a fresh surface from the persisted
+// session header instead; see resolveDesktopSkillHostForSession below.
 const desktopSessionSkillHosts = new Map<string, HostCapabilities>();
 const resolveDesktopSkillHost: HostCapabilitiesResolver = ({ sessionId }) =>
   desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities;
@@ -579,6 +587,7 @@ const {
   snapshotReadImage,
   persistArchivedToolResult,
   readArchivedToolResult,
+  readArchivedToolResultResource,
 } = createToolArtifactPersistence({ artifactStore, storeReadImage, safeSendToRenderer });
 
 const {
@@ -605,9 +614,23 @@ const {
   settingsStore,
   shellRuns,
   snapshotReadImage,
+  readArchivedToolResultResource,
   getWorkspacePrivacyContext,
   resolveDesktopSkillHost,
 });
+const desktopBackendToolSurfaceDeps = {
+  isComputerUseRealModelE2e,
+  ensureMcpReady,
+  getReadyConnection,
+  mcpManager,
+  taskLedgerStore,
+  deepResearchTools,
+  computerUseTools,
+  agentTeamLeadTools,
+  builtinTools,
+  toolAvailability,
+  planStore,
+};
 // Cursor-overlay teardown assigns a module-scoped `let`, so it stays in main.ts.
 onMainWindowClose = () => computerUseOverlay.destroyAll();
 const systemPromptService = createSystemPromptMainService({
@@ -696,28 +719,18 @@ const planReminders = createPlanReminderMainService({
 app.setName('Maka');
 
 backends.register('ai-sdk', createAiSdkBackendFactory({
-  isComputerUseRealModelE2e,
-  ensureMcpReady,
-  getReadyConnection,
+  ...desktopBackendToolSurfaceDeps,
   buildSubscriptionModelFetch,
   systemPromptService,
-  mcpManager,
   permissionEngine,
-  taskLedgerStore,
   telemetryRepo,
   artifactStore,
-  deepResearchTools,
   desktopSessionSkillHosts,
-  computerUseTools,
-  agentTeamLeadTools,
-  builtinTools,
-  toolAvailability,
   sandboxDiagnosticsProvider,
   persistToolArtifacts,
   persistArchivedToolResult,
   readArchivedToolResult,
   runtimeCommitStore: runtimePersistence.runtimeCommitStore,
-  planStore,
   safeSendToRenderer,
   openGateway,
   emitSessionsChanged,
@@ -1095,32 +1108,62 @@ function getReadyConnection(slug: string | null | undefined, model?: string) {
   return requireReadyConnection(slug, readyConnectionDeps, model);
 }
 
+async function resolveDesktopSkillHostForSession(
+  sessionId: string,
+): Promise<HostCapabilities> {
+  const header = await store.readHeader(sessionId);
+  return resolveDesktopSessionSkillHost(desktopBackendToolSurfaceDeps, {
+    sessionId,
+    header,
+    childTools: childAgentTools,
+  });
+}
+
+async function resolveDesktopSkillHostForNewSession(
+  projectRoot: string,
+  context?: NewSessionSkillContext,
+): Promise<HostCapabilities> {
+  const ready = await getReadyConnection(
+    context?.llmConnectionSlug ?? (await connectionStore.getDefault()),
+    context?.model,
+  );
+  return resolveDesktopNewSessionSkillHost(desktopBackendToolSurfaceDeps, {
+    projectRoot,
+    workspaceRoot,
+    readyConnection: ready,
+    context,
+  });
+}
+
 async function prepareDesktopSkillInvocation(
   sessionId: string,
   text: string,
   skillIds?: readonly string[],
 ) {
+  const [projectRoot, host] = await Promise.all([
+    resolveProjectRootForContext(sessionId),
+    resolveDesktopSkillHostForSession(sessionId),
+  ]);
   return prepareSkillInvocationMessage({
     text,
     ...(skillIds ? { skillIds } : {}),
-    source: resolveSkillDiscoveryPaths(
-      await resolveProjectRootForContext(sessionId),
-      workspaceRoot,
-    ),
-    host: desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities,
+    source: resolveSkillDiscoveryPaths(projectRoot, workspaceRoot),
+    host,
   });
 }
 
-async function listDesktopInvocableSkills(sessionId?: string) {
+async function listDesktopInvocableSkills(
+  sessionId?: string,
+  newSessionContext?: NewSessionSkillContext,
+) {
   try {
+    const projectRoot = await resolveProjectRootForContext(sessionId);
+    const host = sessionId
+      ? await resolveDesktopSkillHostForSession(sessionId)
+      : await resolveDesktopSkillHostForNewSession(projectRoot, newSessionContext);
     return await listInvocableSkills(
-      resolveSkillDiscoveryPaths(
-        await resolveProjectRootForContext(sessionId),
-        workspaceRoot,
-      ),
-      sessionId
-        ? (desktopSessionSkillHosts.get(sessionId) ?? desktopHostCapabilities)
-        : desktopHostCapabilities,
+      resolveSkillDiscoveryPaths(projectRoot, workspaceRoot),
+      host,
     );
   } catch (error) {
     // Stale sessions with a removed working directory remain browseable, but

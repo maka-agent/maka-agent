@@ -38,6 +38,31 @@ export type {
   StopSessionInput,
 } from './session-manager.js';
 export type { SubagentExecutionRef } from './subagent-execution.js';
+export {
+  AGENT_GRAPH_RECORD_FACETS,
+  AGENT_GRAPH_RECORD_SCHEMA_VERSION,
+  projectAgentGraphRecords,
+  readCommittedAgentGraphProjection,
+  replayAgentGraphRecords,
+} from './stream-graph-projection.js';
+export type {
+  AgentGraphActivationState,
+  AgentGraphActivationStatus,
+  AgentGraphOperatorBinding,
+  AgentGraphOperatorState,
+  AgentGraphProjection,
+  AgentGraphRecord,
+  AgentGraphRecordFacet,
+  AgentGraphRecordOrderKey,
+  AgentGraphReplayState,
+  AgentGraphRunStream,
+  AgentGraphRuntimeEventSource,
+  AgentGraphSupervisorAttentionReason,
+  AgentGraphSupervisorMetaRecord,
+  AgentGraphSupervisorSignal,
+  ProjectAgentGraphRecordsInput,
+  ReadCommittedAgentGraphProjectionInput,
+} from './stream-graph-projection.js';
 
 export { PermissionEngine, createDefaultPermissionEngineDeps } from './permission-engine.js';
 export type { EvaluateResult, EvaluateInput, PermissionEngineDeps } from './permission-engine.js';
@@ -195,6 +220,23 @@ export type {
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export {
+  buildToolResultArchiveResourceRef,
+  parseToolResultArchiveResourceRef,
+  readToolResultArchiveResource,
+  TOOL_RESULT_ARCHIVE_DEFAULT_LIMIT,
+  TOOL_RESULT_ARCHIVE_MAX_BYTES,
+  TOOL_RESULT_ARCHIVE_MAX_LIMIT,
+  TOOL_RESULT_ARCHIVE_MAX_RESPONSE_CHARS,
+  TOOL_RESULT_ARCHIVE_READ_INSTRUCTIONS,
+} from './tool-result-archive-resource.js';
+export type {
+  ToolResultArchiveResourceIdentity,
+  ToolResultArchiveResourceOperation,
+  ToolResultArchiveResourceReader,
+  ToolResultArchiveResourceReadInput,
+  ToolResultArchiveResourceRequest,
+} from './tool-result-archive-resource.js';
 export { buildComputerUseTools, adaptToCuAction } from './computer-use-tools.js';
 export {
   convertOpenAIComputerAction,

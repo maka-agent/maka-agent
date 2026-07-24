@@ -9,7 +9,9 @@ import {
   mentionQueryMatches,
   skillMentionQuery,
 } from '../chat-input-behavior.js';
-import { addUniqueComposerSkillSelection } from '../use-composer-skill-draft.js';
+import {
+  addUniqueComposerSkillSelection,
+} from '../use-composer-skill-draft.js';
 
 describe('shared chat input behavior', () => {
   it('recognizes IME composition from either the native flag or Process key', () => {

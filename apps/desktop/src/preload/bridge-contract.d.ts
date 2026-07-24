@@ -79,7 +79,7 @@ import type {
   UsageSummaryV2,
 } from '@maka/core/usage-stats/types';
 import type { TestProxyInput } from '@maka/core/settings/network-settings';
-import type { Result } from '@maka/core/settings/result';
+import type { Result } from '@maka/core/result';
 import type { CreateSessionInput } from '@maka/core';
 import type {
   McpConfigFile,
@@ -673,7 +673,15 @@ export interface MakaBridge {
   };
   skills: {
     list(): Promise<SkillEntry[]>;
-    listInvocable(sessionId?: string): Promise<import('@maka/runtime').InvocableSkillEntry[]>;
+    listInvocable(
+      sessionId?: string,
+      newSessionContext?: {
+        llmConnectionSlug?: string;
+        model?: string;
+        collaborationMode?: 'agent' | 'plan';
+        mode?: QuickChatMode;
+      },
+    ): Promise<import('@maka/runtime').InvocableSkillEntry[]>;
     catalog: {
       list(): Promise<BundledSkillCatalogEntry[]>;
       install(id: string): Promise<

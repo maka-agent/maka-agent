@@ -158,6 +158,9 @@ describe('active current-turn tool-result pruning', () => {
     const secondPrompt = JSON.stringify(prompts[1]);
     assert.match(secondPrompt, /maka\.active_archived_tool_result/);
     assert.match(secondPrompt, /artifact-tool-1/);
+    assert.equal(secondPrompt.includes('maka://archive/'), true);
+    assert.match(secondPrompt, /ArchiveRead/);
+    assert.match(secondPrompt, /Do not use Glob/);
     assert.equal(secondPrompt.includes(largeBody), false);
   });
 

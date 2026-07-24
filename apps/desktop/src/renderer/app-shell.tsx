@@ -10,7 +10,15 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import type { PermissionMode, PlanReminder, QuoteRef, SessionSummary, UiLocale, UiLocalePreference } from '@maka/core';
+import type {
+  PermissionMode,
+  PlanReminder,
+  QuickChatMode,
+  QuoteRef,
+  SessionSummary,
+  UiLocale,
+  UiLocalePreference,
+} from '@maka/core';
 import {
   buildDeepResearchImplementationPrompt,
   collapseSessionRevisions,
@@ -228,6 +236,7 @@ function AppShellContent({
     draftKey: attachmentDraftKey,
   });
   const [newChatPlanModeActive, setNewChatPlanModeActive] = useState(false);
+  const [newChatQuickChatMode, setNewChatQuickChatMode] = useState<QuickChatMode | undefined>();
   const [pendingCollaborationModeBySession, setPendingCollaborationModeBySession] = useState<Record<string, boolean>>({});
   const [newChatSwarmModeActive, setNewChatSwarmModeActive] = useState(false);
   const [pendingOrchestrationModeBySession, setPendingOrchestrationModeBySession] = useState<Record<string, boolean>>({});
@@ -1032,6 +1041,9 @@ function AppShellContent({
     skills,
     sessionId: activeId,
     projectPath: projectInfo?.projectPath,
+    newSessionModel: newChatModel,
+    newSessionCollaborationMode: newChatPlanModeActive ? 'plan' : 'agent',
+    newSessionMode: newChatQuickChatMode,
   });
 
   const { applyE2eFixture } = useStableActions(createAppShellE2eFixtureActions, {
@@ -1206,8 +1218,8 @@ function AppShellContent({
       return ok;
     }
     const pending = pendingAttachments.length > 0 ? pendingAttachments : undefined;
-    const expectedRevisionSessionId = revisionSend
-      ? revisionDraftRef.current?.draftSessionId
+    const expectedRevisionDraft = revisionSend
+      ? revisionDraftRef.current
       : undefined;
     const quotes = pendingQuotes.length > 0 ? pendingQuotes : undefined;
     const ok = await send(text, pending, {
@@ -1217,8 +1229,11 @@ function AppShellContent({
     if (ok !== false && pending) clearSubmittedAttachments(pending);
     if (ok !== false && quotes) clearQuotes();
     if (ok !== false && revisionSend) {
-      if (expectedRevisionSessionId) {
-        composerRef.current?.clearDraft(expectedRevisionSessionId);
+      if (expectedRevisionDraft) {
+        composerRef.current?.clearDraft(expectedRevisionDraft.draftSessionId);
+        if (expectedRevisionDraft.sourceSessionId !== expectedRevisionDraft.draftSessionId) {
+          composerRef.current?.clearDraft(expectedRevisionDraft.sourceSessionId);
+        }
       }
       commitRevisionDraft(null);
     }
@@ -1409,6 +1424,7 @@ function AppShellContent({
   async function createSession() {
     startNewSession();
     setNewChatPlanModeActive(false);
+    setNewChatQuickChatMode(undefined);
     setNavSelection({ section: 'sessions', filter: 'chats' });
     setSearchScrollTarget(null);
     // New-task affordances reset to the empty-state composer; move focus
@@ -1812,6 +1828,7 @@ function AppShellContent({
                 onBrowseProviders={openProviderCatalog}
                 onQuickChatSubmit={handleQuickChatSubmit}
                 mentionSkills={mentionSkills}
+                onQuickChatModeChange={setNewChatQuickChatMode}
                 quickChatPending={quickChatPending}
                 connections={connections}
                 onRefreshConnections={refreshConnections}

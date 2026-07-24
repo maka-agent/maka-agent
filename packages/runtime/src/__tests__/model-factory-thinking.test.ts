@@ -17,32 +17,53 @@ function conn(providerType: LlmConnection['providerType'], slug = 'test'): LlmCo
 }
 
 describe('buildProviderOptions: thinking level', () => {
+  test('only native Anthropic enables automatic prompt caching', () => {
+    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8'), {
+      anthropic: { cacheControl: { type: 'ephemeral' } },
+    });
+    for (const providerType of [
+      'claude-subscription',
+      'MiniMax',
+      'MiniMax-cn',
+      'kimi-coding-plan',
+    ] as const) {
+      const anthropic = buildProviderOptions(conn(providerType), 'claude-opus-4-8').anthropic;
+      assert.equal(
+        (anthropic as { cacheControl?: unknown } | undefined)?.cacheControl,
+        undefined,
+        `${providerType} must not inherit Anthropic automatic prompt caching`,
+      );
+    }
+  });
+
   test('anthropic effort model (opus-4-8) sends effort field directly; no budgetTokens mapping', () => {
-    assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8'), { anthropic: {} });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'high'), {
-      anthropic: { effort: 'high' },
+      anthropic: { cacheControl: { type: 'ephemeral' }, effort: 'high' },
     });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'max'), {
-      anthropic: { effort: 'max' },
+      anthropic: { cacheControl: { type: 'ephemeral' }, effort: 'max' },
     });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'xhigh'), {
-      anthropic: { effort: 'xhigh' },
+      anthropic: { cacheControl: { type: 'ephemeral' }, effort: 'xhigh' },
     });
   });
 
   test('anthropic budget/toggle model (haiku-4-5) sends thinking.disabled for off; drops unsupported effort', () => {
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'off'), {
-      anthropic: { thinking: { type: 'disabled' } },
+      anthropic: {
+        cacheControl: { type: 'ephemeral' },
+        thinking: { type: 'disabled' },
+      },
     });
     // haiku-4-5 has no effort variants, only off → high is dropped
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'high'), {
-      anthropic: {},
+      anthropic: { cacheControl: { type: 'ephemeral' } },
     });
   });
 
   test('anthropic effort model without toggle (opus-4-8) drops off (cannot disable)', () => {
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-opus-4-8', 'off'), {
-      anthropic: {},
+      anthropic: { cacheControl: { type: 'ephemeral' } },
     });
   });
 
@@ -292,7 +313,7 @@ describe('buildProviderOptions: thinking level', () => {
       openai: { store: false },
     });
     assert.deepEqual(buildProviderOptions(conn('anthropic'), 'claude-haiku-4-5', 'max'), {
-      anthropic: {},
+      anthropic: { cacheControl: { type: 'ephemeral' } },
     });
   });
 });

@@ -68,6 +68,11 @@ describe('semantic compact', () => {
     assert.ok(requestSeen, 'expected injected summarizer to be called');
     assert.equal(requestSeen.maxOutputTokens, 4096);
     assert.equal(result.block?.kind, 'maka.semantic_compact_block');
+    assert.equal(result.block?.blockId, 'semcompact-311e98c7e686a4ac360adc140a644165');
+    assert.equal(
+      result.block?.cumulativeCoverageDigest,
+      'edc54105a90e20f39f8f7c184c7162f4f187da295076393399a73d2b78ae2d2a',
+    );
     assert.equal(result.block?.stateCards, undefined);
     assert.equal(result.block?.acceptance.decision, 'accepted');
     assert.ok((result.block?.estimatedTokensSavedSigned ?? 0) > 0);

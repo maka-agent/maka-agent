@@ -13,15 +13,15 @@ describe('Deep Research durable workspace wiring', () => {
       fileURLToPath(new URL('../../../src/main/tool-assembly.ts', import.meta.url)),
       'utf8',
     );
-    const sessionStream = await readFile(
-      fileURLToPath(new URL('../../../src/main/session-stream.ts', import.meta.url)),
+    const backendToolSurface = await readFile(
+      fileURLToPath(new URL('../../../src/main/desktop-backend-tool-surface.ts', import.meta.url)),
       'utf8',
     );
     const builtinTools = toolAssembly.match(
       /const builtinTools: MakaTool\[\] = \[[\s\S]*?\n\];/,
     )?.[0] ?? '';
-    const candidateTools = sessionStream.match(
-      /const candidateTools = ctx\.tools[\s\S]*?const candidateToolAvailability/,
+    const candidateTools = backendToolSurface.match(
+      /const candidateTools = input\.tools[\s\S]*?const candidateToolAvailability/,
     )?.[0] ?? '';
     const preload = await readFile(
       fileURLToPath(new URL('../../../src/preload/preload.ts', import.meta.url)),
@@ -45,7 +45,7 @@ describe('Deep Research durable workspace wiring', () => {
     );
     assert.match(
       candidateTools,
-      /ctx\.tools\s*\?\s*\[\.\.\.ctx\.tools\]\s*:\s*isComputerUseRealModelE2e[\s\S]*isDeepResearchSession\(ctx\.header\.labels\) \? deepResearchTools : \[\]/,
+      /input\.tools\s*\?\s*\[\.\.\.input\.tools\]\s*:\s*deps\.isComputerUseRealModelE2e[\s\S]*isDeepResearchSession\(input\.header\.labels\) \? deps\.deepResearchTools : \[\]/,
       'child tool scopes must win before computer-use and root-only Deep Research expansion',
     );
   });

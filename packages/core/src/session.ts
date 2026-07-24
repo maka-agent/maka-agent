@@ -690,6 +690,7 @@ export interface TokenUsageMessage {
   cacheCreation?: number;
   costUsd?: number;
   systemPromptHash?: string;
+  contextRemaining?: number;
   prefixHash?: string;
   prefixChangeReason?: PrefixChangeReason;
   requestShapeHash?: string;
@@ -786,6 +787,7 @@ const TOKEN_USAGE_MESSAGE_SHAPE = defineObjectShape<TokenUsageMessage>()(
     'cacheCreation',
     'costUsd',
     'systemPromptHash',
+    'contextRemaining',
     'prefixHash',
     'prefixChangeReason',
     'requestShapeHash',

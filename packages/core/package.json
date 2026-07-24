@@ -56,6 +56,7 @@
     "./text-file-import": "./dist/text-file-import.js",
     "./redaction": "./dist/redaction.js",
     "./display-redaction": "./dist/display-redaction.js",
+    "./result": "./dist/result.js",
     "./settings": "./dist/settings.js",
     "./mcp": "./dist/mcp.js",
     "./settings/network-settings": "./dist/settings/network-settings.js",

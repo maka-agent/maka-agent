@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import type { UserQuestionRequestEvent } from '@maka/core';
 import { UserQuestionPrompt } from '@maka/ui';
+import { expect, userEvent, within } from 'storybook/test';
 
 import './ask-user-question.css';
 
@@ -39,6 +40,7 @@ const REQUEST: UserQuestionRequestEvent = {
 function PreviewColumn(props: {
   title: string;
   width: number;
+  request?: UserQuestionRequestEvent;
 }) {
   return (
     <div className="maka-question-review-column" style={{ width: props.width }}>
@@ -48,7 +50,7 @@ function PreviewColumn(props: {
           <div><strong>你</strong><p>请帮我确定官网上线方案。</p></div>
           <div><strong>Maka</strong><p>我需要先确认几个有明确选项的发布决策，然后会继续生成执行计划。</p></div>
         </div>
-        <UserQuestionPrompt request={REQUEST} onRespond={() => {}} onStop={() => {}} />
+        <UserQuestionPrompt request={props.request ?? REQUEST} onRespond={() => {}} onStop={() => {}} />
       </div>
     </div>
   );
@@ -61,4 +63,25 @@ export const StandardAndNarrow: Story = {
       <PreviewColumn title="窄聊天列" width={390} />
     </main>
   ),
+};
+
+export const OtherAnswerSelected: Story = {
+  render: () => (
+    <main className="maka-question-review-board">
+      <PreviewColumn
+        title="“其他”选中并直接输入"
+        width={760}
+        request={{ ...REQUEST, questions: REQUEST.questions.slice(0, 1) }}
+      />
+    </main>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = canvas.getByRole('textbox', { name: '其他答案' });
+    await userEvent.click(input);
+    await expect(input).toHaveFocus();
+    await userEvent.type(input, '分阶段发布');
+    await expect(input).toHaveValue('分阶段发布');
+    await expect(input.closest('.maka-question-other-field')).toHaveAttribute('data-selected');
+  },
 };

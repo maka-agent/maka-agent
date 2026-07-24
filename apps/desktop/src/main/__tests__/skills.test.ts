@@ -114,7 +114,7 @@ Use the Office tools.`);
     assert.match(mainProcess, /buildSkillSearchAgentTool\([\s\S]*resolveDesktopSkillHost,[\s\S]*shadowTracker/);
     assert.match(mainProcess, /const backendSkillHost = buildHostCapabilitiesFromBinding\(backendToolNames\)/);
     assert.doesNotMatch(mainProcess, /const backendCapabilities = new Set<string>\(\)/);
-    assert.match(mainProcess, /\[\.\.\.builtinTools, \.\.\.buildMcpTools\(mcpManager\)\]/);
+    assert.match(mainProcess, /\.\.\.deps\.builtinTools,[\s\S]*\.\.\.buildMcpTools\(deps\.mcpManager\)/);
     assert.match(mainProcess, /const backendTools = computerUseToolsForModel\(/);
     assert.match(mainProcess, /const backendToolNames = new Set\(/);
     assert.match(mainProcess, /selectedTools\.map\(\(tool\) => tool\.name\)/);

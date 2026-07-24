@@ -5,9 +5,16 @@ import type { SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, Composer, SessionListPanel } from '@maka/ui';
 import type { ChatModelChoice } from '@maka/ui';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from '../src/renderer/app-shell-chrome-actions';
-import { OnboardingHero } from '../src/renderer/OnboardingHero';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
+
+// FIDELITY CONVENTION — every story in this file must map to an app state a
+// real user can reach, with the path noted above the story. A story that
+// composes an unreachable state (or a state that requires different app
+// data than shown) lies about the product, and every visual comparison or
+// review built on it is wrong. If the app changes so a story no longer
+// matches a reachable state, fix the story or delete it — do not keep both
+// "the app" and "the story version" of a surface alive.
 
 const meta = {
   title: 'Product/Shell Child Composition',
@@ -130,7 +137,18 @@ const baseComposerProps: ComposerProps = {
   modelChoices,
   permissionMode: 'ask',
   onPermissionModeChange: noop,
-	  workspacePicker: {
+  // Fidelity: production app-shell always wires these (app-shell.tsx
+  // ~1851-1960), so the daily composer renders the ＋ menu, the Plan
+  // switch, and the Swarm switch. Omitting them here understated the
+  // persistent element count in every shell story. expertTeams stays
+  // empty — most users have none configured; the ＋ menu shows just the
+  // attachment item then, as it does for them.
+  onPickAttachments: noop,
+  planModeActive: false,
+  onPlanModeChange: noop,
+  swarmModeActive: false,
+  onSwarmModeChange: noop,
+  workspacePicker: {
 	    label: 'maka-agent',
 	    branch: 'opencode/storybook-surface-coverage',
 	    onOpen: noop,
@@ -180,8 +198,13 @@ function ComposedShell(props: {
           onExpandSidebar={() => setCollapsed(false)}
           onCreateSession={noop}
         />
-        {!collapsed && (
-          <div className="maka-panel maka-panel-list maka-floating-panel">
+        {/* Grid is 3 columns (sidebar / handle / detail): the handle must
+            always render or the detail panel falls into the 0px handle
+            column. When collapsed, keep the sidebar mounted (production
+            hides it via the data-sidebar-state CSS) so auto-placement
+            stays aligned. */}
+        <div className="maka-panel maka-panel-list maka-floating-panel">
+          {!collapsed && (
             <SessionListPanel
               selection={{ section: 'sessions', filter: 'chats' }}
               sessions={sidebarSessions}
@@ -194,8 +217,9 @@ function ComposedShell(props: {
               onNew={noop}
               rowActions={sidebarRowActions}
             />
-          </div>
-        )}
+          )}
+        </div>
+        <div className="maka-resize-handle" aria-hidden="true" />
         <div
           className="maka-panel maka-panel-detail maka-floating-panel agents-content-area agents-parchment-paper-surface"
           data-sidebar-state={collapsed ? 'collapsed' : 'expanded'}
@@ -225,14 +249,20 @@ function ComposedShell(props: {
   );
 }
 
+// Real path: returning user with session history → open a session that has
+// messages (sidebar expanded, composer ready).
 export const DefaultLayout: Story = {
   render: () => <ComposedShell />,
 };
 
+// Real path: same as DefaultLayout after the user collapses the sidebar
+// (topbar toggle).
 export const CollapsedSidebar: Story = {
   render: () => <ComposedShell sidebarCollapsed />,
 };
 
+// Real path: send a message → the turn is streaming (composer shows the
+// stop button and the streaming hint).
 export const StreamingTurn: Story = {
   render: () => (
     <ComposedShell
@@ -254,6 +284,9 @@ export const StreamingTurn: Story = {
   ),
 };
 
+// Real path: the agent calls a tool that needs approval → session enters
+// waiting_for_user, composer is disabled, the permission-mode picker is
+// locked with an explanatory reason.
 export const WaitingForPermission: Story = {
   render: () => (
     <ComposedShell
@@ -269,21 +302,12 @@ export const WaitingForPermission: Story = {
   ),
 };
 
+// Real path: returning user with session history → start a new chat (or
+// open a session with no messages yet). This is the DAILY empty home:
+// ChatView falls back to its built-in EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —
+// app-shell only shows it when sessions.length === 0 (first run), and those
+// states are covered by Product/Onboarding. Presenting the first-run hero as
+// the daily home makes every visual comparison against this story wrong.
 export const EmptyHome: Story = {
-  render: () => (
-    <ComposedShell
-      sidebarCollapsed
-      detailChildren={
-        <div style={{ margin: '0 auto', maxWidth: 720, padding: '48px 32px', width: '100%' }}>
-          <OnboardingHero
-            state={{ kind: 'ready_empty', defaultConnectionSlug: 'anthropic-main', defaultModel: 'claude-sonnet-4-5' }}
-            onOpenSettings={noop}
-            onAddProvider={noop}
-            onBrowseProviders={noop}
-            onQuickChatSubmit={async () => true}
-          />
-        </div>
-      }
-    />
-  ),
+  render: () => <ComposedShell chat={{ messages: [] }} />,
 };

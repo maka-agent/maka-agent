@@ -8,7 +8,7 @@ import {
   normalizePricingConfig,
   normalizePricingModelKey,
 } from '@maka/core/usage-stats/pricing';
-import { tryResult } from '@maka/core/settings/result';
+import { tryResult } from '@maka/core/result';
 import type { createSettingsStore, createTelemetryRepo } from '@maka/storage';
 import type { createMainWindowController } from './main-window.js';
 

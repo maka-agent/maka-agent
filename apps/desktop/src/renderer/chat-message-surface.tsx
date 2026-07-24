@@ -40,6 +40,7 @@ interface ChatMessageSurfaceProps extends Omit<
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
   mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
+  onQuickChatModeChange?: (mode?: QuickChatMode) => void;
   quickChatPending?: boolean;
   connections: LlmConnection[];
   onRefreshConnections: () => Promise<void> | void;
@@ -59,6 +60,7 @@ export function ChatMessageSurface({
   onBrowseProviders,
   onQuickChatSubmit,
   mentionSkills,
+  onQuickChatModeChange,
   quickChatPending,
   connections,
   onRefreshConnections,
@@ -86,6 +88,7 @@ export function ChatMessageSurface({
         onBrowseProviders={onBrowseProviders}
         onQuickChatSubmit={onQuickChatSubmit}
         mentionSkills={mentionSkills}
+        onQuickChatModeChange={onQuickChatModeChange}
         quickChatPending={quickChatPending}
         connections={connections}
         onRefreshConnections={onRefreshConnections}

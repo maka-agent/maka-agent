@@ -1,7 +1,7 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Button as BaseButton } from '@base-ui/react/button';
 import { useMountedRef } from './use-mounted-ref.js';
-import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, Cpu, GitBranch, Info, Loader2, Pencil, RefreshCcw, Timer } from './icons.js';
+import { AlertOctagon, Ban, Brain, Check, ChevronRight, Copy, GitBranch, Info, Loader2, Pencil, RefreshCcw, Timer } from './icons.js';
 import { type ClipboardCopyPhase, useClipboardCopyFeedback } from './clipboard-feedback.js';
 import { Markdown } from './markdown.js';
 import { formatAbsoluteTimestamp, formatClockTime, turnAbortMarkerLabel } from './chat-display-helpers.js';
@@ -16,8 +16,13 @@ import { QuoteRefChip } from './quote-ref-chip.js';
 import { Collapsible, CollapsibleTrigger, CollapsiblePanel } from './primitives/collapsible.js';
 import { Bubble, Marker, markerVariants, Message, TextShimmer } from './primitives/chat.js';
 import { Tooltip, TooltipTrigger, TooltipContent } from './primitives/tooltip.js';
-import { SETTLE_FADE, ToolTrow, useToolDisclosure } from './tool-activity.js';
-import { isProcessingRunning, processingNeedsAttention, summarizeProcessing } from './tool-activity/trow-summary.js';
+import { SETTLE_FADE, ToolKindIcon, ToolTrow, useToolDisclosure } from './tool-activity.js';
+import {
+  isProcessingRunning,
+  processingActivityKind,
+  processingNeedsAttention,
+  summarizeProcessing,
+} from './tool-activity/trow-summary.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 
@@ -924,8 +929,9 @@ function TurnTimelineEntry(props: {
  * destructive; folded reasoning is not counted) once the turn ends. A
  * `waiting_permission` prompt inside forces the block open (trowNeedsAttention);
  * an errored tool stays collapsed with its failure count on the summary line.
- * The expanded panel replays the full timeline — the SAME 深度思考 disclosures
- * and tool trows, just nested one indent in — so nothing is lost, only folded.
+ * The expanded panel preserves the full timeline with the SAME 深度思考
+ * disclosures and direct tool rows. Processing already owns the group summary,
+ * so nesting another tool-group disclosure would duplicate that layer.
  */
 function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
   const locale = useUiLocale();
@@ -942,6 +948,7 @@ function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
   const settled = !running;
   const settling = settled && everRunningRef.current;
   const hasError = entries.some((entry) => entry.kind === 'tools' && entry.items.some((item) => item.status === 'errored'));
+  const activityKind = processingActivityKind(entries);
   const summary = summarizeProcessing(entries, { live: running, locale });
   return (
     <Collapsible
@@ -954,7 +961,8 @@ function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
       {/* Same row language as the tool trow / 深度思考: [16px icon] + [label] +
           hover/open chevron, one tier — hierarchy carried by color, not size. */}
       <CollapsibleTrigger className="group flex w-full items-center gap-2 py-0.5 text-left">
-        <Cpu
+        <ToolKindIcon
+          kind={activityKind}
           size={16}
           aria-hidden="true"
           className={cn('shrink-0', hasError ? 'text-[color:var(--destructive)]' : 'text-[color:var(--muted-foreground)]')}
@@ -972,9 +980,13 @@ function ProcessingBlock(props: { entries: FoldedTimelineChild[] }) {
       </CollapsibleTrigger>
       <CollapsiblePanel>
         <div className="mt-0.5 ml-2 flex flex-col gap-0.5 border-l border-[var(--border)] pl-2.5">
-          {entries.map((entry, index) => (
-            <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
-          ))}
+          {entries.map((entry, index) =>
+            entry.kind === 'tools' ? (
+              <ToolTrow key={timelineEntryKey(entry, index)} items={entry.items} variant="rows" />
+            ) : (
+              <TurnTimelineEntry key={timelineEntryKey(entry, index)} item={entry} />
+            ),
+          )}
         </div>
       </CollapsiblePanel>
     </Collapsible>

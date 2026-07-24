@@ -81,6 +81,8 @@ export interface OnboardingHeroProps {
   ) => boolean | Promise<boolean>;
   /** Enabled, host-compatible Skills offered by the `/` popup. */
   mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
+  /** Keep the parent Skill projection aligned with the ready-empty draft mode. */
+  onQuickChatModeChange?: (mode?: QuickChatMode) => void;
   /**
    * Flag set when a `quickChat:start` call is in flight, so the
    * composer can disable its submit button without owning the
@@ -180,6 +182,7 @@ export function OnboardingHero(props: OnboardingHeroProps) {
         <ReadyEmptyHero
           onQuickChatSubmit={props.onQuickChatSubmit}
           mentionSkills={props.mentionSkills}
+          onQuickChatModeChange={props.onQuickChatModeChange}
           quickChatPending={props.quickChatPending === true}
           onImportDroppedTextFiles={props.onImportDroppedTextFiles}
         />
@@ -502,6 +505,7 @@ function ReadyEmptyHero(props: {
     skillIds?: readonly string[],
   ) => boolean | Promise<boolean>;
   mentionSkills?: ReadonlyArray<{ ref?: string; id: string; name: string; description?: string }>;
+  onQuickChatModeChange?: (mode?: QuickChatMode) => void;
   quickChatPending: boolean;
   onImportDroppedTextFiles?: (files: File[]) => Promise<string | undefined>;
 }) {
@@ -526,8 +530,9 @@ function ReadyEmptyHero(props: {
     return () => {
       submitPendingRef.current = false;
       importActionOwnerRef.current?.reset();
+      props.onQuickChatModeChange?.(undefined);
     };
-  }, []);
+  }, [props.onQuickChatModeChange]);
 
   const locale = useUiLocale();
   const onboardingCopy = getOnboardingCopy(locale);
@@ -578,6 +583,7 @@ function ReadyEmptyHero(props: {
       if (!submitted) return;
       setDraft('');
       setDraftMode(undefined);
+      props.onQuickChatModeChange?.(undefined);
       skillDraft.clear(skillDraft.activeDraftKey());
     } finally {
       submitPendingRef.current = false;
@@ -662,6 +668,7 @@ function ReadyEmptyHero(props: {
     const nextDraft = prompt;
     setDraft(nextDraft);
     setDraftMode(mode);
+    props.onQuickChatModeChange?.(mode);
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
@@ -677,6 +684,7 @@ function ReadyEmptyHero(props: {
       return nextDraft;
     });
     setDraftMode(undefined);
+    props.onQuickChatModeChange?.(undefined);
     window.requestAnimationFrame(() => {
       const input = inputRef.current;
       if (!input) return;
