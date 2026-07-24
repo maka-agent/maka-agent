@@ -80,6 +80,8 @@ export const OtherAnswerSelected: Story = {
     const input = canvas.getByRole('textbox', { name: '其他答案' });
     await userEvent.click(input);
     await expect(input).toHaveFocus();
+    await userEvent.type(input, '分阶段发布');
+    await expect(input).toHaveValue('分阶段发布');
     await expect(input.closest('.maka-question-other-field')).toHaveAttribute('data-selected');
   },
 };

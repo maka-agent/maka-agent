@@ -124,9 +124,6 @@ export function UserQuestionPrompt(props: {
               placeholder={copy.otherPlaceholder}
               value={draft?.kind === 'other' ? draft.value : ''}
               disabled={interactionDisabled}
-              onFocus={() => {
-                if (draft?.kind !== 'other') updateDraft({ kind: 'other', value: '' });
-              }}
               onChange={(event) => updateDraft({ kind: 'other', value: event.currentTarget.value })}
             />
           </label>

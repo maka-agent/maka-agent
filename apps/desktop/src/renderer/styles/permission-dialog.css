@@ -160,7 +160,10 @@
   color: var(--foreground);
   font-size: var(--font-size-ui);
   line-height: var(--leading-snug);
-  caret-color: var(--foreground);
+}
+
+.maka-question-other-input:disabled {
+  opacity: 1;
 }
 
 .maka-question-other-input::placeholder {

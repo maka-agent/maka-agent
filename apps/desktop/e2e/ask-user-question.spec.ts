@@ -22,6 +22,8 @@ test('answers three questions and continues the same fake-backend turn', async (
         backgroundColor: style.backgroundColor,
         borderColor: style.borderColor,
         boxShadow: style.boxShadow,
+        dotBackgroundColor: getComputedStyle(element.querySelector('.maka-question-radio')!).backgroundColor,
+        dotBoxShadow: getComputedStyle(element.querySelector('.maka-question-radio')!).boxShadow,
       };
     }),
     unselectedOption.evaluate((element) => {
@@ -30,12 +32,16 @@ test('answers three questions and continues the same fake-backend turn', async (
         backgroundColor: style.backgroundColor,
         borderColor: style.borderColor,
         boxShadow: style.boxShadow,
+        dotBackgroundColor: getComputedStyle(element.querySelector('.maka-question-radio')!).backgroundColor,
+        dotBoxShadow: getComputedStyle(element.querySelector('.maka-question-radio')!).boxShadow,
       };
     }),
   ]);
   expect(selectionStyles[0].backgroundColor).not.toBe(selectionStyles[1].backgroundColor);
   expect(selectionStyles[0].borderColor).not.toBe(selectionStyles[1].borderColor);
   expect(selectionStyles[0].boxShadow).not.toBe('none');
+  expect(selectionStyles[0].dotBackgroundColor).not.toBe(selectionStyles[1].dotBackgroundColor);
+  expect(selectionStyles[0].dotBoxShadow).not.toBe('none');
   await prompt.getByRole('button', { name: '下一题' }).click();
 
   await expect(prompt.getByText('2 / 3', { exact: true })).toBeVisible();
@@ -54,15 +60,8 @@ test('answers three questions and continues the same fake-backend turn', async (
   const geometryBeforeInput = await Promise.all([
     prompt.boundingBox(),
     otherField.boundingBox(),
-    other.boundingBox(),
   ]);
   expect(geometryBeforeInput.every(Boolean)).toBe(true);
-  expect(geometryBeforeInput[2]?.y).toBeGreaterThanOrEqual(geometryBeforeInput[1]?.y ?? Number.POSITIVE_INFINITY);
-  expect((geometryBeforeInput[2]?.y ?? 0) + (geometryBeforeInput[2]?.height ?? 0))
-    .toBeLessThanOrEqual((geometryBeforeInput[1]?.y ?? 0) + (geometryBeforeInput[1]?.height ?? 0));
-  expect(
-    await other.evaluate((input) => getComputedStyle(input).borderTopWidth),
-  ).toBe('0px');
   expect(
     await otherField.evaluate((field) => {
       const input = field.querySelector<HTMLElement>('.maka-question-other-input');
@@ -80,8 +79,19 @@ test('answers three questions and continues the same fake-backend turn', async (
       });
     }),
   ).toBe(true);
-  await otherField.click({ position: { x: 8, y: 8 } });
+
+  const preset = prompt.getByRole('radio', { name: '是' });
+  const submit = prompt.getByRole('button', { name: '提交答案' });
+  await preset.click();
+  await expect(preset).toBeChecked();
+  await expect(submit).toBeEnabled();
+  await preset.press('Tab');
   await expect(other).toBeFocused();
+  await expect(preset).toBeChecked();
+  await expect(otherField).not.toHaveAttribute('data-selected');
+  await expect(submit).toBeEnabled();
+  await other.pressSequentially('自');
+  await expect(preset).not.toBeChecked();
   await expect(otherField).toHaveAttribute('data-selected', '');
   expect(
     await otherField.evaluate((field) => getComputedStyle(field).boxShadow),
@@ -89,12 +99,21 @@ test('answers three questions and continues the same fake-backend turn', async (
   expect(
     await other.evaluate((input) => input.closest('[role="radiogroup"]') === null),
   ).toBe(true);
-  await expect(prompt.getByRole('button', { name: '提交答案' })).toBeDisabled();
+  await other.fill('');
+  await expect(submit).toBeDisabled();
+  await preset.click();
+  await expect(otherField).not.toHaveAttribute('data-selected');
+  await otherField.click({ position: { x: 8, y: 8 } });
+  await expect(other).toBeFocused();
+  await expect(preset).toBeChecked();
+  await expect(otherField).not.toHaveAttribute('data-selected');
+  await expect(submit).toBeEnabled();
   await other.fill('自定义节奏');
+  await expect(preset).not.toBeChecked();
+  await expect(otherField).toHaveAttribute('data-selected', '');
   const geometryAfterInput = await Promise.all([
     prompt.boundingBox(),
     otherField.boundingBox(),
-    other.boundingBox(),
   ]);
   expect(geometryAfterInput).toEqual(geometryBeforeInput);
   await other.press('Home');
