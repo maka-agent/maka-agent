@@ -1,4 +1,5 @@
 import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
+import { isSessionInlineRun } from '@maka/core';
 import { stableHash, stableStringify } from './request-shape.js';
 
 export const AGENT_GRAPH_RECORD_SCHEMA_VERSION = 1 as const;
@@ -27,11 +28,22 @@ export type AgentGraphRecordFacet = (typeof AGENT_GRAPH_RECORD_FACETS)[number];
 
 export type AgentGraphActivationStatus =
   | 'running'
-  | 'blocked'
   | 'completed'
   | 'failed'
   | 'aborted'
   | 'cancelled';
+
+export type AgentGraphSupervisorAttentionReason = 'permission_request' | 'user_question_request';
+
+export type AgentGraphSupervisorSignal =
+  | {
+      kind: 'attention';
+      reason: AgentGraphSupervisorAttentionReason;
+    }
+  | {
+      kind: 'terminal';
+      status: Extract<AgentGraphActivationStatus, 'completed' | 'failed' | 'aborted' | 'cancelled'>;
+    };
 
 /**
  * Read-only binding between a graph operator and an existing durable Session.
@@ -55,11 +67,27 @@ export interface AgentGraphRuntimeEventSource {
 }
 
 /**
+ * Stable tie-break metadata for records with the same immutable event time.
+ *
+ * `committedEventOrdinal` is counted after partial rows are excluded, so
+ * legacy partial-row retention or migration cannot renumber committed facts.
+ */
+export interface AgentGraphRecordOrderKey {
+  runCreatedAt: number;
+  operatorId: string;
+  runId: string;
+  committedEventOrdinal: number;
+  runtimeEventId: string;
+}
+
+/**
  * A bounded reference-only record projected from one committed RuntimeEvent.
  *
  * The source RuntimeEvent remains authoritative. The graph record deliberately
  * does not copy message/tool payloads, and `partial: true` events never enter
- * this stream.
+ * this stream. Every record is also part of the always-on main-agent supervisor
+ * meta-stream; `supervisorSignals` marks facts that require semantic attention
+ * without putting the supervisor on the downstream data path.
  */
 export interface AgentGraphRecord {
   schemaVersion: typeof AGENT_GRAPH_RECORD_SCHEMA_VERSION;
@@ -69,10 +97,32 @@ export interface AgentGraphRecord {
   activationId: string;
   sessionId: string;
   agentRunId: string;
-  logicalTime: number;
+  eventTime: number;
+  orderKey: AgentGraphRecordOrderKey;
   previousRecordId?: string;
   type: 'agent_runtime_event';
   facets: AgentGraphRecordFacet[];
+  supervisorSignals: AgentGraphSupervisorSignal[];
+  source: AgentGraphRuntimeEventSource;
+}
+
+/**
+ * Bounded always-on view consumed by the main-agent supervisor.
+ *
+ * It reuses the graph record identity and source reference, so it is a routing
+ * projection rather than a second fact. Empty `signals` still carries normal
+ * activity to the supervisor; non-empty signals mark semantic attention or a
+ * terminal milestone.
+ */
+export interface AgentGraphSupervisorMetaRecord {
+  recordId: string;
+  graphId: string;
+  operatorId: string;
+  activationId: string;
+  eventTime: number;
+  orderKey: AgentGraphRecordOrderKey;
+  facets: AgentGraphRecordFacet[];
+  signals: AgentGraphSupervisorSignal[];
   source: AgentGraphRuntimeEventSource;
 }
 
@@ -81,8 +131,8 @@ export interface AgentGraphActivationState {
   agentRunId: string;
   status: AgentGraphActivationStatus;
   recordCount: number;
-  firstLogicalTime: number;
-  lastLogicalTime: number;
+  firstEventTime: number;
+  lastEventTime: number;
   lastRecordId: string;
   terminalRecordId?: string;
 }
@@ -102,7 +152,7 @@ export interface AgentGraphOperatorState {
  */
 export interface AgentGraphReplayState {
   graphId: string;
-  lastLogicalTime: number;
+  latestEventTime?: number;
   appliedRecordIds: string[];
   operators: Record<string, AgentGraphOperatorState>;
 }
@@ -123,6 +173,7 @@ export interface AgentGraphProjection {
   operators: AgentGraphOperatorBinding[];
   ignoredPartialEvents: number;
   records: AgentGraphRecord[];
+  supervisorMetaStream: AgentGraphSupervisorMetaRecord[];
   state: AgentGraphReplayState;
 }
 
@@ -137,7 +188,7 @@ interface OrderedRuntimeEvent {
   operator: AgentGraphOperatorBinding;
   run: AgentRunHeader;
   event: RuntimeEvent;
-  eventIndex: number;
+  committedEventOrdinal: number;
 }
 
 export async function readCommittedAgentGraphProjection(
@@ -153,9 +204,9 @@ export async function readCommittedAgentGraphProjection(
     await Promise.all(
       input.operators.map(async (operator) => {
         const runs = await input.runStore.listSessionRuns(operator.sessionId);
-        const orderedRuns = [...runs].sort(
-          (a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId),
-        );
+        const orderedRuns = runs
+          .filter(isSessionInlineRun)
+          .sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId));
         return await Promise.all(
           orderedRuns.map(async (run): Promise<AgentGraphRunStream> => {
             if (run.sessionId !== operator.sessionId) {
@@ -182,12 +233,13 @@ export async function readCommittedAgentGraphProjection(
   const state =
     projected.records.length > 0
       ? replayAgentGraphRecords(projected.records)
-      : { graphId: input.graphId, lastLogicalTime: 0, appliedRecordIds: [], operators: {} };
+      : { graphId: input.graphId, appliedRecordIds: [], operators: {} };
   return {
     graphId: input.graphId,
     operators: input.operators.map((operator) => ({ ...operator })),
     ignoredPartialEvents: projected.ignoredPartialEvents,
     records: projected.records,
+    supervisorMetaStream: projected.supervisorMetaStream,
     state,
   };
 }
@@ -195,6 +247,7 @@ export async function readCommittedAgentGraphProjection(
 export function projectAgentGraphRecords(input: ProjectAgentGraphRecordsInput): {
   ignoredPartialEvents: number;
   records: AgentGraphRecord[];
+  supervisorMetaStream: AgentGraphSupervisorMetaRecord[];
 } {
   const operators = uniqueBindings(input.streams.map((stream) => stream.operator));
   assertGraphIdentity(input.graphId, operators);
@@ -206,8 +259,8 @@ export function projectAgentGraphRecords(input: ProjectAgentGraphRecordsInput): 
   for (const stream of input.streams) {
     assertRunStream(stream);
     let lastCommittedTs: number | undefined;
-    for (let eventIndex = 0; eventIndex < stream.events.length; eventIndex += 1) {
-      const event = stream.events[eventIndex]!;
+    let committedEventOrdinal = 0;
+    for (const event of stream.events) {
       assertRuntimeEventIdentity(stream, event);
       if (event.partial) {
         ignoredPartialEvents += 1;
@@ -225,14 +278,20 @@ export function projectAgentGraphRecords(input: ProjectAgentGraphRecordsInput): 
         );
       }
       sourceEventIds.add(event.id);
-      ordered.push({ operator: stream.operator, run: stream.run, event, eventIndex });
+      ordered.push({
+        operator: stream.operator,
+        run: stream.run,
+        event,
+        committedEventOrdinal,
+      });
+      committedEventOrdinal += 1;
     }
   }
 
   ordered.sort(compareOrderedRuntimeEvents);
 
   const previousByActivation = new Map<string, string>();
-  const records = ordered.map((item, index): AgentGraphRecord => {
+  const records = ordered.map((item): AgentGraphRecord => {
     const activationId = item.run.runId;
     const activationKey = `${item.operator.operatorId}\0${activationId}`;
     const previousRecordId = previousByActivation.get(activationKey);
@@ -252,10 +311,18 @@ export function projectAgentGraphRecords(input: ProjectAgentGraphRecordsInput): 
       activationId,
       sessionId: item.operator.sessionId,
       agentRunId: item.run.runId,
-      logicalTime: index + 1,
+      eventTime: item.event.ts,
+      orderKey: {
+        runCreatedAt: item.run.createdAt,
+        operatorId: item.operator.operatorId,
+        runId: item.run.runId,
+        committedEventOrdinal: item.committedEventOrdinal,
+        runtimeEventId: item.event.id,
+      },
       ...(previousRecordId ? { previousRecordId } : {}),
       type: 'agent_runtime_event',
       facets: runtimeEventFacets(item.event, item.run),
+      supervisorSignals: runtimeEventSupervisorSignals(item.event, item.run),
       source: {
         kind: 'runtime_event',
         runtimeEventId: item.event.id,
@@ -267,14 +334,32 @@ export function projectAgentGraphRecords(input: ProjectAgentGraphRecordsInput): 
     };
   });
 
-  return { ignoredPartialEvents, records };
+  return {
+    ignoredPartialEvents,
+    records,
+    supervisorMetaStream: records.map(projectSupervisorMetaRecord),
+  };
+}
+
+function projectSupervisorMetaRecord(record: AgentGraphRecord): AgentGraphSupervisorMetaRecord {
+  return {
+    recordId: record.recordId,
+    graphId: record.graphId,
+    operatorId: record.operatorId,
+    activationId: record.activationId,
+    eventTime: record.eventTime,
+    orderKey: { ...record.orderKey },
+    facets: [...record.facets],
+    signals: record.supervisorSignals.map((signal) => ({ ...signal })),
+    source: { ...record.source },
+  };
 }
 
 export function replayAgentGraphRecords(
   records: readonly AgentGraphRecord[],
 ): AgentGraphReplayState {
   if (records.length === 0) {
-    return { graphId: '', lastLogicalTime: 0, appliedRecordIds: [], operators: {} };
+    return { graphId: '', appliedRecordIds: [], operators: {} };
   }
 
   const uniqueRecords = new Map<string, AgentGraphRecord>();
@@ -289,22 +374,12 @@ export function replayAgentGraphRecords(
     uniqueRecords.set(record.recordId, record);
   }
 
-  const ordered = [...uniqueRecords.values()].sort(
-    (a, b) => a.logicalTime - b.logicalTime || a.recordId.localeCompare(b.recordId),
-  );
+  const ordered = [...uniqueRecords.values()].sort(compareAgentGraphRecords);
   const graphId = ordered[0]!.graphId;
-  const logicalTimes = new Map<number, string>();
   const operators: Record<string, AgentGraphOperatorState> = {};
 
   for (const record of ordered) {
     assertReplayRecord(record, graphId);
-    const logicalTimeOwner = logicalTimes.get(record.logicalTime);
-    if (logicalTimeOwner && logicalTimeOwner !== record.recordId) {
-      throw new Error(
-        `Logical time ${record.logicalTime} is shared by ${logicalTimeOwner} and ${record.recordId}`,
-      );
-    }
-    logicalTimes.set(record.logicalTime, record.recordId);
 
     let operator = operators[record.operatorId];
     if (!operator) {
@@ -329,8 +404,8 @@ export function replayAgentGraphRecords(
         agentRunId: record.agentRunId,
         status: 'running',
         recordCount: 0,
-        firstLogicalTime: record.logicalTime,
-        lastLogicalTime: record.logicalTime,
+        firstEventTime: record.eventTime,
+        lastEventTime: record.eventTime,
         lastRecordId: record.recordId,
       };
       operator.activations[record.activationId] = activation;
@@ -345,25 +420,22 @@ export function replayAgentGraphRecords(
       }
     }
 
-    const status = activationStatusAfterRecord(activation.status, record.facets);
+    const status = activationStatusAfterRecord(record.facets);
     activation.status = status;
     activation.recordCount += 1;
-    activation.lastLogicalTime = record.logicalTime;
+    activation.lastEventTime = record.eventTime;
     activation.lastRecordId = record.recordId;
     if (isTerminalActivationStatus(status)) {
       activation.terminalRecordId = record.recordId;
     }
 
-    const current = operator.activations[operator.currentActivationId];
-    if (!current || activation.lastLogicalTime >= current.lastLogicalTime) {
-      operator.currentActivationId = activation.activationId;
-      operator.status = activation.status;
-    }
+    operator.currentActivationId = activation.activationId;
+    operator.status = activation.status;
   }
 
   return {
     graphId,
-    lastLogicalTime: ordered.at(-1)!.logicalTime,
+    latestEventTime: ordered.at(-1)!.eventTime,
     appliedRecordIds: ordered.map((record) => record.recordId),
     operators,
   };
@@ -398,18 +470,45 @@ function runtimeEventFacets(event: RuntimeEvent, run: AgentRunHeader): AgentGrap
   if (actions?.transferToAgent) facets.push('transfer');
   if (actions?.tokenUsage) facets.push('usage');
 
-  const terminalStatus =
+  const terminalStatus = runtimeEventTerminalStatus(event, run);
+  if (terminalStatus) facets.push(terminalStatus);
+  if (facets.length === 0) facets.push('runtime_fact');
+  return facets;
+}
+
+function runtimeEventSupervisorSignals(
+  event: RuntimeEvent,
+  run: AgentRunHeader,
+): AgentGraphSupervisorSignal[] {
+  const signals: AgentGraphSupervisorSignal[] = [];
+  if (event.actions?.permissionRequest) {
+    signals.push({ kind: 'attention', reason: 'permission_request' });
+  }
+  if (event.actions?.userQuestionRequest) {
+    signals.push({ kind: 'attention', reason: 'user_question_request' });
+  }
+  const terminalStatus = runtimeEventTerminalStatus(event, run);
+  if (terminalStatus) {
+    signals.push({ kind: 'terminal', status: terminalStatus });
+  }
+  return signals;
+}
+
+function runtimeEventTerminalStatus(
+  event: RuntimeEvent,
+  run: AgentRunHeader,
+):
+  | Extract<AgentGraphActivationStatus, 'completed' | 'failed' | 'aborted' | 'cancelled'>
+  | undefined {
+  if (
     event.status === 'completed' ||
     event.status === 'failed' ||
     event.status === 'aborted' ||
     event.status === 'cancelled'
-      ? event.status
-      : actions?.endInvocation
-        ? terminalStatusFromRun(run)
-        : undefined;
-  if (terminalStatus) facets.push(terminalStatus);
-  if (facets.length === 0) facets.push('runtime_fact');
-  return facets;
+  ) {
+    return event.status;
+  }
+  return event.actions?.endInvocation ? terminalStatusFromRun(run) : undefined;
 }
 
 function terminalStatusFromRun(
@@ -428,16 +527,10 @@ function terminalStatusFromRun(
 }
 
 function activationStatusAfterRecord(
-  current: AgentGraphActivationStatus,
   facets: readonly AgentGraphRecordFacet[],
 ): AgentGraphActivationStatus {
   const terminal = terminalStatusFromFacets(facets);
-  if (terminal) return terminal;
-  if (facets.includes('permission_request') || facets.includes('user_question_request')) {
-    return 'blocked';
-  }
-  if (facets.includes('permission_decision') && current === 'blocked') return 'running';
-  return current;
+  return terminal ?? 'running';
 }
 
 function terminalStatusFromFacets(
@@ -506,6 +599,9 @@ function assertRunStream(stream: AgentGraphRunStream): void {
       `Run ${stream.run.runId} belongs to ${stream.run.sessionId}, expected ${stream.operator.sessionId}`,
     );
   }
+  if (!isSessionInlineRun(stream.run)) {
+    throw new Error(`Graph activation ${stream.run.runId} must be a session-inline AgentRun`);
+  }
 }
 
 function assertRuntimeEventIdentity(stream: AgentGraphRunStream, event: RuntimeEvent): void {
@@ -526,8 +622,20 @@ function compareOrderedRuntimeEvents(a: OrderedRuntimeEvent, b: OrderedRuntimeEv
     a.run.createdAt - b.run.createdAt ||
     a.operator.operatorId.localeCompare(b.operator.operatorId) ||
     a.run.runId.localeCompare(b.run.runId) ||
-    a.eventIndex - b.eventIndex ||
+    a.committedEventOrdinal - b.committedEventOrdinal ||
     a.event.id.localeCompare(b.event.id)
+  );
+}
+
+function compareAgentGraphRecords(a: AgentGraphRecord, b: AgentGraphRecord): number {
+  return (
+    a.eventTime - b.eventTime ||
+    a.orderKey.runCreatedAt - b.orderKey.runCreatedAt ||
+    a.orderKey.operatorId.localeCompare(b.orderKey.operatorId) ||
+    a.orderKey.runId.localeCompare(b.orderKey.runId) ||
+    a.orderKey.committedEventOrdinal - b.orderKey.committedEventOrdinal ||
+    a.orderKey.runtimeEventId.localeCompare(b.orderKey.runtimeEventId) ||
+    a.recordId.localeCompare(b.recordId)
   );
 }
 
@@ -548,15 +656,30 @@ function assertReplayRecord(record: AgentGraphRecord, graphId: string): void {
   if (record.graphId !== graphId) {
     throw new Error(`Cannot replay records from graphs ${graphId} and ${record.graphId} together`);
   }
-  if (!Number.isSafeInteger(record.logicalTime) || record.logicalTime <= 0) {
-    throw new Error(`Invalid logical time on graph record ${record.recordId}`);
+  if (!Number.isFinite(record.eventTime)) {
+    throw new Error(`Invalid event time on graph record ${record.recordId}`);
   }
   if (
     record.source.sessionId !== record.sessionId ||
     record.source.runId !== record.agentRunId ||
-    record.activationId !== record.agentRunId
+    record.activationId !== record.agentRunId ||
+    record.source.ts !== record.eventTime ||
+    record.orderKey.operatorId !== record.operatorId ||
+    record.orderKey.runId !== record.agentRunId ||
+    record.orderKey.runtimeEventId !== record.source.runtimeEventId ||
+    !Number.isFinite(record.orderKey.runCreatedAt) ||
+    !Number.isSafeInteger(record.orderKey.committedEventOrdinal) ||
+    record.orderKey.committedEventOrdinal < 0
   ) {
     throw new Error(`Invalid source identity on graph record ${record.recordId}`);
   }
   terminalStatusFromFacets(record.facets);
+  for (const signal of record.supervisorSignals) {
+    if (signal.kind === 'attention' && !record.facets.includes(signal.reason)) {
+      throw new Error(`Supervisor signal does not match graph record ${record.recordId}`);
+    }
+    if (signal.kind === 'terminal' && !record.facets.includes(signal.status)) {
+      throw new Error(`Supervisor terminal does not match graph record ${record.recordId}`);
+    }
+  }
 }

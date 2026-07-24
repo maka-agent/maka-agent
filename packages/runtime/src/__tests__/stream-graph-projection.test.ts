@@ -144,12 +144,39 @@ describe('committed stream graph projection', () => {
       ],
     );
     assert.deepEqual(
-      projection.records.map((record) => record.logicalTime),
-      [1, 2, 3, 4, 5, 6, 7],
+      projection.records.map((record) => record.eventTime),
+      [baseTs + 1, baseTs + 2, baseTs + 4, baseTs + 5, baseTs + 6, baseTs + 7, baseTs + 8],
+    );
+    assert.deepEqual(
+      projection.records
+        .filter((record) => record.operatorId === 'research')
+        .map((record) => record.orderKey.committedEventOrdinal),
+      [0, 1, 2, 3],
+      'partial events do not renumber committed source facts',
     );
     assert.deepEqual(projection.records[0]?.facets, ['message']);
     assert.deepEqual(projection.records[1]?.facets, ['tool_call']);
     assert.deepEqual(projection.records[5]?.facets, ['error', 'failed']);
+    assert.deepEqual(projection.records[2]?.supervisorSignals, [
+      { kind: 'attention', reason: 'permission_request' },
+    ]);
+    assert.deepEqual(projection.records[5]?.supervisorSignals, [
+      { kind: 'terminal', status: 'failed' },
+    ]);
+    assert.deepEqual(
+      projection.supervisorMetaStream.map((record) => record.recordId),
+      projection.records.map((record) => record.recordId),
+      'the supervisor observes every graph record, not only attention records',
+    );
+    assert.deepEqual(projection.supervisorMetaStream[0]?.signals, []);
+    assert.deepEqual(projection.supervisorMetaStream[2]?.signals, [
+      { kind: 'attention', reason: 'permission_request' },
+    ]);
+    assert.equal(
+      replayAgentGraphRecords(projection.records.slice(0, 3)).operators.research?.status,
+      'running',
+      'supervisor attention is orthogonal to graph lifecycle',
+    );
     assert.equal(projection.state.operators.research?.status, 'completed');
     assert.equal(projection.state.operators.verify?.status, 'failed');
     assert.equal(projection.state.operators.research?.activations['run-a']?.recordCount, 4);
@@ -205,6 +232,168 @@ describe('committed stream graph projection', () => {
     assert.deepEqual(reorderedWithDuplicates, canonical);
   });
 
+  test('keeps existing records byte-stable when a late operator contributes earlier event time', () => {
+    const runA = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const runB = runHeader({
+      sessionId: 'child-b',
+      runId: 'run-b',
+      turnId: 'turn-b',
+      status: 'running',
+      createdAt: baseTs + 1,
+    });
+    const streamA = {
+      operator: { operatorId: 'research', sessionId: runA.sessionId },
+      run: runA,
+      events: [
+        runtimeEvent(runA, {
+          id: 'event-a',
+          ts: baseTs + 100,
+          role: 'model' as const,
+          author: 'agent' as const,
+          content: { kind: 'text' as const, text: 'A' },
+        }),
+      ],
+    };
+    const streamB = {
+      operator: { operatorId: 'verify', sessionId: runB.sessionId },
+      run: runB,
+      events: [
+        runtimeEvent(runB, {
+          id: 'event-b',
+          ts: baseTs + 90,
+          role: 'model' as const,
+          author: 'agent' as const,
+          content: { kind: 'text' as const, text: 'B' },
+        }),
+      ],
+    };
+
+    const initial = projectAgentGraphRecords({
+      graphId: 'graph-incremental',
+      streams: [streamA],
+    });
+    const expanded = projectAgentGraphRecords({
+      graphId: 'graph-incremental',
+      streams: [streamA, streamB],
+    });
+    const initialA = initial.records.find((record) => record.source.runtimeEventId === 'event-a');
+    const expandedA = expanded.records.find((record) => record.source.runtimeEventId === 'event-a');
+
+    assert.deepEqual(expandedA, initialA);
+    assert.deepEqual(
+      expanded.records.map((record) => record.source.runtimeEventId),
+      ['event-b', 'event-a'],
+    );
+    const replayed = replayAgentGraphRecords([...initial.records, ...expanded.records]);
+    assert.equal(replayed.appliedRecordIds.length, 2);
+  });
+
+  test('allows equal event times and resolves them with the stable source order key', () => {
+    const first = runHeader({
+      sessionId: 'child-z',
+      runId: 'run-z',
+      turnId: 'turn-z',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const second = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'running',
+      createdAt: baseTs + 1,
+    });
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-equal-time',
+      streams: [
+        {
+          operator: { operatorId: 'z-operator', sessionId: first.sessionId },
+          run: first,
+          events: [runtimeEvent(first, { id: 'event-z', ts: baseTs + 10 })],
+        },
+        {
+          operator: { operatorId: 'a-operator', sessionId: second.sessionId },
+          run: second,
+          events: [runtimeEvent(second, { id: 'event-a', ts: baseTs + 10 })],
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      records.map((record) => record.source.runtimeEventId),
+      ['event-z', 'event-a'],
+      'run creation time wins before lexical operator identity',
+    );
+    assert.deepEqual(
+      records.map((record) => record.eventTime),
+      [baseTs + 10, baseTs + 10],
+    );
+    assert.equal(replayAgentGraphRecords(records).appliedRecordIds.length, 2);
+  });
+
+  test('routes human-interaction facts to the always-on supervisor without blocking lifecycle', () => {
+    const run = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const { records } = projectAgentGraphRecords({
+      graphId: 'graph-supervisor',
+      streams: [
+        {
+          operator: { operatorId: 'research', sessionId: run.sessionId },
+          run,
+          events: [
+            runtimeEvent(run, {
+              id: 'permission-request',
+              ts: baseTs + 1,
+              actions: {
+                permissionRequest: {
+                  kind: 'tool_permission',
+                  requestId: 'permission-1',
+                  toolUseId: 'tool-1',
+                  toolName: 'Read',
+                  category: 'read',
+                  reason: 'custom',
+                  args: {},
+                  rememberForTurnAllowed: true,
+                },
+              },
+            }),
+            runtimeEvent(run, {
+              id: 'question-request',
+              ts: baseTs + 2,
+              actions: {
+                userQuestionRequest: {
+                  requestId: 'question-1',
+                  toolUseId: 'tool-2',
+                  questions: [{ question: 'Choose', options: [{ label: 'Continue' }] }],
+                },
+              },
+            }),
+          ],
+        },
+      ],
+    });
+
+    assert.deepEqual(
+      records.map((record) => record.supervisorSignals),
+      [
+        [{ kind: 'attention', reason: 'permission_request' }],
+        [{ kind: 'attention', reason: 'user_question_request' }],
+      ],
+    );
+    assert.equal(replayAgentGraphRecords(records).operators.research?.status, 'running');
+  });
+
   test('keeps later session-inline runs as distinct activations of one operator', () => {
     const first = runHeader({
       sessionId: 'child-a',
@@ -251,6 +440,67 @@ describe('committed stream graph projection', () => {
     const state = replayAgentGraphRecords(records);
     assert.deepEqual(Object.keys(state.operators.research?.activations ?? {}), ['run-1', 'run-2']);
     assert.equal(state.operators.research?.currentActivationId, 'run-2');
+  });
+
+  test('reads only session-inline activations while legacy child runs remain compatible', async () => {
+    const inline = runHeader({
+      sessionId: 'child-a',
+      runId: 'inline-run',
+      turnId: 'inline-turn',
+      status: 'completed',
+      createdAt: baseTs,
+    });
+    const legacy = {
+      ...runHeader({
+        sessionId: 'child-a',
+        runId: 'legacy-child-run',
+        turnId: 'legacy-turn',
+        status: 'completed',
+        createdAt: baseTs + 1,
+      }),
+      parentRunId: 'legacy-parent-run',
+    };
+    const reads: string[] = [];
+    const projection = await readCommittedAgentGraphProjection({
+      graphId: 'graph-inline-only',
+      operators: [{ operatorId: 'research', sessionId: inline.sessionId }],
+      runStore: {
+        async listSessionRuns() {
+          return [legacy, inline];
+        },
+      },
+      runtimeEventStore: {
+        async readImmutableRuntimeEvents(_sessionId, runId) {
+          reads.push(runId);
+          return [
+            runtimeEvent(inline, {
+              id: 'inline-complete',
+              ts: baseTs + 2,
+              status: 'completed',
+            }),
+          ];
+        },
+      },
+    });
+
+    assert.deepEqual(reads, ['inline-run']);
+    assert.deepEqual(Object.keys(projection.state.operators.research?.activations ?? {}), [
+      'inline-run',
+    ]);
+    assert.throws(
+      () =>
+        projectAgentGraphRecords({
+          graphId: 'graph-reject-legacy',
+          streams: [
+            {
+              operator: { operatorId: 'research', sessionId: legacy.sessionId },
+              run: legacy,
+              events: [],
+            },
+          ],
+        }),
+      /must be a session-inline AgentRun/,
+    );
   });
 
   test('fails closed on ambiguous authority or impossible replay order', async () => {
@@ -317,7 +567,6 @@ describe('committed stream graph projection', () => {
 
     assert.deepEqual(projection.state, {
       graphId: 'graph-empty',
-      lastLogicalTime: 0,
       appliedRecordIds: [],
       operators: {},
     });

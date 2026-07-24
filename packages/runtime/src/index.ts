@@ -53,9 +53,13 @@ export type {
   AgentGraphProjection,
   AgentGraphRecord,
   AgentGraphRecordFacet,
+  AgentGraphRecordOrderKey,
   AgentGraphReplayState,
   AgentGraphRunStream,
   AgentGraphRuntimeEventSource,
+  AgentGraphSupervisorAttentionReason,
+  AgentGraphSupervisorMetaRecord,
+  AgentGraphSupervisorSignal,
   ProjectAgentGraphRecordsInput,
   ReadCommittedAgentGraphProjectionInput,
 } from './stream-graph-projection.js';
