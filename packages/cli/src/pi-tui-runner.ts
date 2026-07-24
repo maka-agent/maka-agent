@@ -22,10 +22,7 @@ import {
 import { type ModelInfo, type ProviderType } from '@maka/core/llm-connections';
 import type { OrchestrationMode } from '@maka/core/orchestration';
 import {
-  ShellRunUpdateBuffer,
-  mergeShellRunUpdate,
   projectRevisionLinkedSessionTree,
-  projectShellRunUpdateForSession,
   type SessionSummary,
   type ShellRunUpdate,
 } from '@maka/core';
@@ -83,6 +80,7 @@ import {
 import { editorTheme, selectListTheme } from './tui-ansi.js';
 import { MakaAutocompleteAboveEditorComponent } from './tui-autocomplete-layout.js';
 import { createShellRunElapsedTicker } from './shell-run-elapsed-ticker.js';
+import { createShellRunHydrationController } from './shell-run-hydration.js';
 import {
   AttentionController,
   DISABLE_FOCUS_REPORTING,
@@ -442,94 +440,17 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
       turnElapsedInterval = undefined;
     }
   };
-  let shellRunOwnerMappings: ShellRunUpdate[] = [];
-  let hydratingShellRunsFor: string | undefined;
-  let shellRunHydrationEpoch = 0;
-  let shellRunHydrationRetryTimer: ReturnType<typeof setTimeout> | undefined;
-  const pendingShellRunUpdates = new ShellRunUpdateBuffer('cli.pi-tui-hydration-buffer');
-  const applyShellRunViewUpdate = (
-    candidate: ShellRunUpdate,
-    options?: { announceSettle?: boolean },
-  ): boolean => {
-    const index = shellRunOwnerMappings.findIndex(
-      (update) =>
-        update.sessionId === candidate.sessionId &&
-        update.sourceToolCallId === candidate.sourceToolCallId,
-    );
-    const merged = mergeShellRunUpdate(
-      index >= 0 ? shellRunOwnerMappings[index] : undefined,
-      candidate,
-      'cli.pi-tui-runner',
-    );
-    const retainOwnerMapping =
-      merged.update.ownership.kind === 'source_owned' && merged.update.result.status === 'running';
-    if (index >= 0 && retainOwnerMapping) shellRunOwnerMappings[index] = merged.update;
-    else if (index >= 0) shellRunOwnerMappings.splice(index, 1);
-    else if (retainOwnerMapping) shellRunOwnerMappings.push(merged.update);
-    return applyShellRunViewUpdateToTranscript(state, merged.update, options);
-  };
-  const replayPendingShellRunUpdates = (sessionId: string): boolean => {
-    const buffered = pendingShellRunUpdates.drain();
-    for (const update of buffered.updates) {
-      const projected = projectShellRunUpdateForSession(sessionId, shellRunOwnerMappings, update);
-      for (const viewUpdate of projected) applyShellRunViewUpdate(viewUpdate);
-    }
-    return buffered.overflowed;
-  };
-  const resetShellRunSessionState = (): void => {
-    shellRunOwnerMappings = [];
-    shellRunHydrationEpoch += 1;
-    if (shellRunHydrationRetryTimer !== undefined) clearTimeout(shellRunHydrationRetryTimer);
-    shellRunHydrationRetryTimer = undefined;
-    hydratingShellRunsFor = undefined;
-    pendingShellRunUpdates.clear();
-  };
-  const hydrateShellRuns = async (
-    sessionId: string,
-    epoch: number,
-    retryDelayMs = 250,
-  ): Promise<void> => {
-    try {
-      const updates = await input.listShellRunUpdates?.(sessionId);
-      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId)
-        return;
-      // Catch-up replays durable state, not a live event: flip cards silently.
-      // Updates buffered from the live subscription during the await are
-      // genuinely live and stay announceable in the drain below.
-      for (const update of updates ?? [])
-        applyShellRunViewUpdate(update, { announceSettle: false });
-      const overflowed = replayPendingShellRunUpdates(sessionId);
+  const shellRunHydration = createShellRunHydrationController({
+    driver: input.driver,
+    applyToTranscript: (update, options) =>
+      applyShellRunViewUpdateToTranscript(state, update, options),
+    listShellRunUpdates: input.listShellRunUpdates,
+    subscribeShellRunUpdates: input.subscribeShellRunUpdates,
+    onViewChanged: () => {
       shellRunElapsedTicker.sync();
       requestRender();
-      if (overflowed) {
-        void hydrateShellRuns(sessionId, epoch);
-        return;
-      }
-      hydratingShellRunsFor = undefined;
-    } catch {
-      if (closed || epoch !== shellRunHydrationEpoch || input.driver.getSessionId() !== sessionId)
-        return;
-      shellRunHydrationRetryTimer = setTimeout(() => {
-        shellRunHydrationRetryTimer = undefined;
-        void hydrateShellRuns(sessionId, epoch, Math.min(retryDelayMs * 2, 5_000));
-      }, retryDelayMs);
-    }
-  };
-  const unsubscribeShellRunUpdates = input.subscribeShellRunUpdates?.((update) => {
-    const sessionId = input.driver.getSessionId();
-    if (closed || !sessionId) return;
-    if (hydratingShellRunsFor === sessionId) {
-      pendingShellRunUpdates.add(update);
-      return;
-    }
-    const projected = projectShellRunUpdateForSession(sessionId, shellRunOwnerMappings, update);
-    let changed = false;
-    for (const viewUpdate of projected) {
-      if (applyShellRunViewUpdate(viewUpdate)) changed = true;
-    }
-    if (!changed) return;
-    shellRunElapsedTicker.sync();
-    requestRender();
+    },
+    isClosed: () => closed,
   });
 
   const reportError = (error: unknown) => {
@@ -588,8 +509,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     unbindGoalHost?.();
     unbindGoalHost = undefined;
     unsubscribeSessionTitleChanges();
-    unsubscribeShellRunUpdates?.();
-    resetShellRunSessionState();
+    shellRunHydration.dispose();
     shellRunElapsedTicker.dispose();
     stopTurnElapsedTicker();
     stopFallbackRetry();
@@ -1217,13 +1137,9 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
     thinkingLevels = providerType ? thinkingVariantsForModel(providerType, summary.model) : [];
     refreshEditorCwd?.(cwd);
     replaceTranscriptWithStoredMessages(state, messages);
-    resetShellRunSessionState();
+    shellRunHydration.reset();
     if (input.listShellRunUpdates) {
-      const sessionId = summary.id;
-      hydratingShellRunsFor = sessionId;
-      await hydrateShellRuns(sessionId, shellRunHydrationEpoch);
-    } else {
-      hydratingShellRunsFor = undefined;
+      await shellRunHydration.hydrate(summary.id);
     }
     shellRunElapsedTicker.sync();
   };
@@ -1840,7 +1756,7 @@ export async function runMakaPiTui(input: MakaPiTuiInput): Promise<void> {
   const newSession = () => {
     input.driver.startNewSession();
     attention.setBaseTitle(input.title);
-    resetShellRunSessionState();
+    shellRunHydration.reset();
     // Fresh transcript for the fresh session; the next prompt creates it on disk.
     // Leave the transcript empty (no confirmation notice) so /new opens on the
     // same welcome block as a cold start — the welcome block is the "fresh
