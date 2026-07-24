@@ -70,7 +70,7 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
       automations: 'Scheduled tasks',
       extensions: 'Extensions',
       settings: 'Settings',
-      pendingReminders: (count: number) => `Automations, ${count} unfinished ${count === 1 ? 'reminder' : 'reminders'}`,
+      pendingReminders: (count: number) => `Scheduled tasks, ${count} unfinished ${count === 1 ? 'reminder' : 'reminders'}`,
     },
     search: {
       title: 'Search',

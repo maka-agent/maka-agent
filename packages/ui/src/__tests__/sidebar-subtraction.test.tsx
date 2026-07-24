@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import type { SessionSummary } from '@maka/core';
+import type { PlanReminder, SessionSummary } from '@maka/core';
 import { LocaleProvider } from '../locale-context.js';
 import { ModuleHubSelector } from '../module-hub-selector.js';
 import { SessionListPanel } from '../session-list-panel.js';
@@ -30,6 +30,36 @@ describe('sidebar subtraction', () => {
     assert.doesNotMatch(markup, />MCP</);
     assert.doesNotMatch(markup, />每日回顾</);
     assert.doesNotMatch(markup, /aria-expanded=/);
+  });
+
+  it('keeps the visible scheduled-task label in its pending-reminder accessible name', () => {
+    const reminder: PlanReminder = {
+      id: 'reminder-1',
+      title: 'Review open work',
+      note: '',
+      schedule: { kind: 'once', runAt: 1 },
+      delivery: { channel: 'local' },
+      status: 'scheduled',
+      enabled: true,
+      createdAt: 1,
+      updatedAt: 1,
+      runs: [],
+      runCount: 0,
+    };
+    const markup = renderToStaticMarkup(
+      <LocaleProvider locale="en">
+        <SessionSidebarNav
+          selection={{ section: 'automations', module: 'plan-reminders' }}
+          planReminders={[reminder]}
+          onSelect={() => {}}
+          onNew={() => {}}
+        />
+      </LocaleProvider>,
+    );
+
+    assert.match(markup, /aria-label="Scheduled tasks, 1 unfinished reminder"/);
+    assert.match(markup, />Scheduled tasks</);
+    assert.doesNotMatch(markup, /aria-label="Automations,/);
   });
 
   it('renders each child module as a localized path selector instead of a segmented control', () => {
