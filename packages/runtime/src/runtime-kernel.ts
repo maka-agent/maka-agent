@@ -104,6 +104,7 @@ export interface RuntimeKernelLike {
   hasActiveRun?(sessionId: string, runId: string, turnId?: string): boolean;
   updateCachedHeader(sessionId: string, header: SessionHeader): void;
   invalidateBackend(sessionId: string): Promise<void>;
+  invalidateCachedBackends(): Promise<void>;
   disposeBackend(sessionId: string): Promise<void>;
 }
 
@@ -165,6 +166,8 @@ interface SessionSteeringState {
   activeTurnId?: string;
 }
 
+export type BackendActivationBoundary = <T>(operation: () => Promise<T> | T) => Promise<T>;
+
 export interface RuntimeKernelDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
@@ -183,6 +186,7 @@ export interface RuntimeKernelDeps {
   inspectContinuationSafety?: (sessionId: string) => Promise<RuntimeContinuationSafetyObservation>;
   safeBoundaryResumeEnabled?: boolean;
   continuationFailpoint?: (point: RuntimeContinuationFailpoint) => Promise<void>;
+  runBackendActivation?: BackendActivationBoundary;
 }
 
 export interface HistoryCompactCleanupRequest {
@@ -223,6 +227,14 @@ interface PendingStopAttempt {
   delivery: Promise<void>;
 }
 
+type BackendDisposalOutcome = { ok: true } | { ok: false; error: unknown };
+
+interface BackendInvalidationState {
+  readonly outcome: Promise<BackendDisposalOutcome>;
+  resolve(outcome: BackendDisposalOutcome): void;
+  disposal?: Promise<void>;
+}
+
 export class RuntimeKernel implements RuntimeKernelLike {
   private readonly active = new Map<string, ActiveSession>();
   private readonly childActive = new Map<string, ActiveSession>();
@@ -243,12 +255,16 @@ export class RuntimeKernel implements RuntimeKernelLike {
   private readonly pendingContinuationClaims = new Set<string>();
   private readonly pendingContinuationSessions = new Set<string>();
   private readonly steeringBySession = new Map<string, SessionSteeringState>();
-  private readonly backendInvalidations = new Set<string>();
+  private readonly backendInvalidations = new Map<string, BackendInvalidationState>();
 
   constructor(private readonly deps: RuntimeKernelDeps) {
     if (deps.runStore && !deps.runtimeEventStore) {
       throw new Error('RuntimeEventStore is required when AgentRunStore is configured');
     }
+  }
+
+  private async runBackendActivation<T>(operation: () => Promise<T> | T): Promise<T> {
+    return await (this.deps.runBackendActivation?.(operation) ?? operation());
   }
 
   async *startTurn(
@@ -414,7 +430,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         ensureActive: (targetSessionId, nextHeader) =>
           this.ensureActive(targetSessionId, nextHeader),
         registerRun: (active, activeRun) => this.registerRun(active, activeRun),
-        unregisterRun: (active, activeRun) => this.unregisterRun(active, activeRun),
+        unregisterRun: (active, activeRun) => this.unregisterParentRun(active, activeRun),
         updateHeader: (targetSessionId, patch) => this.updateHeader(targetSessionId, patch),
         updateStatus: (targetSessionId, status, blockedReason, ts) =>
           this.updateStatus(targetSessionId, status, blockedReason, ts),
@@ -468,7 +484,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
 
     let begin: Awaited<ReturnType<typeof run.beginOperation>>;
     try {
-      begin = await run.beginOperation();
+      begin = await this.runBackendActivation(() => run.beginOperation());
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();
@@ -746,7 +762,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let flowDone = false;
     let begin: AgentRunBeginResult;
     try {
-      begin = await run.begin();
+      begin = await this.runBackendActivation(() => run.begin());
       if (onRunStarted && initialHeader) await onRunStarted(run.runId, initialHeader);
     } catch (error) {
       await run.recordFailure(error);
@@ -932,9 +948,9 @@ export class RuntimeKernel implements RuntimeKernelLike {
     let flowDone = false;
     let begin: Awaited<ReturnType<AgentRun['beginContinuation']>>;
     try {
-      begin = persistContinuationSource
-        ? await run.beginContinuation(continuation)
-        : await run.beginOperation();
+      begin = await this.runBackendActivation(() =>
+        persistContinuationSource ? run.beginContinuation(continuation) : run.beginOperation(),
+      );
     } catch (error) {
       await run.recordFailure(error);
       await run.finalize();
@@ -1352,12 +1368,30 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   async invalidateBackend(sessionId: string): Promise<void> {
-    this.backendInvalidations.add(sessionId);
+    this.ensureBackendInvalidation(sessionId);
     await this.flushBackendInvalidation(sessionId);
   }
 
+  async invalidateCachedBackends(): Promise<void> {
+    const sessionIds = new Set(this.active.keys());
+    for (const active of this.childActive.values()) sessionIds.add(active.sessionId);
+    for (const sessionId of this.backendInvalidations.keys()) sessionIds.add(sessionId);
+    await Promise.all(
+      [...sessionIds].map(async (sessionId) => {
+        const invalidation = this.ensureBackendInvalidation(sessionId);
+        await this.flushBackendInvalidation(sessionId);
+        const outcome = await invalidation.outcome;
+        if (!outcome.ok) throw outcome.error;
+      }),
+    );
+  }
+
   async disposeBackend(sessionId: string): Promise<void> {
-    this.backendInvalidations.delete(sessionId);
+    const invalidation = this.ensureBackendInvalidation(sessionId);
+    await this.startBackendDisposal(sessionId, invalidation);
+  }
+
+  private async disposeBackendNow(sessionId: string): Promise<BackendDisposalOutcome> {
     const activeSessions = this.activeSessionsFor(sessionId);
     this.active.delete(sessionId);
     this.steeringBySession.delete(sessionId);
@@ -1366,13 +1400,15 @@ export class RuntimeKernel implements RuntimeKernelLike {
     for (const [key, active] of this.childActive.entries()) {
       if (active.sessionId === sessionId) this.childActive.delete(key);
     }
+    let disposalError: unknown;
     for (const active of activeSessions) {
       try {
         await active.backend.dispose();
-      } catch {
-        // best-effort
+      } catch (error) {
+        disposalError ??= error;
       }
     }
+    return disposalError === undefined ? { ok: true } : { ok: false, error: disposalError };
   }
 
   private activeSessionsFor(sessionId: string): ActiveSession[] {
@@ -1488,7 +1524,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private async ensureActive(sessionId: string, header: SessionHeader): Promise<ActiveSession> {
-    const existing = this.active.get(sessionId);
+    let existing = this.active.get(sessionId);
+    if (existing) {
+      existing.cachedHeader = header;
+      return existing;
+    }
+    await this.waitForBackendDisposal(sessionId);
+    existing = this.active.get(sessionId);
     if (existing) {
       existing.cachedHeader = header;
       return existing;
@@ -1616,7 +1658,13 @@ export class RuntimeKernel implements RuntimeKernelLike {
     tools: readonly MakaTool[],
     agentTeam?: AgentTeamExecutionContext,
   ): Promise<ActiveSession> {
-    const existing = this.childActive.get(activeKey);
+    let existing = this.childActive.get(activeKey);
+    if (existing) {
+      existing.cachedHeader = header;
+      return existing;
+    }
+    await this.waitForBackendDisposal(sessionId);
+    existing = this.childActive.get(activeKey);
     if (existing) {
       existing.cachedHeader = header;
       return existing;
@@ -1726,6 +1774,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
   ): Promise<void> {
     this.unregisterRun(active, run);
     if (active.activeRuns.size > 0) return;
+    if (this.backendInvalidations.has(active.sessionId)) {
+      await this.flushBackendInvalidation(active.sessionId);
+      return;
+    }
     this.childActive.delete(activeKey);
     try {
       await active.backend.dispose();
@@ -1736,8 +1788,47 @@ export class RuntimeKernel implements RuntimeKernelLike {
   }
 
   private async flushBackendInvalidation(sessionId: string): Promise<void> {
-    if (!this.backendInvalidations.has(sessionId) || this.hasActiveRuns(sessionId)) return;
-    await this.disposeBackend(sessionId);
+    const invalidation = this.backendInvalidations.get(sessionId);
+    if (!invalidation || this.hasActiveRuns(sessionId)) return;
+    await this.startBackendDisposal(sessionId, invalidation);
+  }
+
+  private async waitForBackendDisposal(sessionId: string): Promise<void> {
+    const invalidation = this.backendInvalidations.get(sessionId);
+    if (invalidation?.disposal) await invalidation.outcome;
+  }
+
+  private async startBackendDisposal(
+    sessionId: string,
+    invalidation: BackendInvalidationState,
+  ): Promise<void> {
+    if (!invalidation.disposal) {
+      invalidation.disposal = (async () => {
+        let outcome: BackendDisposalOutcome;
+        try {
+          outcome = await this.disposeBackendNow(sessionId);
+        } catch (error) {
+          outcome = { ok: false, error };
+        }
+        invalidation.resolve(outcome);
+        if (this.backendInvalidations.get(sessionId) === invalidation) {
+          this.backendInvalidations.delete(sessionId);
+        }
+      })();
+    }
+    await invalidation.disposal;
+  }
+
+  private ensureBackendInvalidation(sessionId: string): BackendInvalidationState {
+    const existing = this.backendInvalidations.get(sessionId);
+    if (existing) return existing;
+    let resolve!: (outcome: BackendDisposalOutcome) => void;
+    const outcome = new Promise<BackendDisposalOutcome>((resolvePromise) => {
+      resolve = resolvePromise;
+    });
+    const invalidation = { outcome, resolve };
+    this.backendInvalidations.set(sessionId, invalidation);
+    return invalidation;
   }
 
   private async updateStatus(

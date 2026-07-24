@@ -19,7 +19,10 @@ import {
 } from '../protocol/index.js';
 import { RuntimeHostKernel, type RuntimeHostComposition } from '../server/index.js';
 import { RuntimeHostConnectionSession } from '../server/connection-session.js';
-import type { OperationHandlerMap } from '../server/operation-dispatcher.js';
+import {
+  createUnavailableDomainOperationHandlers,
+  type OperationHandlerMap,
+} from '../server/operation-dispatcher.js';
 import {
   BoundedSerialOutboundWriter,
   RuntimeHostOutboundQueueError,
@@ -718,6 +721,7 @@ function closeServer(server: Server): Promise<void> {
 
 function createHandlers(queryTurn: TurnQueryHandler): RuntimeHostComposition['handlers'] {
   return {
+    ...createUnavailableDomainOperationHandlers(),
     'turn.start': async (input) => ({
       ok: true,
       result: runningSnapshot(input.sessionId, input.turnId),

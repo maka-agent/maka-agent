@@ -43,7 +43,7 @@ import {
   type BackendFactoryContext,
   type SessionStore,
 } from '../session-manager.js';
-import type { RuntimeKernelLike } from '../runtime-kernel.js';
+import { RuntimeKernel, type RuntimeKernelLike } from '../runtime-kernel.js';
 import { FakeBackend } from '../fake-backend.js';
 import { RuntimeReadModel } from '../runtime-read-model.js';
 import type { AgentBackend } from '@maka/core/backend-types';
@@ -117,6 +117,7 @@ describe('SessionManager child-session runtime primitive', () => {
     const backends = new BackendRegistry();
     const parentGate = makeGate();
     const contexts: BackendFactoryContext[] = [];
+    const backendActivationSessions: string[] = [];
     const backendsBySession = new Map<string, TestBackend>();
     backends.register('fake', (ctx) => {
       contexts.push(ctx);
@@ -133,6 +134,14 @@ describe('SessionManager child-session runtime primitive', () => {
       newId: nextId(),
       now: nextNow(100),
       runtimeSource: 'test',
+      runBackendActivation: async (operation) => {
+        const contextIndex = contexts.length;
+        const result = await operation();
+        const activatedContext = contexts[contextIndex];
+        if (!activatedContext) throw new Error('Backend activation did not build a backend');
+        backendActivationSessions.push(activatedContext.sessionId);
+        return result;
+      },
     });
     const parent = await manager.createSession(
       makeInput({
@@ -202,6 +211,7 @@ describe('SessionManager child-session runtime primitive', () => {
     expect(childRun.agentId).toBe(LOCAL_READ_AGENT_ID);
     expect(isSessionInlineRun(childRun)).toBe(true);
     expect(result.status).toBe('completed');
+    expect(backendActivationSessions).toEqual([parent.id, result.childSessionId]);
     expect(
       (await runStore.readRuntimeEvents(result.childSessionId, childRun.runId)).every(
         (event) => event.sessionId === result.childSessionId,
@@ -724,10 +734,24 @@ describe('SessionManager child-session runtime primitive', () => {
 
     const originalPrompt = LOCAL_READ_AGENT_DEFINITION.systemPrompt;
     const originalPolicy = LOCAL_READ_AGENT_DEFINITION.categoryPolicy;
+    let parentTurnDrained = false;
+    const drainParentTurn = async (): Promise<void> => {
+      parentGate.release();
+      while (!(await parentTurn.next()).done) {}
+      parentTurnDrained = true;
+    };
     try {
       LOCAL_READ_AGENT_DEFINITION.systemPrompt = 'Changed catalog prompt that must not leak.';
       LOCAL_READ_AGENT_DEFINITION.categoryPolicy = { read: 'block' };
-      await manager.refreshIdleBackends();
+      let refreshSettled = false;
+      const refresh = manager.refreshIdleBackends().finally(() => {
+        refreshSettled = true;
+      });
+      await Promise.resolve();
+      expect(refreshSettled).toBe(false);
+      expect(contexts.filter((ctx) => ctx.sessionId === parent.id).length).toBe(1);
+      await drainParentTurn();
+      await refresh;
       await drain(
         manager.sendMessage(child.childSessionId, {
           turnId: 'child-follow-up',
@@ -735,6 +759,7 @@ describe('SessionManager child-session runtime primitive', () => {
         }),
       );
     } finally {
+      if (!parentTurnDrained) await drainParentTurn();
       LOCAL_READ_AGENT_DEFINITION.systemPrompt = originalPrompt;
       LOCAL_READ_AGENT_DEFINITION.categoryPolicy = originalPolicy;
     }
@@ -762,9 +787,6 @@ describe('SessionManager child-session runtime primitive', () => {
       ),
       /runtime tool snapshot is unavailable/,
     );
-
-    parentGate.release();
-    while (!(await parentTurn.next()).done) {}
   });
 
   test('reopens after restart with isolated history, tool activity, usage, and compaction', async () => {
@@ -1669,14 +1691,297 @@ describe('SessionManager manual compaction', () => {
 
     const firstTurn = drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hi' }));
     await turnStarted.promise;
-    await manager.refreshIdleBackends();
+    const refresh = manager.refreshIdleBackends();
     expect(store.disposeCount).toBe(0);
 
     sendGate.release();
     await firstTurn;
+    await refresh;
     expect(store.disposeCount).toBe(1);
     await drain(manager.sendMessage(session.id, { turnId: 'turn-2', text: 'again' }));
     expect(builds).toBe(2);
+  });
+
+  test('backend refresh propagates delayed disposal failure after an active turn settles', async () => {
+    const store = new MemorySessionStore();
+    const sendGate = makeGate();
+    const turnStarted = makeGate();
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) =>
+        new (class extends ActiveTurnBackend {
+          override async dispose(): Promise<void> {
+            throw new Error('injected delayed disposal failure');
+          }
+        })(ctx, { turnStarted, sendGate, compactCalls: [] }),
+    );
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(26_500),
+    });
+    const session = await manager.createSession(makeInput());
+    const firstTurn = drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hi' }));
+    await turnStarted.promise;
+
+    const refreshResult = manager.refreshIdleBackends().then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    sendGate.release();
+    await firstTurn;
+
+    const refreshError = await refreshResult;
+    expect(refreshError instanceof Error).toBe(true);
+    expect((refreshError as Error).message).toBe('injected delayed disposal failure');
+  });
+
+  test('backend refresh joins an in-flight best-effort disposal and observes its failure', async () => {
+    const store = new MemorySessionStore();
+    const disposeStarted = makeGate();
+    const releaseDispose = makeGate();
+    let disposeCalls = 0;
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) =>
+        new (class extends TestBackend {
+          override async dispose(): Promise<void> {
+            disposeCalls += 1;
+            disposeStarted.release();
+            await releaseDispose.promise;
+            throw new Error('injected concurrent disposal failure');
+          }
+        })(ctx),
+    );
+    const newId = nextId();
+    const now = nextNow(26_750);
+    const runtimeKernel = new RuntimeKernel({ store, backends, newId, now });
+    const manager = new SessionManager({
+      store,
+      backends,
+      runtimeKernel,
+      newId,
+      now,
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'cache me' }));
+
+    const bestEffort = runtimeKernel.invalidateBackend(session.id);
+    await disposeStarted.promise;
+    let strictSettled = false;
+    const strictResult = manager.refreshIdleBackends().then(
+      () => ({ ok: true as const }),
+      (error: unknown) => ({ ok: false as const, error }),
+    );
+    void strictResult.finally(() => {
+      strictSettled = true;
+    });
+    await Promise.resolve();
+    expect(strictSettled).toBe(false);
+
+    releaseDispose.release();
+    await bestEffort;
+    const strict = await strictResult;
+
+    expect(strict.ok).toBe(false);
+    if (strict.ok) throw new Error('Strict refresh unexpectedly succeeded');
+    expect(strict.error instanceof Error).toBe(true);
+    expect((strict.error as Error).message).toBe('injected concurrent disposal failure');
+    expect(disposeCalls).toBe(1);
+  });
+
+  test('backend activation waits for disposal and a later mutation invalidates its replacement', async () => {
+    const store = new MemorySessionStore();
+    const firstDisposeStarted = makeGate();
+    const releaseFirstDispose = makeGate();
+    const replacementPreBuildReached = makeGate();
+    const releaseReplacementPreBuild = makeGate();
+    let replacementCheckpointArmed = true;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventAppend: async (_sessionId, _runId, event) => {
+        if (!replacementCheckpointArmed || event.turnId !== 'turn-b') return;
+        replacementCheckpointArmed = false;
+        replacementPreBuildReached.release();
+        await releaseReplacementPreBuild.promise;
+      },
+    });
+    const { runBackendActivation, runMutation } = makeTestRuntimePolicyGate();
+    let builds = 0;
+    const disposed: number[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      const generation = ++builds;
+      return new (class extends TestBackend {
+        override async dispose(): Promise<void> {
+          disposed.push(generation);
+          if (generation === 1) {
+            firstDisposeStarted.release();
+            await releaseFirstDispose.promise;
+          }
+        }
+      })(ctx);
+    });
+    const newId = nextId();
+    const now = nextNow(26_875);
+    const runtimeKernel = new RuntimeKernel({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId,
+      now,
+      runBackendActivation,
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      runtimeKernel,
+      newId,
+      now,
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-a', text: 'build A' }));
+
+    const bestEffort = runtimeKernel.invalidateBackend(session.id);
+    await firstDisposeStarted.promise;
+    const replacementTurn = drain(
+      manager.sendMessage(session.id, { turnId: 'turn-b', text: 'build B' }),
+    );
+    await replacementPreBuildReached.promise;
+    releaseReplacementPreBuild.release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(builds).toBe(1);
+    const mutation = runMutation(() => manager.refreshIdleBackends());
+
+    releaseFirstDispose.release();
+    await bestEffort;
+    await replacementTurn;
+    await mutation;
+
+    expect(builds).toBe(2);
+    expect(disposed).toEqual([1, 2]);
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-c', text: 'build C' }));
+    expect(builds).toBe(3);
+  });
+
+  test('child backend activation waits for disposal and is covered by the later mutation', async () => {
+    const store = new MemorySessionStore();
+    const firstDisposeStarted = makeGate();
+    const releaseFirstDispose = makeGate();
+    const childPreBuildReached = makeGate();
+    const releaseChildPreBuild = makeGate();
+    let childCheckpointArmed = true;
+    const runStore = new MemoryAgentRunStore({
+      beforeRuntimeEventAppend: async (_sessionId, _runId, event) => {
+        if (!childCheckpointArmed || event.turnId !== 'child-turn') return;
+        childCheckpointArmed = false;
+        childPreBuildReached.release();
+        await releaseChildPreBuild.promise;
+      },
+    });
+    const { runBackendActivation, runMutation } = makeTestRuntimePolicyGate();
+    let builds = 0;
+    const disposed: number[] = [];
+    const backends = new BackendRegistry();
+    backends.register('fake', (ctx) => {
+      const generation = ++builds;
+      return new (class extends TestBackend {
+        override async dispose(): Promise<void> {
+          disposed.push(generation);
+          if (generation === 1) {
+            firstDisposeStarted.release();
+            await releaseFirstDispose.promise;
+          }
+        }
+      })(ctx);
+    });
+    const newId = nextId();
+    const now = nextNow(26_900);
+    const runtimeKernel = new RuntimeKernel({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId,
+      now,
+      childTools: [testTool('Read'), testTool('Glob'), testTool('Grep')],
+      runBackendActivation,
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      runtimeKernel,
+      newId,
+      now,
+    });
+    const session = await manager.createSession(makeInput());
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-a', text: 'build A' }));
+
+    const bestEffort = runtimeKernel.invalidateBackend(session.id);
+    await firstDisposeStarted.promise;
+    const childTurn = drain(
+      manager.startChildTurn(session.id, {
+        turnId: 'child-turn',
+        parentRunId: 'parent-run',
+        spec: {
+          id: LOCAL_READ_AGENT_ID,
+          name: 'Researcher',
+          systemPrompt: 'read only',
+        },
+        prompt: 'inspect',
+      }),
+    );
+    await childPreBuildReached.promise;
+    releaseChildPreBuild.release();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(builds).toBe(1);
+    const mutation = runMutation(() => manager.refreshIdleBackends());
+
+    releaseFirstDispose.release();
+    await bestEffort;
+    await childTurn;
+    await mutation;
+
+    expect(builds).toBe(2);
+    expect(disposed).toEqual([1, 2]);
+  });
+
+  test('backend refresh invalidates only cached sessions without listing persisted history', async () => {
+    const store = new MemorySessionStore();
+    const disposed: string[] = [];
+    const backends = new BackendRegistry();
+    backends.register(
+      'fake',
+      (ctx) =>
+        new (class extends TestBackend {
+          override async dispose(): Promise<void> {
+            disposed.push(this.sessionId);
+          }
+        })(ctx),
+    );
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(27_000),
+    });
+    const cached = await manager.createSession(makeInput());
+    await manager.createSession(makeInput());
+    await drain(manager.sendMessage(cached.id, { turnId: 'turn-1', text: 'cache me' }));
+    store.list = async () => {
+      throw new Error('refresh must not list persisted sessions');
+    };
+
+    await manager.refreshIdleBackends();
+
+    expect(disposed).toEqual([cached.id]);
   });
 });
 
@@ -2560,7 +2865,7 @@ describe('SessionManager permission mode updates', () => {
     expect(followUpContext.some((event) => event.runId === plan.continuation?.runId)).toBe(true);
   });
 
-  test('stopSession projects an aborted turn state for an active continuation', async () => {
+  test('strict backend refresh settles after an active continuation finalizes', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const turnStarted = makeGate();
@@ -2642,9 +2947,18 @@ describe('SessionManager permission mode updates', () => {
       manager.resumeSafeBoundaryContinuation(plan.continuation),
     );
     await turnStarted.promise;
+    let refreshSettled = false;
+    const refresh = manager.refreshIdleBackends();
+    void refresh.finally(() => {
+      refreshSettled = true;
+    });
+    await Promise.resolve();
+    expect(refreshSettled).toBe(false);
     await manager.stopSession(session.id, { source: 'stop_button' });
     sendGate.release();
     await execution;
+    await refresh;
+    expect(store.disposeCount).toBe(1);
 
     const cachedMessages = await store.readMessages(session.id);
     expect(
@@ -13023,6 +13337,10 @@ class DelegatingRuntimeKernel implements RuntimeKernelLike {
     if (!this.activeRuns) this.disposed.push(sessionId);
   }
 
+  async invalidateCachedBackends(): Promise<void> {
+    // This test double does not retain backend instances between calls.
+  }
+
   async disposeBackend(sessionId: string): Promise<void> {
     this.disposed.push(sessionId);
   }
@@ -14631,6 +14949,11 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
       failUpdateRunStatusOnce?: AgentRunHeader['status'];
       failContinuationCreate?: boolean;
       beforeRuntimeEventRead?: (sessionId: string, runId: string) => Promise<void> | void;
+      beforeRuntimeEventAppend?: (
+        sessionId: string,
+        runId: string,
+        event: RuntimeEvent,
+      ) => Promise<void> | void;
       beforeRunRead?: (sessionId: string, runId: string) => Promise<void> | void;
       beforeAgentRunEventAppend?: (
         sessionId: string,
@@ -14700,6 +15023,7 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
   }
 
   async appendRuntimeEvent(sessionId: string, runId: string, event: RuntimeEvent): Promise<void> {
+    await this.options.beforeRuntimeEventAppend?.(sessionId, runId, event);
     if (this.options.failRuntimeEventAppends) throw new Error('runtime event append failed');
     this.runtimeEventAppendCount += 1;
     if (
@@ -15007,6 +15331,29 @@ function makeGate(): Gate {
     release = resolve;
   });
   return { promise, release };
+}
+
+function makeTestRuntimePolicyGate(): {
+  runBackendActivation<T>(operation: () => Promise<T> | T): Promise<T>;
+  runMutation<T>(operation: () => Promise<T>): Promise<T>;
+} {
+  const activeActivations = new Set<Promise<void>>();
+  return {
+    async runBackendActivation<T>(operation: () => Promise<T> | T): Promise<T> {
+      const completion = makeGate();
+      activeActivations.add(completion.promise);
+      try {
+        return await operation();
+      } finally {
+        completion.release();
+        activeActivations.delete(completion.promise);
+      }
+    },
+    async runMutation<T>(operation: () => Promise<T>): Promise<T> {
+      await Promise.all([...activeActivations]);
+      return operation();
+    },
+  };
 }
 
 function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionInput {

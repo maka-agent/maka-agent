@@ -40,6 +40,7 @@ import {
   type RuntimeHostCandidateOptions,
   type RuntimeHostCandidateResult,
 } from '../server/index.js';
+import { createUnavailableDomainOperationHandlers } from '../server/operation-dispatcher.js';
 import { FramedTransport, RuntimeHostTransportError } from '../transport/framed-transport.js';
 import {
   prepareStorageRootControlDirectory,
@@ -131,6 +132,7 @@ describe('non-serving Runtime Host kernel', () => {
           await factoryReleased;
           return {
             handlers: {
+              ...createUnavailableDomainOperationHandlers(),
               'turn.start': unavailable,
               'turn.query': unavailable,
               'turn.stop': unavailable,

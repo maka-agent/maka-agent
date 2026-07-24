@@ -3,6 +3,7 @@ import {
   tryAcquireInteractiveRootOwner,
 } from '@maka/storage/root-authority';
 import { RuntimeHostKernel, type RuntimeHostComposition } from '../../server/host-kernel.js';
+import { createUnavailableDomainOperationHandlers } from '../../server/operation-dispatcher.js';
 import { runRuntimeHostProcessLifecycle } from '../../server/process-lifecycle.js';
 
 const [rootPath, expectedRootId, shutdownGraceRaw] = process.argv.slice(2);
@@ -28,6 +29,7 @@ const host = await RuntimeHostKernel.start({
   shutdownGraceMs,
   compositionFactory: async (context): Promise<RuntimeHostComposition> => ({
     handlers: {
+      ...createUnavailableDomainOperationHandlers(),
       'turn.start': async () => {
         context.acquireResidency();
         process.send?.({ type: 'operation-blocked' });

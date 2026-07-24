@@ -13,6 +13,7 @@ export * from './orchestration.js';
 export * from './swarm-command.js';
 export * from './plan.js';
 export * from './agent-graph-control.js';
+export * from './runtime-policy.js';
 
 // events.ts
 export type {
