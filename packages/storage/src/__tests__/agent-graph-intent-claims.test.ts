@@ -46,6 +46,16 @@ describe('SQLite agent graph intent claims', () => {
         ),
         AgentGraphIntentClaimConflictError,
       );
+      await assert.rejects(
+        store.claimAgentGraphIntent(
+          request({
+            claimId: `graph_claim_${'1'.repeat(32)}`,
+            intentId: `graph_intent_${'2'.repeat(32)}`,
+            targetRunId: 'different-run',
+          }),
+        ),
+        AgentGraphIntentClaimConflictError,
+      );
       assert.equal((await store.listAgentGraphIntentClaims()).length, 1);
     } finally {
       store.close();

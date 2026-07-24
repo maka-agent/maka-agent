@@ -1,7 +1,6 @@
 export * from './session-store.js';
 export * from './session-transcript.js';
 export * from './sqlite-session-metadata-store.js';
-export * from './agent-graph-control-store.js';
 export * from './session-metadata-transfer.js';
 export * from './session-metadata-maintenance.js';
 export * from './agent-run-store.js';

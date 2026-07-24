@@ -198,6 +198,7 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       target_run_id TEXT NOT NULL,
       claimed_at INTEGER NOT NULL,
       UNIQUE(graph_id, intent_id),
+      UNIQUE(target_session_id, target_turn_id),
       UNIQUE(target_session_id, target_run_id)
     );
 
