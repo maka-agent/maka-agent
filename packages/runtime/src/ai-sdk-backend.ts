@@ -2564,7 +2564,7 @@ export class AiSdkBackend implements AgentBackend {
                 (await this.materializeToolResultOutput(
                   result.output,
                   result.isError,
-                  result.toolCallId,
+                  `runtime-event:${result.eventId}:tool-result`,
                 )),
             },
           ],

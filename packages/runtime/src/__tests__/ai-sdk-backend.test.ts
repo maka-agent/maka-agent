@@ -1672,6 +1672,109 @@ describe('AiSdkBackend model history', () => {
     );
   });
 
+  test('budgets replayed image tool results by durable occurrence instead of reused tool-call ids', async () => {
+    const bytes = new Uint8Array(10);
+    const model = completionModel();
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => model,
+      tools: [],
+      newId: idGenerator(),
+      now: monotonicClock(),
+      supportsVision: true,
+      maxProviderImageRequestBytes: 15,
+      readAttachmentBytes: async () => ({ ok: true, bytes }),
+    });
+    const call = (eventId: string, turnId: string) =>
+      runtimeEvent({
+        id: eventId,
+        turnId,
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'reused-tool-id',
+          name: 'Read',
+          args: { path: `${turnId}.png` },
+        },
+      });
+    const result = (eventId: string, turnId: string) =>
+      runtimeEvent({
+        id: eventId,
+        turnId,
+        role: 'tool',
+        author: 'tool',
+        content: {
+          kind: 'function_response',
+          id: 'reused-tool-id',
+          name: 'Read',
+          isError: false,
+          result: {
+            kind: 'image',
+            mimeType: 'image/png',
+            ref: {
+              kind: 'session_file',
+              sessionId: 'session-1',
+              relativePath: `${turnId}.png`,
+            },
+          },
+        },
+      });
+
+    await drain(
+      backend.send({
+        turnId: 'turn-current',
+        text: 'continue',
+        context: [],
+        runtimeContext: [
+          runtimeTextEvent({
+            id: 'user-a',
+            turnId: 'turn-a',
+            role: 'user',
+            author: 'user',
+            text: 'read a',
+          }),
+          call('call-a', 'turn-a'),
+          result('result-a', 'turn-a'),
+          runtimeTextEvent({
+            id: 'user-b',
+            turnId: 'turn-b',
+            role: 'user',
+            author: 'user',
+            text: 'read b',
+          }),
+          call('call-b', 'turn-b'),
+          result('result-b', 'turn-b'),
+        ],
+      }),
+    );
+
+    const prompt = compactPrompt(model) as Array<{ role: string; content: any[] }>;
+    const outputs = prompt
+      .filter((message) => message.role === 'tool')
+      .flatMap((message) => message.content)
+      .map((entry) => entry?.output)
+      .filter((output) => output?.type === 'content');
+    assert.equal(
+      outputs.filter((output) =>
+        output.value.some((part: any) => part.type === 'file' && part.mediaType === 'image/png'),
+      ).length,
+      1,
+    );
+    assert.equal(
+      outputs.filter((output) =>
+        output.value.some((part: any) => part.type === 'text' && /image budget/.test(part.text)),
+      ).length,
+      1,
+    );
+  });
+
   test('RuntimeEvent replay renders historical image attachments as image parts', async () => {
     const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 9, 8, 7]);
     const model = completionModel();
