@@ -144,6 +144,39 @@ function cssBlocks(css: string): Array<{ selectors: string; decls: string }> {
     .map(([selectors, decls]) => ({ selectors: selectors.trim(), decls: (decls ?? '').trim() }));
 }
 
+describe('MARKDOWN-CODE-LITERAL-LIGATURES-0 contract (#1431)', () => {
+  // Geist Mono enables programming ligatures by default. On Markdown code
+  // that collapses runs like `###` / `===` / `=>` into combined glyphs whose
+  // ink and advance can extend left of the source column, so fenced lines
+  // appear misaligned. Other literal surfaces already pin
+  // `font-variant-ligatures: none` (`.maka-code`). The prose code boundary
+  // must do the same so both inline and fenced code inherit literal shaping.
+  // Non-code prose typography stays untouched.
+
+  it('.maka-prose code disables font ligatures for literal character shaping', async () => {
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const code = blocks.find(({ selectors }) => /^\.maka-prose\s+code$/.test(selectors));
+    assert.ok(code, 'expected a bare .maka-prose code rule in prose.css');
+    assert.match(
+      code!.decls,
+      /font-variant-ligatures:\s*none/,
+      '.maka-prose code must set font-variant-ligatures: none so Markdown inline and fenced code render ### / === / => literally (#1431)',
+    );
+  });
+
+  it('non-code prose base does not disable ligatures (prose typography unchanged)', async () => {
+    const css = stripCssComments(await readFile(PROSE_CSS, 'utf8'));
+    const blocks = cssBlocks(css);
+    const prose = blocks.find(({ selectors }) => selectors === '.maka-prose');
+    assert.ok(prose, 'expected a bare .maka-prose base rule');
+    assert.ok(
+      !/font-variant-ligatures/.test(prose!.decls),
+      '.maka-prose must not disable ligatures globally — only the code surface is a literal glyph surface (#1431)',
+    );
+  });
+});
+
 describe('CODE-BLOCK-PRE-FONT-TIER-0 contract (#546 PR5)', () => {
   // The assistant code block <pre> must render at the UI/chrome tier
   // (--font-size-ui), NOT inherit the prose body size. A pre-existing reset
