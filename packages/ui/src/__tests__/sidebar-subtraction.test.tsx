@@ -121,4 +121,24 @@ describe('sidebar subtraction', () => {
     assert.doesNotMatch(markup, />按状态</);
     assert.doesNotMatch(markup, />按项目</);
   });
+
+  it('keeps conversation view controls visible while an extension module is selected', () => {
+    const markup = renderToStaticMarkup(
+      <LocaleProvider locale="zh">
+        <SessionListPanel
+          selection={{ section: 'extensions', module: 'skills' }}
+          sessions={[]}
+          viewMode="status"
+          onViewModeChange={() => {}}
+          onSelectSession={() => {}}
+          onSelect={() => {}}
+          onOpenSettings={() => {}}
+          onNew={() => {}}
+        />
+      </LocaleProvider>,
+    );
+
+    assert.match(markup, /class="maka-session-list-heading"[^>]*>会话</);
+    assert.match(markup, /aria-label="会话分组方式"/);
+  });
 });
