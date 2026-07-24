@@ -96,6 +96,9 @@ export function useQuoteCompanion(input: UseQuoteCompanionInput): UseQuoteCompan
   const copy = getDesktopConversationCopy(locale).quoteCompanion;
   const [companion, setCompanion] = useState<SessionSummary | undefined>(undefined);
   const companionIdRef = useRef<string | null>(null);
+  // A created fork is hidden immediately, before its permission pin completes,
+  // but is not considered usable until onForkCommitted promotes it.
+  const pendingForkIdRef = useRef<string | null>(null);
   const onForkChangeRef = useRef(onForkChange);
   onForkChangeRef.current = onForkChange;
   const localeRef = useRef(locale);
@@ -163,7 +166,7 @@ export function useQuoteCompanion(input: UseQuoteCompanionInput): UseQuoteCompan
   useEffect(() => {
     return () => {
       unsubscribeRef.current?.();
-      const id = companionIdRef.current;
+      const id = companionIdRef.current ?? pendingForkIdRef.current;
       if (id) {
         window.maka.sessions.remove(id).catch(() => {});
         onForkChangeRef.current?.(undefined);
@@ -187,13 +190,17 @@ export function useQuoteCompanion(input: UseQuoteCompanionInput): UseQuoteCompan
         turnId,
         text: trimmed,
         quotes: pendingQuotes.length > 0 ? [...pendingQuotes] : undefined,
+        onForkCreated: (session) => {
+          pendingForkIdRef.current = session.id;
+          onForkChangeRef.current?.(session.id);
+        },
         onForkCommitted: (session) => {
+          pendingForkIdRef.current = null;
           companionIdRef.current = session.id;
           setCompanion(session);
           // Establish the event subscription BEFORE the send starts (fixes the
-          // pre-subscription race), then report the fork up so the host hides it.
+          // pre-subscription race). The host already hid it at creation time.
           subscribeToFork(session.id);
-          onForkChangeRef.current?.(session.id);
         },
         // Arm the optimistic live turn right before the send.
         onBeforeSend: () => {
@@ -224,10 +231,15 @@ export function useQuoteCompanion(input: UseQuoteCompanionInput): UseQuoteCompan
       if (result.status === 'error') {
         const errors = copyRef.current.errors;
         const byCode: Record<CompanionErrorCode, string> = {
+          fork_setup_failed: errors.forkSetupFailed,
           permission_pin_failed: errors.permissionPinFailed,
           send_failed: errors.sendFailed,
           send_rejected: errors.sendRejected,
         };
+        if (result.code === 'permission_pin_failed') {
+          pendingForkIdRef.current = null;
+          onForkChangeRef.current?.(undefined);
+        }
         setError(byCode[result.code]);
         setTurnInFlight(false);
         setLiveTurn(undefined);

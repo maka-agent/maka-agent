@@ -70,6 +70,8 @@ export interface DesktopConversationCopy {
     /** Prefix for the companion fork's session name (followed by the excerpt). */
     namePrefix: string;
     errors: {
+      /** Reading the source boundary or creating the companion fork failed. */
+      forkSetupFailed: string;
       /** Fork could not be pinned read-only (`explore`), so the send was aborted. */
       permissionPinFailed: string;
       /** The companion run reported an error event. */
@@ -135,6 +137,7 @@ const COPY = {
       exit: '退出',
       namePrefix: '追问：',
       errors: {
+        forkSetupFailed: '无法创建追问会话，请稍后重试。',
         permissionPinFailed: '无法将追问会话设为只读探索模式，已取消（避免以主对话的高权限执行）。',
         runError: '追问出错了，请重试。',
         sendRejected: '追问未能开始，请稍后重试。',
@@ -190,6 +193,7 @@ const COPY = {
       exit: 'Exit',
       namePrefix: 'Quote: ',
       errors: {
+        forkSetupFailed: 'Could not create the companion conversation. Please try again.',
         permissionPinFailed: 'Could not set the companion to read-only exploration mode; canceled (to avoid running with the main conversation’s elevated permissions).',
         runError: 'The companion run errored. Please try again.',
         sendRejected: 'The companion could not start. Please try again.',

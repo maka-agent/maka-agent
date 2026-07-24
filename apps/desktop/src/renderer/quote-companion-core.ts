@@ -43,9 +43,14 @@ export interface CompanionSessionApi {
 }
 
 /** Structured failure reasons the renderer localizes (no user-facing strings in
- *  core). `permission_pin_failed`: the fork couldn't be confirmed read-only;
+ *  core). `fork_setup_failed`: reading the source boundary or creating the fork
+ *  failed; `permission_pin_failed`: the fork couldn't be confirmed read-only;
  *  `send_failed`: `sessions.send` threw; `send_rejected`: it resolved `{ok:false}`. */
-export type CompanionErrorCode = 'permission_pin_failed' | 'send_failed' | 'send_rejected';
+export type CompanionErrorCode =
+  | 'fork_setup_failed'
+  | 'permission_pin_failed'
+  | 'send_failed'
+  | 'send_rejected';
 
 export type EnsureCompanionForkResult =
   | { status: 'ready'; session: SessionSummary }
@@ -59,6 +64,9 @@ export interface EnsureCompanionForkDeps {
   /** True once the panel has unmounted — checked after every await so a fork
    *  born after disposal is torn down instead of leaking a hidden run. */
   isDisposed: () => boolean;
+  /** Fired as soon as creation returns, before the permission pin round-trip.
+   *  The host uses the id to hide this ephemeral child immediately. */
+  onForkCreated?: (session: SessionSummary) => void;
 }
 
 /** The latest durable (settled) turn of the source session — the fork boundary.
@@ -74,9 +82,11 @@ export function latestSettledTurnId(turns: readonly TurnRecord[]): string | unde
  * operations are hard-blocked. Fails closed: if `setPermissionMode` throws or
  * the session is not `explore`, the fork is removed and an error is returned —
  * never leaving a fork that could run with the parent's inherited execute/bypass
- * permissions. If the panel is disposed mid-flight, any created fork is removed
- * and `disposed` is returned so the caller aborts. The fork inherits the source
- * model/connection (no independent model picker).
+ * permissions. Source-boundary and creation failures are returned as structured
+ * errors instead of escaping as unhandled promise rejections. If the panel is
+ * disposed mid-flight, any created fork is removed and `disposed` is returned so
+ * the caller aborts. The fork inherits the source model/connection (no
+ * independent model picker).
  */
 export async function ensureCompanionFork(
   deps: EnsureCompanionForkDeps,
@@ -85,25 +95,39 @@ export async function ensureCompanionFork(
 
   // Branch at the latest SETTLED turn (durable), not the last message that
   // happens to carry a turnId — so a fork never starts from a mid-flight turn.
-  const turns = await api.listTurns(sourceSession.id);
+  let turns: TurnRecord[];
+  try {
+    turns = await api.listTurns(sourceSession.id);
+  } catch {
+    return { status: 'error', code: 'fork_setup_failed' };
+  }
   if (isDisposed()) return { status: 'disposed' };
   const boundaryTurnId = latestSettledTurnId(turns);
 
-  const created = boundaryTurnId
-    ? await api.branchFromTurn(sourceSession.id, { sourceTurnId: boundaryTurnId, name })
-    : await api.create({
-        ...(sourceSession.cwd ? { cwd: sourceSession.cwd } : {}),
-        backend: sourceSession.backend,
-        llmConnectionSlug: sourceSession.llmConnectionSlug,
-        model: sourceSession.model,
-        parentSessionId: sourceSession.id,
-        name,
-      });
+  let created: SessionSummary;
+  try {
+    created = boundaryTurnId
+      ? await api.branchFromTurn(sourceSession.id, { sourceTurnId: boundaryTurnId, name })
+      : await api.create({
+          ...(sourceSession.cwd ? { cwd: sourceSession.cwd } : {}),
+          backend: sourceSession.backend,
+          llmConnectionSlug: sourceSession.llmConnectionSlug,
+          model: sourceSession.model,
+          parentSessionId: sourceSession.id,
+          name,
+        });
+  } catch {
+    return { status: 'error', code: 'fork_setup_failed' };
+  }
 
   if (isDisposed()) {
     void api.remove(created.id).catch(() => {});
     return { status: 'disposed' };
   }
+  // `sessions:branchFromTurn` broadcasts `sessions:changed(created)` before the
+  // promise resolves. Report the id at the first renderer-visible opportunity,
+  // rather than waiting on the potentially slow permission pin below.
+  deps.onForkCreated?.(created);
 
   // Fail CLOSED on the read-only guardrail: the fork inherits the parent's
   // permission mode, so it MUST be confirmed `explore` before it is ever used.

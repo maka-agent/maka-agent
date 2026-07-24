@@ -2,10 +2,12 @@
  * Focused unit tests for the quote companion's fork/guard/send orchestration and
  * event routing (extracted from `useQuoteCompanion` so the React hook stays a
  * thin shell — same pattern as `use-onboarding-snapshot.test.ts`). Covers the
- * review gaps: the read-only guardrail must fail CLOSED to `explore`, an unmount
- * mid-create must not leak a hidden fork, a failed OR `{ ok: false }` send must
- * be retryable (quotes kept), the fork branches at the latest settled turn, and
- * the interaction routing must resolve web/custom-tool approvals.
+ * review gaps: fork setup rejections are structured, the read-only guardrail
+ * must fail CLOSED to `explore`, a created fork is exposed for hiding before the
+ * permission round-trip, an unmount mid-create must not leak a hidden fork, a
+ * failed OR `{ ok: false }` send must be retryable (quotes kept), the fork
+ * branches at the latest settled turn, and interaction routing must resolve
+ * web/custom-tool approvals.
  */
 
 import { strict as assert } from 'node:assert';
@@ -37,6 +39,9 @@ function turn(turnId: string, status: TurnStatus): TurnRecord {
 
 interface FakeControl {
   turns?: TurnRecord[];
+  listTurnsThrows?: boolean;
+  branchThrows?: boolean;
+  createThrows?: boolean;
   /** permissionMode `setPermissionMode` returns (default = the requested mode). */
   afterSetMode?: string;
   setModeThrows?: boolean;
@@ -62,12 +67,19 @@ function makeApi(control: FakeControl = {}) {
   };
   const api: CompanionSessionApi = {
     readMessages: async () => [{ turnId: 'x' } as unknown as StoredMessage],
-    listTurns: async () => control.turns ?? [turn('main-turn-1', 'completed')],
+    listTurns: async () => {
+      if (control.listTurnsThrows) throw new Error('listTurns failed');
+      return control.turns ?? [turn('main-turn-1', 'completed')];
+    },
     branchFromTurn: async (_id, input) => {
       calls.branchedFrom.push(input.sourceTurnId);
+      if (control.branchThrows) throw new Error('branchFromTurn failed');
       return forge();
     },
-    create: async () => forge(),
+    create: async () => {
+      if (control.createThrows) throw new Error('create failed');
+      return forge();
+    },
     setPermissionMode: async (id, mode) => {
       calls.setMode.push([id, mode]);
       if (control.setModeThrows) throw new Error('setPermissionMode failed');
@@ -89,6 +101,7 @@ function recorder() {
   const events: string[] = [];
   return {
     events,
+    onForkCreated: (session: SessionSummary) => events.push(`created:${session.id}`),
     onForkCommitted: (session: SessionSummary) => events.push(`committed:${session.id}`),
     onBeforeSend: (forkId: string) => events.push(`beforeSend:${forkId}`),
     onQuotesConsumed: () => events.push('consumed'),
@@ -130,7 +143,68 @@ describe('performCompanionTurn', () => {
     assert.deepEqual(calls.sent[0].cmd.quotes, [{ text: 'excerpt' }]);
     assert.deepEqual(calls.removed, []);
     // Quotes are consumed only AFTER the send is accepted.
-    assert.deepEqual(rec.events, ['committed:fork-1', 'beforeSend:fork-1', 'consumed']);
+    assert.deepEqual(rec.events, [
+      'created:fork-1',
+      'committed:fork-1',
+      'beforeSend:fork-1',
+      'consumed',
+    ]);
+  });
+
+  it('reports the created id before awaiting the permission pin', async () => {
+    const events: string[] = [];
+    const { api } = makeApi({ afterSetMode: 'explore' });
+    const originalSetPermissionMode = api.setPermissionMode;
+    api.setPermissionMode = async (...args) => {
+      events.push('pin-started');
+      return originalSetPermissionMode(...args);
+    };
+    const result = await performCompanionTurn({
+      api,
+      isDisposed: () => false,
+      ...base,
+      onForkCreated: (session) => events.push(`created:${session.id}`),
+      onForkCommitted: (session) => events.push(`committed:${session.id}`),
+      onBeforeSend: () => events.push('send-started'),
+      onQuotesConsumed: () => {},
+    });
+    assert.equal(result.status, 'sent');
+    assert.deepEqual(events, [
+      'created:fork-1',
+      'pin-started',
+      'committed:fork-1',
+      'send-started',
+    ]);
+  });
+
+  it('structures listTurns rejection and never creates or sends', async () => {
+    const { api, calls } = makeApi({ listTurnsThrows: true });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'fork_setup_failed' });
+    assert.equal(calls.created, 0);
+    assert.equal(calls.sent.length, 0);
+    assert.deepEqual(rec.events, []);
+  });
+
+  it('structures branchFromTurn rejection and never pins or sends', async () => {
+    const { api, calls } = makeApi({ branchThrows: true });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'fork_setup_failed' });
+    assert.deepEqual(calls.setMode, []);
+    assert.equal(calls.sent.length, 0);
+    assert.deepEqual(rec.events, []);
+  });
+
+  it('structures fallback create rejection and never pins or sends', async () => {
+    const { api, calls } = makeApi({ turns: [], createThrows: true });
+    const rec = recorder();
+    const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
+    assert.deepEqual(result, { status: 'error', code: 'fork_setup_failed' });
+    assert.deepEqual(calls.setMode, []);
+    assert.equal(calls.sent.length, 0);
+    assert.deepEqual(rec.events, []);
   });
 
   it('fail-closed: setPermissionMode throwing removes the fork and never sends', async () => {
@@ -140,7 +214,7 @@ describe('performCompanionTurn', () => {
     assert.deepEqual(result, { status: 'error', code: 'permission_pin_failed' });
     assert.deepEqual(calls.removed, ['fork-1']);
     assert.equal(calls.sent.length, 0);
-    assert.deepEqual(rec.events, []);
+    assert.deepEqual(rec.events, ['created:fork-1']);
   });
 
   it('fail-closed: a fork not confirmed `explore` is removed and never sends', async () => {
@@ -172,7 +246,11 @@ describe('performCompanionTurn', () => {
     const result = await performCompanionTurn({ api, isDisposed: () => false, ...base, ...rec });
     assert.deepEqual(result, { status: 'error', code: 'send_failed' });
     assert.equal(rec.events.includes('consumed'), false);
-    assert.deepEqual(rec.events, ['committed:fork-1', 'beforeSend:fork-1']);
+    assert.deepEqual(rec.events, [
+      'created:fork-1',
+      'committed:fork-1',
+      'beforeSend:fork-1',
+    ]);
   });
 
   it('non-throwing send rejection ({ ok: false }) surfaces an error and keeps quotes', async () => {

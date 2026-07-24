@@ -113,7 +113,12 @@ export function QuoteCompanionPanel(props: {
       />
       {props.onClear && (
         <div className="maka-quote-companion-actions">
-          <button type="button" className="maka-quote-panel-clear" onClick={props.onClear}>
+          <button
+            type="button"
+            className="maka-quote-panel-clear"
+            aria-label={copy.exit}
+            onClick={props.onClear}
+          >
             {copy.exit}
           </button>
         </div>
