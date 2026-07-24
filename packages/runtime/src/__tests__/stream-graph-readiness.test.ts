@@ -27,7 +27,13 @@ describe('operator-local stream graph readiness', () => {
     const topology: AgentGraphTraceTopology = {
       graphId: 'graph-map',
       operators: [binding(worker, 'worker'), binding(source, 'source')],
-      edges: [{ edgeId: 'source-worker', fromOperatorId: 'source', toOperatorId: 'worker' }],
+      edges: [
+        {
+          edgeId: 'source-worker',
+          fromOperatorId: 'source',
+          toOperatorId: 'worker',
+        },
+      ],
     };
     const policies: AgentGraphReadinessPolicy[] = [
       { readinessId: 'worker-map', operatorId: 'worker', kind: 'map' },
@@ -60,6 +66,7 @@ describe('operator-local stream graph readiness', () => {
         operatorId: 'worker',
         policyKind: 'map',
         policyFingerprint: state?.policyFingerprint,
+        readinessContextFingerprint: state?.readinessContextFingerprint,
         status: 'runnable',
         intentIds: state?.intents.map((intent) => intent.intentId),
         waitingFor: [],
@@ -91,7 +98,13 @@ describe('operator-local stream graph readiness', () => {
       topology: {
         graphId: 'graph-map-waiting',
         operators: [binding(source, 'source'), binding(worker, 'worker')],
-        edges: [{ edgeId: 'source-worker', fromOperatorId: 'source', toOperatorId: 'worker' }],
+        edges: [
+          {
+            edgeId: 'source-worker',
+            fromOperatorId: 'source',
+            toOperatorId: 'worker',
+          },
+        ],
       },
       records: [],
       policies: [{ readinessId: 'worker-map', operatorId: 'worker', kind: 'map' }],
@@ -109,7 +122,11 @@ describe('operator-local stream graph readiness', () => {
   test('waits for an exact all-settled activation frontier and accepts every terminal outcome', () => {
     const branchA = runHeader('branch-a', baseTs, 'completed');
     const branchBRunning = runHeader('branch-b', baseTs + 1);
-    const branchBFailed = { ...branchBRunning, status: 'failed' as const, completedAt: baseTs + 4 };
+    const branchBFailed = {
+      ...branchBRunning,
+      status: 'failed' as const,
+      completedAt: baseTs + 4,
+    };
     const branchC = runHeader('branch-c', baseTs + 2, 'completed');
     const join = runHeader('join', baseTs + 3);
     const topology: AgentGraphTraceTopology = {
@@ -266,7 +283,7 @@ describe('operator-local stream graph readiness', () => {
     assert.deepEqual(after.readiness['join-all']?.intents, before.readiness['join-all']?.intents);
   });
 
-  test('invalidates intent identity when the canonical topology changes', () => {
+  test('keeps local intent identity stable across unrelated and downstream-only topology changes', () => {
     const source = runHeader('fingerprint-source', baseTs);
     const worker = runHeader('fingerprint-worker', baseTs + 1);
     const observer = runHeader('fingerprint-observer', baseTs + 2);
@@ -283,12 +300,18 @@ describe('operator-local stream graph readiness', () => {
       topology: {
         graphId: 'graph-fingerprint',
         operators: [binding(source, 'source'), binding(worker, 'worker')],
-        edges: [{ edgeId: 'source-worker', fromOperatorId: 'source', toOperatorId: 'worker' }],
+        edges: [
+          {
+            edgeId: 'source-worker',
+            fromOperatorId: 'source',
+            toOperatorId: 'worker',
+          },
+        ],
       },
       records,
       policies: [policy],
     });
-    const expanded = buildAgentGraphReadinessSnapshot({
+    const disconnected = buildAgentGraphReadinessSnapshot({
       topology: {
         graphId: 'graph-fingerprint',
         operators: [
@@ -296,17 +319,113 @@ describe('operator-local stream graph readiness', () => {
           binding(worker, 'worker'),
           binding(source, 'source'),
         ],
-        edges: [{ edgeId: 'source-worker', fromOperatorId: 'source', toOperatorId: 'worker' }],
+        edges: [
+          {
+            edgeId: 'source-worker',
+            fromOperatorId: 'source',
+            toOperatorId: 'worker',
+          },
+        ],
+      },
+      records,
+      policies: [policy],
+    });
+    const downstreamOnly = buildAgentGraphReadinessSnapshot({
+      topology: {
+        graphId: 'graph-fingerprint',
+        operators: [
+          binding(observer, 'observer'),
+          binding(worker, 'worker'),
+          binding(source, 'source'),
+        ],
+        edges: [
+          {
+            edgeId: 'source-worker',
+            fromOperatorId: 'source',
+            toOperatorId: 'worker',
+          },
+          {
+            edgeId: 'worker-observer',
+            fromOperatorId: 'worker',
+            toOperatorId: 'observer',
+          },
+        ],
       },
       records,
       policies: [policy],
     });
 
-    assert.notEqual(initial.topologyFingerprint, expanded.topologyFingerprint);
-    assert.notEqual(
-      initial.readiness['worker-map']?.intents[0]?.intentId,
-      expanded.readiness['worker-map']?.intents[0]?.intentId,
+    assert.notEqual(initial.topologyFingerprint, disconnected.topologyFingerprint);
+    assert.notEqual(initial.topologyFingerprint, downstreamOnly.topologyFingerprint);
+    assert.deepEqual(
+      disconnected.readiness['worker-map']?.intents,
+      initial.readiness['worker-map']?.intents,
     );
+    assert.deepEqual(
+      downstreamOnly.readiness['worker-map']?.intents,
+      initial.readiness['worker-map']?.intents,
+    );
+  });
+
+  test('orders distinct Unicode identities canonically across topology and sealed inputs', () => {
+    const precomposed = runHeader('unicode-precomposed', baseTs);
+    const decomposed = runHeader('unicode-decomposed', baseTs + 1);
+    const join = runHeader('unicode-join', baseTs + 2);
+    const precomposedId = '\u00e9';
+    const decomposedId = 'e\u0301';
+    assert.equal(precomposedId.localeCompare(decomposedId), 0);
+
+    const operators = [
+      binding(precomposed, precomposedId),
+      binding(decomposed, decomposedId),
+      binding(join, 'join'),
+    ];
+    const edges = [
+      {
+        edgeId: 'precomposed-join',
+        fromOperatorId: precomposedId,
+        toOperatorId: 'join',
+      },
+      {
+        edgeId: 'decomposed-join',
+        fromOperatorId: decomposedId,
+        toOperatorId: 'join',
+      },
+    ];
+    const inputs = [
+      { operatorId: precomposedId, activationId: precomposed.runId },
+      { operatorId: decomposedId, activationId: decomposed.runId },
+    ];
+    const canonical = buildAgentGraphReadinessSnapshot({
+      topology: { graphId: 'graph-unicode-readiness', operators, edges },
+      records: [],
+      policies: [
+        {
+          readinessId: 'join-all',
+          operatorId: 'join',
+          kind: 'all_settled',
+          inputs,
+        },
+      ],
+    });
+    const reversed = buildAgentGraphReadinessSnapshot({
+      topology: {
+        graphId: 'graph-unicode-readiness',
+        operators: [...operators].reverse(),
+        edges: [...edges].reverse(),
+      },
+      records: [],
+      policies: [
+        {
+          readinessId: 'join-all',
+          operatorId: 'join',
+          kind: 'all_settled',
+          inputs: [...inputs].reverse(),
+        },
+      ],
+    });
+
+    assert.deepEqual(reversed, canonical);
   });
 
   test('keeps reserved JavaScript property names safe in readiness identities', () => {
@@ -321,7 +440,13 @@ describe('operator-local stream graph readiness', () => {
       topology: {
         graphId: 'graph-reserved-readiness',
         operators: [binding(source, 'source'), binding(worker, '__proto__')],
-        edges: [{ edgeId: 'toString', fromOperatorId: 'source', toOperatorId: '__proto__' }],
+        edges: [
+          {
+            edgeId: 'toString',
+            fromOperatorId: 'source',
+            toOperatorId: '__proto__',
+          },
+        ],
       },
       records,
       policies: [{ readinessId: 'constructor', operatorId: '__proto__', kind: 'map' }],

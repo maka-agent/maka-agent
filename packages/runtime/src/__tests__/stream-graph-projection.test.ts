@@ -412,6 +412,49 @@ describe('committed stream graph projection', () => {
     assert.equal(replayAgentGraphRecords(records).appliedRecordIds.length, 2);
   });
 
+  test('orders locale-equivalent Unicode source identities independently of stream input order', () => {
+    const precomposedId = '\u00e9';
+    const decomposedId = 'e\u0301';
+    assert.equal(precomposedId.localeCompare(decomposedId), 0);
+    const precomposed = runHeader({
+      sessionId: 'child-precomposed',
+      runId: precomposedId,
+      turnId: 'turn-precomposed',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const decomposed = runHeader({
+      sessionId: 'child-decomposed',
+      runId: decomposedId,
+      turnId: 'turn-decomposed',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const streams = [
+      {
+        operator: { operatorId: precomposedId, sessionId: precomposed.sessionId },
+        run: precomposed,
+        events: [runtimeEvent(precomposed, { id: precomposedId, ts: baseTs + 1 })],
+      },
+      {
+        operator: { operatorId: decomposedId, sessionId: decomposed.sessionId },
+        run: decomposed,
+        events: [runtimeEvent(decomposed, { id: decomposedId, ts: baseTs + 1 })],
+      },
+    ];
+
+    const canonical = projectAgentGraphRecords({
+      graphId: 'graph-unicode-order',
+      streams,
+    });
+    const reversed = projectAgentGraphRecords({
+      graphId: 'graph-unicode-order',
+      streams: [...streams].reverse(),
+    });
+
+    assert.deepEqual(reversed, canonical);
+  });
+
   test('routes human-interaction facts to the always-on supervisor without blocking lifecycle', () => {
     const run = runHeader({
       sessionId: 'child-a',

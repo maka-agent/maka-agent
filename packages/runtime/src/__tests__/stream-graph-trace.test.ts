@@ -39,8 +39,16 @@ describe('stream graph trace topology', () => {
         binding(research, 'research'),
       ],
       edges: [
-        { edgeId: 'synthesis-to-audit', fromOperatorId: 'synthesize', toOperatorId: 'audit' },
-        { edgeId: 'verify-to-synthesis', fromOperatorId: 'verify', toOperatorId: 'synthesize' },
+        {
+          edgeId: 'synthesis-to-audit',
+          fromOperatorId: 'synthesize',
+          toOperatorId: 'audit',
+        },
+        {
+          edgeId: 'verify-to-synthesis',
+          fromOperatorId: 'verify',
+          toOperatorId: 'synthesize',
+        },
         {
           edgeId: 'research-to-synthesis',
           fromOperatorId: 'research',
@@ -109,7 +117,13 @@ describe('stream graph trace topology', () => {
     const topology: AgentGraphTraceTopology = {
       graphId: 'graph-replay',
       operators: [binding(target, 'target'), binding(source, 'source')],
-      edges: [{ edgeId: 'source-to-target', fromOperatorId: 'source', toOperatorId: 'target' }],
+      edges: [
+        {
+          edgeId: 'source-to-target',
+          fromOperatorId: 'source',
+          toOperatorId: 'target',
+        },
+      ],
     };
 
     const canonical = buildAgentGraphTraceSnapshot({
@@ -134,6 +148,75 @@ describe('stream graph trace topology', () => {
     assert.equal(new Set(canonical.routes.map((route) => route.routeId)).size, 2);
   });
 
+  test('fingerprints only declared topology fields in raw identity order', () => {
+    const precomposed = runHeader('unicode-precomposed', baseTs);
+    const decomposed = runHeader('unicode-decomposed', baseTs + 1);
+    const target = runHeader('unicode-target', baseTs + 2);
+    const precomposedId = '\u00e9';
+    const decomposedId = 'e\u0301';
+    assert.equal(precomposedId.localeCompare(decomposedId), 0);
+
+    const canonical = buildAgentGraphTraceSnapshot({
+      topology: {
+        graphId: 'graph-canonical-fingerprint',
+        operators: [
+          binding(precomposed, precomposedId),
+          binding(decomposed, decomposedId),
+          binding(target, 'target'),
+        ],
+        edges: [
+          {
+            edgeId: 'precomposed-target',
+            fromOperatorId: precomposedId,
+            toOperatorId: 'target',
+          },
+          {
+            edgeId: 'decomposed-target',
+            fromOperatorId: decomposedId,
+            toOperatorId: 'target',
+          },
+        ],
+      },
+      records: [],
+    });
+    const noisyOperators = [
+      { ...binding(target, 'target'), displayName: 'ignored target' },
+      {
+        ...binding(decomposed, decomposedId),
+        displayName: 'ignored decomposed',
+      },
+      {
+        ...binding(precomposed, precomposedId),
+        displayName: 'ignored precomposed',
+      },
+    ];
+    const noisyEdges = [
+      {
+        edgeId: 'decomposed-target',
+        fromOperatorId: decomposedId,
+        toOperatorId: 'target',
+        debugColor: 'blue',
+      },
+      {
+        edgeId: 'precomposed-target',
+        fromOperatorId: precomposedId,
+        toOperatorId: 'target',
+        debugColor: 'red',
+      },
+    ];
+    const reorderedWithExtras = buildAgentGraphTraceSnapshot({
+      topology: {
+        graphId: 'graph-canonical-fingerprint',
+        operators: noisyOperators,
+        edges: noisyEdges,
+      },
+      records: [],
+    });
+
+    assert.deepEqual(reorderedWithExtras, canonical);
+    assert.equal(reorderedWithExtras.topologyFingerprint, canonical.topologyFingerprint);
+  });
+
   test('keeps existing route identities stable as later observations arrive', () => {
     const source = runHeader('source', baseTs);
     const target = runHeader('target', baseTs + 1);
@@ -153,7 +236,13 @@ describe('stream graph trace topology', () => {
     const topology: AgentGraphTraceTopology = {
       graphId: 'graph-incremental',
       operators: [binding(source, 'source'), binding(target, 'target')],
-      edges: [{ edgeId: 'source-to-target', fromOperatorId: 'source', toOperatorId: 'target' }],
+      edges: [
+        {
+          edgeId: 'source-to-target',
+          fromOperatorId: 'source',
+          toOperatorId: 'target',
+        },
+      ],
     };
 
     const initial = buildAgentGraphTraceSnapshot({
@@ -177,7 +266,13 @@ describe('stream graph trace topology', () => {
       topology: {
         graphId: 'graph-empty-trace',
         operators: [binding(target, 'target'), binding(source, 'source')],
-        edges: [{ edgeId: 'source-to-target', fromOperatorId: 'source', toOperatorId: 'target' }],
+        edges: [
+          {
+            edgeId: 'source-to-target',
+            fromOperatorId: 'source',
+            toOperatorId: 'target',
+          },
+        ],
       },
       records: [],
     });
@@ -255,7 +350,13 @@ describe('stream graph trace topology', () => {
       topology: {
         graphId: 'graph-edge-rebinding',
         operators,
-        edges: [{ edgeId: 'edge', fromOperatorId: 'source', toOperatorId: 'target-a' }],
+        edges: [
+          {
+            edgeId: 'edge',
+            fromOperatorId: 'source',
+            toOperatorId: 'target-a',
+          },
+        ],
       },
       records: projection.records,
     });
@@ -263,7 +364,13 @@ describe('stream graph trace topology', () => {
       topology: {
         graphId: 'graph-edge-rebinding',
         operators,
-        edges: [{ edgeId: 'edge', fromOperatorId: 'source', toOperatorId: 'target-b' }],
+        edges: [
+          {
+            edgeId: 'edge',
+            fromOperatorId: 'source',
+            toOperatorId: 'target-b',
+          },
+        ],
       },
       records: projection.records,
     });
@@ -290,8 +397,16 @@ describe('stream graph trace topology', () => {
             operators: [binding(one, 'one'), binding(two, 'two'), binding(three, 'three')],
             edges: [
               { edgeId: 'one-two', fromOperatorId: 'one', toOperatorId: 'two' },
-              { edgeId: 'two-three', fromOperatorId: 'two', toOperatorId: 'three' },
-              { edgeId: 'three-one', fromOperatorId: 'three', toOperatorId: 'one' },
+              {
+                edgeId: 'two-three',
+                fromOperatorId: 'two',
+                toOperatorId: 'three',
+              },
+              {
+                edgeId: 'three-one',
+                fromOperatorId: 'three',
+                toOperatorId: 'one',
+              },
             ],
           },
           records: projection.records,
@@ -304,7 +419,13 @@ describe('stream graph trace topology', () => {
           topology: {
             graphId: 'graph-invalid',
             operators: [binding(one, 'one'), binding(two, 'two')],
-            edges: [{ edgeId: 'one-missing', fromOperatorId: 'one', toOperatorId: 'missing' }],
+            edges: [
+              {
+                edgeId: 'one-missing',
+                fromOperatorId: 'one',
+                toOperatorId: 'missing',
+              },
+            ],
           },
           records: projection.records,
         }),

@@ -1,4 +1,5 @@
 import { stableHash } from './request-shape.js';
+import { compareAgentGraphIdentity } from './stream-graph-identity.js';
 import {
   replayAgentGraphRecords,
   type AgentGraphOperatorBinding,
@@ -137,7 +138,7 @@ export function buildAgentGraphTraceSnapshot(
     validated.topologicalOrder.map((operatorId, index) => [operatorId, index]),
   );
   const compareOperators = (a: string, b: string): number =>
-    topologicalIndex.get(a)! - topologicalIndex.get(b)! || a.localeCompare(b);
+    topologicalIndex.get(a)! - topologicalIndex.get(b)! || compareAgentGraphIdentity(a, b);
 
   const replayOperators = new Map(Object.entries(replay.operators));
   const operators = new Map<string, AgentGraphTraceOperatorState>();
@@ -176,7 +177,8 @@ export function buildAgentGraphTraceSnapshot(
     operators.get(record.operatorId)!.emittedRecordIds.push(record.recordId);
     const outgoing = [...(validated.outgoing.get(record.operatorId) ?? [])].sort(
       (a, b) =>
-        compareOperators(a.toOperatorId, b.toOperatorId) || a.edgeId.localeCompare(b.edgeId),
+        compareOperators(a.toOperatorId, b.toOperatorId) ||
+        compareAgentGraphIdentity(a.edgeId, b.edgeId),
     );
     for (const edge of outgoing) {
       const route: AgentGraphTraceRoute = {
@@ -219,10 +221,16 @@ function fingerprintTopology(graphId: string, topology: ValidatedTopology): stri
   return stableHash({
     schemaVersion: AGENT_GRAPH_TRACE_SCHEMA_VERSION,
     graphId,
-    operators: [...topology.operatorsById.values()].sort((a, b) =>
-      a.operatorId.localeCompare(b.operatorId),
-    ),
-    edges: topology.edges,
+    operators: [...topology.operatorsById.values()]
+      .map(({ operatorId, sessionId }) => ({ operatorId, sessionId }))
+      .sort((a, b) => compareAgentGraphIdentity(a.operatorId, b.operatorId)),
+    edges: topology.edges
+      .map(({ edgeId, fromOperatorId, toOperatorId }) => ({
+        edgeId,
+        fromOperatorId,
+        toOperatorId,
+      }))
+      .sort(compareEdges),
   });
 }
 
@@ -246,7 +254,10 @@ function validateTopology(topology: AgentGraphTraceTopology): ValidatedTopology 
         `Session ${operator.sessionId} is bound to trace operators ${sessionOwner} and ${operator.operatorId}`,
       );
     }
-    operatorsById.set(operator.operatorId, { ...operator });
+    operatorsById.set(operator.operatorId, {
+      operatorId: operator.operatorId,
+      sessionId: operator.sessionId,
+    });
     operatorBySession.set(operator.sessionId, operator.operatorId);
   }
 
@@ -254,7 +265,13 @@ function validateTopology(topology: AgentGraphTraceTopology): ValidatedTopology 
   const endpointPairs = new Set<string>();
   const incoming = new Map<string, AgentGraphTraceEdge[]>();
   const outgoing = new Map<string, AgentGraphTraceEdge[]>();
-  const edges = topology.edges.map((edge) => ({ ...edge })).sort(compareEdges);
+  const edges = topology.edges
+    .map(({ edgeId, fromOperatorId, toOperatorId }) => ({
+      edgeId,
+      fromOperatorId,
+      toOperatorId,
+    }))
+    .sort(compareEdges);
   for (const edge of edges) {
     if (!edge.edgeId.trim()) throw new Error('Trace edge id must not be empty');
     if (edgeIds.has(edge.edgeId)) throw new Error(`Duplicate trace edge ${edge.edgeId}`);
@@ -296,7 +313,7 @@ function topologicalSort(
   );
   const ready = [...operatorsById.keys()]
     .filter((operatorId) => remainingIncoming.get(operatorId) === 0)
-    .sort();
+    .sort(compareAgentGraphIdentity);
   const ordered: string[] = [];
 
   while (ready.length > 0) {
@@ -314,7 +331,7 @@ function topologicalSort(
   if (ordered.length !== operatorsById.size) {
     const cyclic = [...operatorsById.keys()]
       .filter((operatorId) => !ordered.includes(operatorId))
-      .sort();
+      .sort(compareAgentGraphIdentity);
     throw new Error(`Trace graph contains a cycle involving: ${cyclic.join(', ')}`);
   }
   return ordered;
@@ -339,14 +356,14 @@ function uniqueOperatorIds(
 
 function compareEdges(a: AgentGraphTraceEdge, b: AgentGraphTraceEdge): number {
   return (
-    a.fromOperatorId.localeCompare(b.fromOperatorId) ||
-    a.toOperatorId.localeCompare(b.toOperatorId) ||
-    a.edgeId.localeCompare(b.edgeId)
+    compareAgentGraphIdentity(a.fromOperatorId, b.fromOperatorId) ||
+    compareAgentGraphIdentity(a.toOperatorId, b.toOperatorId) ||
+    compareAgentGraphIdentity(a.edgeId, b.edgeId)
   );
 }
 
 function insertSorted(values: string[], value: string): void {
-  const index = values.findIndex((candidate) => value.localeCompare(candidate) < 0);
+  const index = values.findIndex((candidate) => compareAgentGraphIdentity(value, candidate) < 0);
   if (index === -1) values.push(value);
   else values.splice(index, 0, value);
 }

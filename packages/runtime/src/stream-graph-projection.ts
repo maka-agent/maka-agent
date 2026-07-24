@@ -1,6 +1,7 @@
 import type { AgentRunHeader, AgentRunStore, RuntimeEvent, RuntimeEventStore } from '@maka/core';
 import { isSessionInlineRun } from '@maka/core';
 import { stableHash, stableStringify } from './request-shape.js';
+import { compareAgentGraphIdentity } from './stream-graph-identity.js';
 
 export const AGENT_GRAPH_RECORD_SCHEMA_VERSION = 1 as const;
 
@@ -210,7 +211,7 @@ export async function readCommittedAgentGraphProjection(
         const runs = await input.runStore.listSessionRuns(operator.sessionId);
         const orderedRuns = runs
           .filter(isSessionInlineRun)
-          .sort((a, b) => a.createdAt - b.createdAt || a.runId.localeCompare(b.runId));
+          .sort((a, b) => a.createdAt - b.createdAt || compareAgentGraphIdentity(a.runId, b.runId));
         return await Promise.all(
           orderedRuns.map(async (run): Promise<AgentGraphRunStream> => {
             if (run.sessionId !== operator.sessionId) {
@@ -645,10 +646,10 @@ function compareOrderedRuntimeEvents(a: OrderedRuntimeEvent, b: OrderedRuntimeEv
   return (
     a.event.ts - b.event.ts ||
     a.run.createdAt - b.run.createdAt ||
-    a.operator.operatorId.localeCompare(b.operator.operatorId) ||
-    a.run.runId.localeCompare(b.run.runId) ||
+    compareAgentGraphIdentity(a.operator.operatorId, b.operator.operatorId) ||
+    compareAgentGraphIdentity(a.run.runId, b.run.runId) ||
     a.committedEventOrdinal - b.committedEventOrdinal ||
-    a.event.id.localeCompare(b.event.id)
+    compareAgentGraphIdentity(a.event.id, b.event.id)
   );
 }
 
@@ -656,11 +657,11 @@ function compareAgentGraphRecords(a: AgentGraphRecord, b: AgentGraphRecord): num
   return (
     a.eventTime - b.eventTime ||
     a.orderKey.runCreatedAt - b.orderKey.runCreatedAt ||
-    a.orderKey.operatorId.localeCompare(b.orderKey.operatorId) ||
-    a.orderKey.runId.localeCompare(b.orderKey.runId) ||
+    compareAgentGraphIdentity(a.orderKey.operatorId, b.orderKey.operatorId) ||
+    compareAgentGraphIdentity(a.orderKey.runId, b.orderKey.runId) ||
     a.orderKey.committedEventOrdinal - b.orderKey.committedEventOrdinal ||
-    a.orderKey.runtimeEventId.localeCompare(b.orderKey.runtimeEventId) ||
-    a.recordId.localeCompare(b.recordId)
+    compareAgentGraphIdentity(a.orderKey.runtimeEventId, b.orderKey.runtimeEventId) ||
+    compareAgentGraphIdentity(a.recordId, b.recordId)
   );
 }
 

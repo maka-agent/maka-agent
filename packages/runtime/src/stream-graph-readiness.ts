@@ -4,6 +4,7 @@ import type {
   AgentGraphActivationStatus,
   AgentGraphRecord,
 } from './stream-graph-projection.js';
+import { compareAgentGraphIdentity } from './stream-graph-identity.js';
 import {
   buildAgentGraphTraceSnapshot,
   type AgentGraphTraceOperatorState,
@@ -68,7 +69,7 @@ export interface AgentGraphRunnableIntent {
   schemaVersion: typeof AGENT_GRAPH_READINESS_SCHEMA_VERSION;
   intentId: string;
   graphId: string;
-  topologyFingerprint: string;
+  readinessContextFingerprint: string;
   policyFingerprint: string;
   readinessId: string;
   operatorId: string;
@@ -82,6 +83,7 @@ export interface AgentGraphOperatorReadinessState {
   operatorId: string;
   policyKind: AgentGraphReadinessPolicy['kind'];
   policyFingerprint: string;
+  readinessContextFingerprint: string;
   status: 'waiting' | 'runnable';
   waitingFor: AgentGraphReadinessWait[];
   intents: AgentGraphRunnableIntent[];
@@ -101,6 +103,7 @@ export interface AgentGraphSupervisorReadinessObservation {
   operatorId: string;
   policyKind: AgentGraphReadinessPolicy['kind'];
   policyFingerprint: string;
+  readinessContextFingerprint: string;
   status: AgentGraphOperatorReadinessState['status'];
   intentIds: string[];
   waitingFor: AgentGraphReadinessWait[];
@@ -144,6 +147,11 @@ export function buildAgentGraphReadinessSnapshot(
       schemaVersion: AGENT_GRAPH_READINESS_SCHEMA_VERSION,
       policy,
     });
+    const readinessContextFingerprint = fingerprintReadinessContext(
+      trace,
+      operatorsById.get(policy.operatorId)!,
+      policyFingerprint,
+    );
     const state =
       policy.kind === 'map'
         ? evaluateMapReadiness(
@@ -151,9 +159,16 @@ export function buildAgentGraphReadinessSnapshot(
             operatorsById.get(policy.operatorId)!,
             policy,
             policyFingerprint,
+            readinessContextFingerprint,
             routesById,
           )
-        : evaluateAllSettledReadiness(trace, operatorsById, policy, policyFingerprint);
+        : evaluateAllSettledReadiness(
+            trace,
+            operatorsById,
+            policy,
+            policyFingerprint,
+            readinessContextFingerprint,
+          );
     readiness.set(policy.readinessId, state);
   }
 
@@ -165,6 +180,7 @@ export function buildAgentGraphReadinessSnapshot(
       operatorId: state.operatorId,
       policyKind: state.policyKind,
       policyFingerprint: state.policyFingerprint,
+      readinessContextFingerprint: state.readinessContextFingerprint,
       status: state.status,
       intentIds: state.intents.map((intent) => intent.intentId),
       waitingFor: state.waitingFor.map(cloneWait),
@@ -186,6 +202,7 @@ function evaluateMapReadiness(
   operator: AgentGraphTraceOperatorState,
   policy: AgentGraphMapReadinessPolicy,
   policyFingerprint: string,
+  readinessContextFingerprint: string,
   routesById: ReadonlyMap<string, AgentGraphTraceRoute>,
 ): AgentGraphOperatorReadinessState {
   const routes = operator.receivedRouteIds.map((routeId) => {
@@ -195,13 +212,16 @@ function evaluateMapReadiness(
     }
     return route;
   });
-  const intents = routes.map((route) => runnableIntent(trace, policy, policyFingerprint, [route]));
+  const intents = routes.map((route) =>
+    runnableIntent(trace, policy, policyFingerprint, readinessContextFingerprint, [route]),
+  );
 
   return {
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
     policyKind: policy.kind,
     policyFingerprint,
+    readinessContextFingerprint,
     status: intents.length > 0 ? 'runnable' : 'waiting',
     waitingFor:
       intents.length > 0
@@ -221,6 +241,7 @@ function evaluateAllSettledReadiness(
   operatorsById: ReadonlyMap<string, AgentGraphTraceOperatorState>,
   policy: Extract<NormalizedReadinessPolicy, { kind: 'all_settled' }>,
   policyFingerprint: string,
+  readinessContextFingerprint: string,
 ): AgentGraphOperatorReadinessState {
   const waitingFor: AgentGraphReadinessWait[] = [];
   const terminalRoutes: AgentGraphTraceRoute[] = [];
@@ -258,13 +279,22 @@ function evaluateAllSettledReadiness(
 
   const intents =
     waitingFor.length === 0
-      ? [runnableIntent(trace, policy, policyFingerprint, terminalRoutes)]
+      ? [
+          runnableIntent(
+            trace,
+            policy,
+            policyFingerprint,
+            readinessContextFingerprint,
+            terminalRoutes,
+          ),
+        ]
       : [];
   return {
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
     policyKind: policy.kind,
     policyFingerprint,
+    readinessContextFingerprint,
     status: intents.length > 0 ? 'runnable' : 'waiting',
     waitingFor,
     intents,
@@ -331,7 +361,9 @@ function normalizeAndValidatePolicies(
     readinessByOperator.set(policy.operatorId, policy.readinessId);
   }
 
-  return [...byReadiness.values()].sort((a, b) => a.readinessId.localeCompare(b.readinessId));
+  return [...byReadiness.values()].sort((a, b) =>
+    compareAgentGraphIdentity(a.readinessId, b.readinessId),
+  );
 }
 
 function normalizeSealedInputs(
@@ -392,6 +424,7 @@ function runnableIntent(
   trace: AgentGraphTraceSnapshot,
   policy: NormalizedReadinessPolicy,
   policyFingerprint: string,
+  readinessContextFingerprint: string,
   triggerRoutes: readonly AgentGraphTraceRoute[],
 ): AgentGraphRunnableIntent {
   const triggerRouteIds = triggerRoutes.map((route) => route.routeId);
@@ -399,7 +432,7 @@ function runnableIntent(
   const hash = stableHash({
     schemaVersion: AGENT_GRAPH_READINESS_SCHEMA_VERSION,
     graphId: trace.graphId,
-    topologyFingerprint: trace.topologyFingerprint,
+    readinessContextFingerprint,
     policyFingerprint,
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
@@ -411,7 +444,7 @@ function runnableIntent(
     schemaVersion: AGENT_GRAPH_READINESS_SCHEMA_VERSION,
     intentId: `graph_intent_${hash.slice('sha256:'.length, 'sha256:'.length + 32)}`,
     graphId: trace.graphId,
-    topologyFingerprint: trace.topologyFingerprint,
+    readinessContextFingerprint,
     policyFingerprint,
     readinessId: policy.readinessId,
     operatorId: policy.operatorId,
@@ -419,6 +452,36 @@ function runnableIntent(
     triggerRouteIds,
     triggerRecordIds,
   };
+}
+
+function fingerprintReadinessContext(
+  trace: AgentGraphTraceSnapshot,
+  operator: AgentGraphTraceOperatorState,
+  policyFingerprint: string,
+): string {
+  const incomingEdges = Object.values(trace.edges)
+    .filter((edge) => edge.toOperatorId === operator.operatorId)
+    .map(({ edgeId, fromOperatorId, toOperatorId }) => ({
+      edgeId,
+      fromOperatorId,
+      toOperatorId,
+    }))
+    .sort(
+      (a, b) =>
+        compareAgentGraphIdentity(a.fromOperatorId, b.fromOperatorId) ||
+        compareAgentGraphIdentity(a.toOperatorId, b.toOperatorId) ||
+        compareAgentGraphIdentity(a.edgeId, b.edgeId),
+    );
+  return stableHash({
+    schemaVersion: AGENT_GRAPH_READINESS_SCHEMA_VERSION,
+    graphId: trace.graphId,
+    targetOperator: {
+      operatorId: operator.operatorId,
+      sessionId: operator.sessionId,
+    },
+    incomingEdges,
+    policyFingerprint,
+  });
 }
 
 function findActivation(
@@ -438,7 +501,10 @@ function compareSealedInputs(
   a: AgentGraphSealedActivationInput,
   b: AgentGraphSealedActivationInput,
 ): number {
-  return a.operatorId.localeCompare(b.operatorId) || a.activationId.localeCompare(b.activationId);
+  return (
+    compareAgentGraphIdentity(a.operatorId, b.operatorId) ||
+    compareAgentGraphIdentity(a.activationId, b.activationId)
+  );
 }
 
 function cloneWait(wait: AgentGraphReadinessWait): AgentGraphReadinessWait {
