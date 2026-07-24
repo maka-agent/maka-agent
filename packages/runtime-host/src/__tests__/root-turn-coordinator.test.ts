@@ -169,6 +169,21 @@ test('hosted linked child roots share admission, message, terminal, and stop aut
       agentId: child.agentId,
       agentName: child.agentName,
     });
+    const externalJoin = await coordinator.handlers['turn.start'](
+      {
+        sessionId: child.childSessionId,
+        turnId: child.turnId,
+        content: { text: 'initial linked child' },
+      },
+      operationContext(hostEpoch, acquireResidency),
+    );
+    assert.deepEqual(externalJoin, {
+      ok: false,
+      error: {
+        code: 'operation_conflict',
+        message: 'Turn identity belongs to a different execution kind',
+      },
+    });
 
     let resumeReadyRunId: string | undefined;
     let resumeEventCount = 0;
@@ -285,6 +300,149 @@ test('hosted linked child roots share admission, message, terminal, and stop aut
       turnId: parentTurnId,
       runId: parentStarted.result.runId,
     });
+    await coordinator.close();
+    await messages.close();
+  } finally {
+    await owner.close();
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('exact stop reaches a reserved pre-start Turn and releases its Host ownership', {
+  timeout: 20_000,
+}, async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-root-turn-pre-start-stop-'));
+  const capability = await resolveStorageRoot({
+    path: join(base, 'root'),
+    kind: 'interactive',
+  });
+  const owner = await tryAcquireInteractiveRootOwner(capability);
+  assert.ok(owner);
+  if (!owner) throw new Error('Unable to acquire test root');
+
+  try {
+    const stores = await openInteractiveExecutionStoresForWrite(owner.lease);
+    const session = await stores.sessionStore.create({
+      cwd: capability.canonicalPath,
+      backend: 'fake',
+      llmConnectionSlug: 'fake',
+      model: 'fake-model',
+      permissionMode: 'ask',
+    });
+    const backendFactoryEntered = deferred<void>();
+    const releaseBackendFactory = deferred<void>();
+    const sessionAdmission = new SessionAdmissionGate();
+    const rootAdmissionOwner = new RootAdmissionOwner(stores.agentRunStore);
+    await rootAdmissionOwner.recoverSession(session.id);
+    let liveResidencies = 0;
+    const acquireResidency = (): RuntimeHostResidency => {
+      liveResidencies += 1;
+      let released = false;
+      return {
+        release: () => {
+          assert.equal(released, false);
+          released = true;
+          liveResidencies -= 1;
+        },
+      };
+    };
+    let coordinator: RootTurnCoordinator | undefined;
+    const rootPort: HostMessageRootPort = {
+      readSessionHeader: (sessionId) =>
+        requireCoordinator(coordinator).readSessionHeader(sessionId),
+      readRootState: (sessionId) => requireCoordinator(coordinator).readRootState(sessionId),
+      startFromMessage: (input) => requireCoordinator(coordinator).startFromMessage(input),
+      claimStop: (input, commitQueueFence) =>
+        requireCoordinator(coordinator).claimStop(input, commitQueueFence),
+    };
+    const hostEpoch = 'epoch-pre-start-stop';
+    await stores.messageReceiptStore.beginHostEpoch(hostEpoch);
+    const messages = new HostMessageCoordinator({
+      hostEpoch,
+      root: rootPort,
+      durableProof: {
+        readRootTurnSourceMessageReceipt: (sessionId, messageId) =>
+          stores.agentRunStore.readRootTurnSourceMessageReceipt(sessionId, messageId),
+        readImmutableSteeringMessageProof: (sessionId, messageId) =>
+          stores.runtimeEventStore.readImmutableSteeringMessageProof(sessionId, messageId),
+      },
+      receipts: stores.messageReceiptStore,
+      sessionAdmission,
+      acquireResidency,
+    });
+    const backends = new BackendRegistry();
+    backends.register('fake', async (context) => {
+      backendFactoryEntered.resolve();
+      await releaseBackendFactory.promise;
+      return new FakeBackend(context);
+    });
+    const manager = new SessionManager({
+      store: stores.sessionStore,
+      runStore: stores.agentRunStore,
+      runtimeEventStore: stores.runtimeEventStore,
+      backends,
+      newId: randomUUID,
+      now: Date.now,
+      messageAuthority: messages,
+    });
+    const stopDeliveryStarted = deferred<void>();
+    const coordinatorManager = {
+      sendMessage: manager.sendMessage.bind(manager),
+      closePendingHostedLinkedChildAdmission:
+        manager.closePendingHostedLinkedChildAdmission.bind(manager),
+      deliverHostedRootStop: async (
+        sessionId: string,
+        input?: Parameters<SessionManager['deliverHostedRootStop']>[1],
+      ) => {
+        stopDeliveryStarted.resolve();
+        await manager.deliverHostedRootStop(sessionId, input);
+      },
+    } as SessionManager;
+    let drainRequested = false;
+    coordinator = new RootTurnCoordinator(
+      coordinatorManager,
+      stores,
+      sessionAdmission,
+      rootAdmissionOwner,
+      messages,
+      acquireResidency,
+      () => {
+        drainRequested = true;
+      },
+    );
+
+    const turnId = 'turn-pre-start-stop';
+    const starting = coordinator.handlers['turn.start'](
+      {
+        sessionId: session.id,
+        turnId,
+        content: { text: FAKE_ASK_USER_QUESTION_PROMPT },
+      },
+      operationContext(hostEpoch, acquireResidency),
+    );
+    await backendFactoryEntered.promise;
+    const admission = await stores.agentRunStore.readRootTurnAdmission(session.id, turnId);
+    assert.ok(admission);
+    if (!admission) return;
+
+    const stopping = coordinator.handlers['turn.stop'](
+      {
+        sessionId: session.id,
+        turnId,
+        runId: admission.runId,
+      },
+      operationContext(hostEpoch, acquireResidency),
+    );
+    await stopDeliveryStarted.promise;
+    releaseBackendFactory.resolve();
+    const [stopped, started] = await Promise.all([stopping, starting]);
+    assert.equal(stopped.ok, true);
+    if (stopped.ok) assert.equal(stopped.result.status, 'cancelled');
+    assert.equal(started.ok, true);
+
+    assert.deepEqual(coordinator.readRootState(session.id), { kind: 'idle' });
+    assert.equal(liveResidencies, 0);
+    assert.equal(drainRequested, false);
     await coordinator.close();
     await messages.close();
   } finally {

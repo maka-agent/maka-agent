@@ -239,7 +239,9 @@ export class HostMessageCoordinator implements RuntimeMessageAuthority {
 
   bindRun(identity: RuntimeMessageRunIdentity): RuntimeMessageRunOwner {
     const state = this.#state(identity.sessionId);
-    if (state.phase !== 'open') {
+    const exactPreStartStop =
+      state.stopFence !== undefined && sameRun(state.stopFence.identity, identity);
+    if (state.phase !== 'open' && !exactPreStartStop) {
       throw new RuntimeMessageAuthorityInvariantError(
         'Message Run bound while admission was closed',
       );

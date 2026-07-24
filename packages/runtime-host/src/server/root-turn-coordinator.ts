@@ -52,6 +52,7 @@ interface ActiveRootTurn {
   userMessageId: string | null;
   execution?: RuntimeHostedRootExecutionInput;
   started: Promise<void>;
+  runStarted: boolean;
   done: Promise<void>;
   residency: RuntimeHostResidency;
   stopRequested: boolean;
@@ -409,7 +410,7 @@ export class RootTurnCoordinator {
         if (!disposition.outcome.ok) throw new Error(disposition.outcome.error.message);
         return;
       }
-      await disposition.active.started;
+      await this.awaitStartOrCompletion(disposition.active);
       await disposition.active.done;
     });
   }
@@ -422,7 +423,6 @@ export class RootTurnCoordinator {
     } = {},
   ): Promise<void> {
     return this.runCommand(async () => {
-      await this.awaitExactActiveStart(identity);
       const disposition = await this.sessionAdmission.run(identity.sessionId, () =>
         this.prepareStopDisposition(identity, () => this.messages.commitStopFence(identity)),
       );
@@ -518,7 +518,6 @@ export class RootTurnCoordinator {
     commitQueueFence: () => QueueFenceResult,
   ): Promise<HostMessageStopClaim> {
     return this.runCommand(async () => {
-      await this.awaitExactActiveStart(input);
       const disposition = await this.prepareStopDisposition(input, commitQueueFence);
       if (disposition.kind === 'complete') {
         if (!disposition.outcome.ok) {
@@ -556,6 +555,11 @@ export class RootTurnCoordinator {
         );
         if (existing) {
           this.rootAdmissionOwner.assertKnownAdmission(existing);
+          if (existing.execution.kind !== 'external_message') {
+            return completedStart(
+              operationConflict('Turn identity belongs to a different execution kind'),
+            );
+          }
           if (
             !messageContentsEqual(existing.normalizedInput, canonicalInput.content) ||
             existing.sourceMessages.length !== 0
@@ -596,6 +600,11 @@ export class RootTurnCoordinator {
           sourceMessages: [],
           admittedAt: Date.now(),
         });
+        if (admission.admission.execution.kind !== 'external_message') {
+          return completedStart(
+            operationConflict('Turn identity belongs to a different execution kind'),
+          );
+        }
         if (
           !messageContentsEqual(admission.admission.normalizedInput, canonicalInput.content) ||
           admission.admission.sourceMessages.length !== 0
@@ -631,7 +640,6 @@ export class RootTurnCoordinator {
 
   private stopTurn(input: TurnStopInput): Promise<OperationOutcome<'turn.stop'>> {
     return this.runCommand(async () => {
-      await this.awaitExactActiveStart(input);
       const disposition = await this.sessionAdmission.run(input.sessionId, () =>
         this.prepareStopDisposition(input, () => this.messages.commitStopFence(input)),
       );
@@ -753,6 +761,7 @@ export class RootTurnCoordinator {
       userMessageId: admission.userMessageId,
       ...(execution ? { execution } : {}),
       started: started.promise,
+      runStarted: false,
       done: Promise.resolve(),
       residency,
       stopRequested: false,
@@ -775,7 +784,7 @@ export class RootTurnCoordinator {
     disposition: TurnStartDisposition,
   ): Promise<TurnStartOutcome> {
     if (disposition.kind === 'complete') return disposition.outcome;
-    await disposition.active.started;
+    await this.awaitStartOrCompletion(disposition.active);
     let result = await this.readCanonicalSnapshot(
       input.sessionId,
       input.turnId,
@@ -807,6 +816,7 @@ export class RootTurnCoordinator {
             runId: active.runId,
             userMessageId: active.userMessageId,
             onRunStarted: async () => {
+              active.runStarted = true;
               started.resolve();
               await active.execution?.onReady?.();
             },
@@ -822,6 +832,7 @@ export class RootTurnCoordinator {
                 if (startedRunId !== active.runId) {
                   throw new Error('Runtime started a different Run than the admitted identity');
                 }
+                active.runStarted = true;
                 started.resolve();
               },
             },
@@ -960,17 +971,17 @@ export class RootTurnCoordinator {
   }
 
   private async deliverRuntimeStop(sessionId: string, active: ActiveRootTurn): Promise<void> {
-    await active.started;
     await this.manager.deliverHostedRootStop(sessionId, active.stopInput);
+    if (active.runStarted) return;
+    // A pending-start stop may unblock setup before the backend flow can observe it.
+    await this.awaitStartOrCompletion(active);
+    if (active.runStarted) {
+      await this.manager.deliverHostedRootStop(sessionId, active.stopInput);
+    }
   }
 
-  private async awaitExactActiveStart(
-    input: Pick<TurnStopInput, 'sessionId' | 'turnId' | 'runId'>,
-  ): Promise<void> {
-    const active = this.#activeBySession.get(input.sessionId);
-    if (active && active.turnId === input.turnId && active.runId === input.runId) {
-      await active.started;
-    }
+  private async awaitStartOrCompletion(active: ActiveRootTurn): Promise<void> {
+    await Promise.race([active.started, active.done]);
   }
 
   private async stopActiveTurn(sessionId: string, active: ActiveRootTurn): Promise<void> {
