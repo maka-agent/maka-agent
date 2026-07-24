@@ -628,6 +628,8 @@ export interface ToolCallMessage {
   displayName?: string;
   intent?: string;
   args: unknown;
+  /** Provider-owned opaque call metadata retained for recovery backfill. */
+  providerOptions?: Record<string, unknown>;
   /**
    * Assistant step this call belongs to (equals the step's AssistantMessage
    * id, stamped from the same source as ToolStartEvent.stepId). Optional for
@@ -761,7 +763,7 @@ const ASSISTANT_MESSAGE_SHAPE = defineObjectShape<AssistantMessage>()(
 );
 const TOOL_CALL_MESSAGE_SHAPE = defineObjectShape<ToolCallMessage>()(
   ['type', 'id', 'turnId', 'ts', 'toolName', 'args'],
-  ['activityKind', 'displayName', 'intent', 'stepId'],
+  ['activityKind', 'displayName', 'intent', 'providerOptions', 'stepId'],
 );
 const TOOL_RESULT_MESSAGE_SHAPE = defineObjectShape<ToolResultMessage>()(
   ['type', 'id', 'turnId', 'ts', 'toolUseId', 'isError', 'content'],
@@ -881,6 +883,7 @@ function decodeStoredMessage(
           (TOOL_ACTIVITY_KINDS as readonly unknown[]).includes(message.activityKind)) &&
         isOptionalString(message.displayName) &&
         isOptionalString(message.intent) &&
+        (message.providerOptions === undefined || isRecord(message.providerOptions)) &&
         isOptionalString(message.stepId)
       )
         return message as unknown as ToolCallMessage;

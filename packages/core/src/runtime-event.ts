@@ -151,6 +151,8 @@ export interface RuntimeEventFunctionCallContent {
   id: string;
   name: string;
   args: unknown;
+  /** Provider-owned opaque call metadata that must survive model replay. */
+  providerOptions?: Record<string, unknown>;
 }
 
 export interface RuntimeEventFunctionResponseContent {
@@ -386,7 +388,7 @@ const THINKING_CONTENT_SHAPE = defineObjectShape<RuntimeEventThinkingContent>()(
 );
 const FUNCTION_CALL_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionCallContent>()(
   ['kind', 'id', 'name', 'args'],
-  [],
+  ['providerOptions'],
 );
 const FUNCTION_RESPONSE_CONTENT_SHAPE = defineObjectShape<RuntimeEventFunctionResponseContent>()(
   ['kind', 'id', 'name', 'result'],
@@ -515,7 +517,8 @@ function isRuntimeEventContent(value: unknown): value is RuntimeEventContent {
         hasExactShape(value, FUNCTION_CALL_CONTENT_SHAPE) &&
         typeof value.id === 'string' &&
         typeof value.name === 'string' &&
-        Object.hasOwn(value, 'args')
+        Object.hasOwn(value, 'args') &&
+        (value.providerOptions === undefined || isRecord(value.providerOptions))
       );
     case 'function_response':
       return (

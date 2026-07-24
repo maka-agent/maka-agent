@@ -129,6 +129,7 @@ describe('RuntimeEvent content variants', () => {
       id: 'tc-1',
       name: 'Read',
       args: { path: '/x' },
+      providerOptions: { google: { thoughtSignature: 'sig' } },
     };
     const response: RuntimeEventContent = {
       kind: 'function_response',
@@ -141,6 +142,7 @@ describe('RuntimeEvent content variants', () => {
       throw new Error('unreachable');
     }
     expect(call.id).toBe(response.id);
+    expect(decodeRuntimeEvent(baseEvent({ content: call })).content).toEqual(call);
     expect(response.isError).toBe(false);
   });
 

@@ -145,6 +145,8 @@ export interface ToolStartEvent extends BaseEvent {
   /** Stable semantic category for presentation; absent on legacy events. */
   activityKind?: ToolActivityKind;
   args: unknown;
+  /** Provider-owned opaque call metadata that must survive model replay. */
+  providerOptions?: Record<string, unknown>;
   displayName?: string;
   intent?: string;
   /**

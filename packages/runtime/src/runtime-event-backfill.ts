@@ -143,6 +143,9 @@ export function backfillRuntimeEventsFromStoredMessages(
             id: message.id,
             name: message.toolName,
             args: message.args,
+            ...(message.providerOptions !== undefined
+              ? { providerOptions: structuredClone(message.providerOptions) }
+              : {}),
           },
           actions: {
             stateDelta: {

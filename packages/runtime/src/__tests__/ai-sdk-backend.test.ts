@@ -2039,6 +2039,9 @@ describe('AiSdkBackend model history', () => {
                   toolCallId: 'call-success',
                   toolName: 'Read',
                   input: JSON.stringify({ path: 'ok.md' }),
+                  providerMetadata: {
+                    google: { thoughtSignature: 'thought-signature-step-1' },
+                  },
                 },
                 {
                   type: 'tool-call',
@@ -2133,6 +2136,9 @@ describe('AiSdkBackend model history', () => {
       ['reasoning', 'text', 'tool-call', 'tool-call'],
     );
     assert.match(JSON.stringify(assistantStep), /sig-step-1/);
+    assert.deepEqual(assistantStep?.content[2]?.providerOptions, {
+      google: { thoughtSignature: 'thought-signature-step-1' },
+    });
     assert.match(JSON.stringify(assistantStep), /Running tools\./);
     assert.deepEqual(
       nextPrompt

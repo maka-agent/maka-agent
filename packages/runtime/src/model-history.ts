@@ -135,6 +135,7 @@ export type RuntimeEventModelReplayItem =
       toolCallId: string;
       toolName: string;
       input: unknown;
+      providerOptions?: NonNullable<ModelMessage['providerOptions']>;
       /** Assistant step id (from tool_start); groups the call with its step. */
       stepId?: string;
       eventId: string;
@@ -527,6 +528,13 @@ export function buildRuntimeEventModelReplayPlan(
           toolCallId: event.content.id,
           toolName: event.content.name,
           input: event.content.args,
+          ...(event.content.providerOptions !== undefined
+            ? {
+                providerOptions: event.content.providerOptions as NonNullable<
+                  ModelMessage['providerOptions']
+                >,
+              }
+            : {}),
           ...(event.refs?.stepId ? { stepId: event.refs.stepId } : {}),
           eventId: event.id,
           ts: event.ts,

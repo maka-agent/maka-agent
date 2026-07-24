@@ -340,6 +340,9 @@ function mapBackendSessionEvent(
           id: event.toolUseId,
           name: event.toolName,
           args: structuredClone(event.args),
+          ...(event.providerOptions !== undefined
+            ? { providerOptions: structuredClone(event.providerOptions) }
+            : {}),
         },
         refs: {
           toolCallId: event.toolUseId,

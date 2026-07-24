@@ -79,6 +79,7 @@ export interface ResolvedMakaToolCall {
   stepId?: string;
   toolCallId: string;
   input: unknown;
+  providerOptions?: Record<string, unknown>;
   abortSignal: AbortSignal;
   eventSink: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void };
 }
@@ -514,6 +515,7 @@ export class ToolRuntime {
       {
         toolCallId: call.toolCallId,
         abortSignal: call.abortSignal,
+        ...(call.providerOptions !== undefined ? { providerOptions: call.providerOptions } : {}),
       },
       call.stepId,
     );
@@ -623,7 +625,11 @@ export class ToolRuntime {
     turnId: string,
     queue: AsyncEventQueue<SessionEvent> | { push(event: SessionEvent): void },
     args: unknown,
-    ctx: { toolCallId: string; abortSignal: AbortSignal },
+    ctx: {
+      toolCallId: string;
+      abortSignal: AbortSignal;
+      providerOptions?: Record<string, unknown>;
+    },
     stepId?: string,
   ): Promise<unknown> {
     const executionArgs = snapshotToolArgs(args);
@@ -676,6 +682,9 @@ export class ToolRuntime {
       ...(operationId ? { operationId } : {}),
       ...(tool.activityKind ? { activityKind: tool.activityKind } : {}),
       args: structuredClone(persistedArgs),
+      ...(ctx.providerOptions !== undefined
+        ? { providerOptions: structuredClone(ctx.providerOptions) }
+        : {}),
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       ...(stepId !== undefined ? { stepId } : {}),
@@ -690,6 +699,9 @@ export class ToolRuntime {
       ...(tool.displayName ? { displayName: tool.displayName } : {}),
       ...(toolIntent ? { intent: toolIntent } : {}),
       args: structuredClone(persistedArgs),
+      ...(ctx.providerOptions !== undefined
+        ? { providerOptions: structuredClone(ctx.providerOptions) }
+        : {}),
       // Persist the same step id the tool_start event carries so the UI
       // timeline and post-restart backfill can pair this call with its step.
       ...(stepId !== undefined ? { stepId } : {}),
@@ -1683,6 +1695,9 @@ export class ToolRuntime {
         id: input.startEvent.toolUseId,
         name: input.tool.name,
         args: structuredClone(input.persistedArgs),
+        ...(input.startEvent.providerOptions !== undefined
+          ? { providerOptions: structuredClone(input.startEvent.providerOptions) }
+          : {}),
       },
       refs: {
         operationId,

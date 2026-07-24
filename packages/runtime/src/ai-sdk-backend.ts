@@ -1645,6 +1645,9 @@ export class AiSdkBackend implements AgentBackend {
                   turnId,
                   stepId: providerStepId,
                   toolCallId: toolCall.toolCallId,
+                  ...(toolCall.providerOptions !== undefined
+                    ? { providerOptions: toolCall.providerOptions }
+                    : {}),
                   input:
                     requestedTool !== undefined
                       ? toolCall.input
@@ -2526,6 +2529,7 @@ export class AiSdkBackend implements AgentBackend {
           toolCallId: call.toolCallId,
           toolName: call.toolName,
           input: call.input,
+          ...(call.providerOptions !== undefined ? { providerOptions: call.providerOptions } : {}),
         });
       }
       if (content.length > 0) out.push({ role: 'assistant', content } as ModelMessage);
