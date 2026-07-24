@@ -40,7 +40,7 @@ import { AttachmentFileCard } from './attachment-file-card.js';
 import { QuoteRefChip } from './quote-ref-chip.js';
 import { Kbd } from './primitives/kbd.js';
 import { PermissionModeSelect } from './permission-mode-menu.js';
-import { Menu, MenuItem, MenuPopup, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
+import { Menu, MenuCheckboxItem, MenuItem, MenuPopup, MenuSeparator, MenuSub, MenuSubPopup, MenuSubTrigger, MenuTrigger } from './primitives/menu.js';
 
 const COMPOSER_MAX_HEIGHT = 240;
 
@@ -223,6 +223,14 @@ export const Composer = forwardRef<
     swarmModeDisabledReason?: string;
     onSwarmModeChange?(active: boolean): void | Promise<void>;
     /**
+     * EXPERIMENT (subtraction variant, issue #1433): 'subtracted' moves the
+     * Plan/Swarm switches out of the toolbar and into the ＋ menu as switch
+     * items, cutting the persistent toolbar from 8+ elements toward the
+     * Paseo benchmark's 4. Storybook discussion material only — do not ship
+     * without the team's call in the issue.
+     */
+    chrome?: 'default' | 'subtracted';
+    /**
      * Composer mention popups. Both are optional and the whole feature no-ops
      * when absent (SSR contracts render Composer with minimal props):
      *   - `mentionSkills` powers the `/` popup — pass only ENABLED skills; the
@@ -292,6 +300,7 @@ export const Composer = forwardRef<
   // PR-UI-15: locale-aware copy for placeholder + toolbar states. We
   const locale = useUiLocale();
   const copy = getConversationCopy(locale).composer;
+  const subtracted = props.chrome === 'subtracted';
 
   useEffect(() => {
     return () => {
@@ -771,7 +780,7 @@ export const Composer = forwardRef<
         )}
         <div className="maka-composer-toolbar composerActions" data-streaming={props.streaming ? 'true' : undefined}>
           <div className="maka-composer-left-controls">
-            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0) ? (
+            {!props.streaming && (props.onPickAttachments || (props.expertTeams?.length ?? 0) > 0 || (subtracted && (props.onPlanModeChange || props.onSwarmModeChange))) ? (
               <Menu>
                 <MenuTrigger
                   render={({ onClick: menuToggleClick, ...triggerRest }) => (
@@ -818,6 +827,46 @@ export const Composer = forwardRef<
                       </MenuSubPopup>
                     </MenuSub>
                   ) : null}
+                  {/* EXPERIMENT (#1433 subtracted chrome): Plan/Swarm live
+                      here as switch items instead of standalone toolbar
+                      switches. */}
+                  {subtracted && (props.onPlanModeChange || props.onSwarmModeChange) ? (
+                    <>
+                      <MenuSeparator />
+                      {props.onPlanModeChange ? (
+                        <MenuCheckboxItem
+                          variant="switch"
+                          checked={props.planModeActive === true}
+                          disabled={
+                            props.disabled
+                            || props.planModePending === true
+                            || Boolean(props.planModeDisabledReason)
+                          }
+                          onCheckedChange={(checked) => {
+                            void props.onPlanModeChange?.(checked);
+                          }}
+                        >
+                          {copy.planModeLabel}
+                        </MenuCheckboxItem>
+                      ) : null}
+                      {props.onSwarmModeChange ? (
+                        <MenuCheckboxItem
+                          variant="switch"
+                          checked={props.swarmModeActive === true}
+                          disabled={
+                            props.disabled
+                            || props.swarmModePending === true
+                            || Boolean(props.swarmModeDisabledReason)
+                          }
+                          onCheckedChange={(checked) => {
+                            void props.onSwarmModeChange?.(checked);
+                          }}
+                        >
+                          {copy.swarmModeLabel}
+                        </MenuCheckboxItem>
+                      ) : null}
+                    </>
+                  ) : null}
                 </MenuPopup>
               </Menu>
             ) : null}
@@ -842,7 +891,7 @@ export const Composer = forwardRef<
                 disabledReason={props.permissionModeDisabledReason}
               />
             ) : null}
-            {props.onPlanModeChange ? (
+            {props.onPlanModeChange && !subtracted ? (
               <span
                 className="maka-composer-plan-mode-control"
                 data-active={props.planModeActive ? 'true' : 'false'}
@@ -866,7 +915,7 @@ export const Composer = forwardRef<
                 />
               </span>
             ) : null}
-            {props.onSwarmModeChange ? (
+            {props.onSwarmModeChange && !subtracted ? (
               <span
                 className="maka-composer-swarm-mode-control"
                 data-active={props.swarmModeActive ? 'true' : 'false'}

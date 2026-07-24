@@ -171,11 +171,19 @@ function ShellFrame(props: { children: ReactNode }) {
 // + topbar chrome pieces side-by-side. Does NOT mount the monolithic
 // AppShell (1442 lines, heavy IPC coupling). When AppShell's internal
 // layout shifts, this story may drift — it owns its own 2-col scaffold.
+type ChromeVariant = 'default' | 'subtracted';
+
+/** Reads the `chrome` toolbar global (issue #1433 subtraction experiment). */
+function chromeOf(globals: Record<string, unknown>): ChromeVariant {
+  return globals.chrome === 'subtracted' ? 'subtracted' : 'default';
+}
+
 function ComposedShell(props: {
   sidebarCollapsed?: boolean;
   chat?: Partial<ChatViewProps>;
   composer?: Partial<ComposerProps>;
   detailChildren?: ReactNode;
+  chrome?: ChromeVariant;
 }) {
   const [collapsed, setCollapsed] = useState(props.sidebarCollapsed ?? false);
   const sidebarWidth = collapsed ? 0 : 260;
@@ -216,6 +224,7 @@ function ComposedShell(props: {
               onOpenSettings={noop}
               onNew={noop}
               rowActions={sidebarRowActions}
+              chrome={props.chrome}
             />
           )}
         </div>
@@ -234,12 +243,13 @@ function ComposedShell(props: {
             onOpenPalette={noop}
             onOpenHelp={noop}
             onOpenHealth={noop}
+            chrome={props.chrome}
           />
           {props.detailChildren ?? (
             <div style={{ display: 'flex', minHeight: 0, width: '100%', flexDirection: 'column', flex: 1 }}>
               <ChatView {...baseChatProps} {...props.chat} />
               <div style={{ padding: '0 24px 24px' }}>
-                <Composer {...baseComposerProps} {...props.composer} />
+                <Composer {...baseComposerProps} chrome={props.chrome} {...props.composer} />
               </div>
             </div>
           )}
@@ -252,20 +262,21 @@ function ComposedShell(props: {
 // Real path: returning user with session history → open a session that has
 // messages (sidebar expanded, composer ready).
 export const DefaultLayout: Story = {
-  render: () => <ComposedShell />,
+  render: (_args, { globals }) => <ComposedShell chrome={chromeOf(globals)} />,
 };
 
 // Real path: same as DefaultLayout after the user collapses the sidebar
 // (topbar toggle).
 export const CollapsedSidebar: Story = {
-  render: () => <ComposedShell sidebarCollapsed />,
+  render: (_args, { globals }) => <ComposedShell sidebarCollapsed chrome={chromeOf(globals)} />,
 };
 
 // Real path: send a message → the turn is streaming (composer shows the
 // stop button and the streaming hint).
 export const StreamingTurn: Story = {
-  render: () => (
+  render: (_args, { globals }) => (
     <ComposedShell
+      chrome={chromeOf(globals)}
       chat={{
         messages: [
           user('msg-s-1', 'turn-s', 3, '顶层布局的 story 怎么做最稳？'),
@@ -288,8 +299,9 @@ export const StreamingTurn: Story = {
 // waiting_for_user, composer is disabled, the permission-mode picker is
 // locked with an explanatory reason.
 export const WaitingForPermission: Story = {
-  render: () => (
+  render: (_args, { globals }) => (
     <ComposedShell
+      chrome={chromeOf(globals)}
       chat={{
         activeSession: { ...activeSession, status: 'waiting_for_user', blockedReason: 'permission_required' },
       }}
@@ -309,5 +321,5 @@ export const WaitingForPermission: Story = {
 // states are covered by Product/Onboarding. Presenting the first-run hero as
 // the daily home makes every visual comparison against this story wrong.
 export const EmptyHome: Story = {
-  render: () => <ComposedShell chat={{ messages: [] }} />,
+  render: (_args, { globals }) => <ComposedShell chrome={chromeOf(globals)} chat={{ messages: [] }} />,
 };

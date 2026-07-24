@@ -74,11 +74,22 @@ const preview: Preview = {
         ],
       },
     },
+    chrome: {
+      description: 'Subtraction experiment (issue #1433): composer + sidebar + topbar',
+      toolbar: {
+        icon: 'subtract',
+        items: [
+          { title: 'Current chrome', value: 'default' },
+          { title: 'Subtracted chrome', value: 'subtracted' },
+        ],
+      },
+    },
   },
   initialGlobals: {
     colorScheme: 'light',
     palette: 'default',
     density: 'current',
+    chrome: 'default',
   },
   parameters: {
     backgrounds: {

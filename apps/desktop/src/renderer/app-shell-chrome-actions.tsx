@@ -3,6 +3,7 @@ import {
   Grid3X3,
   HelpCircle,
   MessageCircleQuestion,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   PanelRightClose,
@@ -10,7 +11,7 @@ import {
   Search,
   SquarePen,
 } from '@maka/ui/icons';
-import { Button as UiButton, Tooltip, TooltipContent, TooltipTrigger, useUiLocale } from '@maka/ui';
+import { Button as UiButton, Menu, MenuItem, MenuPopup, MenuTrigger, Tooltip, TooltipContent, TooltipTrigger, useUiLocale } from '@maka/ui';
 import { getShellCopy } from './locales/shell-copy';
 
 export function AppShellTopbarActions(props: {
@@ -79,10 +80,54 @@ export function AppShellWorkspaceTopActions(props: {
   onOpenPalette(): void;
   onOpenHelp(): void;
   onOpenHealth(): void;
+  /**
+   * EXPERIMENT (subtraction variant, issue #1433): 'subtracted' keeps only
+   * the workbar toggle persistent and folds feedback / palette / help /
+   * health into one overflow menu. Storybook discussion material only.
+   */
+  chrome?: 'default' | 'subtracted';
 }) {
   const locale = useUiLocale();
   const copy = getShellCopy(locale).chrome;
   const workbarLabel = props.workbarCollapsed ? copy.expandWorkbar : copy.collapseWorkbar;
+
+  if (props.chrome === 'subtracted') {
+    return (
+      <div className="maka-workspace-top-actions" role="toolbar" aria-label={copy.workspaceActions}>
+        <Menu>
+          <MenuTrigger
+            render={<UiButton variant="quiet" size="icon-sm" />}
+            type="button"
+            className="maka-titlebar-action"
+            aria-label={copy.workspaceActions}
+          >
+            <MoreHorizontal aria-hidden="true" />
+          </MenuTrigger>
+          <MenuPopup align="end">
+            <MenuItem onClick={props.onOpenFeedback}>{copy.feedback}</MenuItem>
+            <MenuItem onClick={props.onOpenPalette}>{copy.openCommandPalette}</MenuItem>
+            <MenuItem onClick={props.onOpenHelp}>{copy.openHelp}</MenuItem>
+            <MenuItem onClick={props.onOpenHealth}>{copy.openHealth}</MenuItem>
+          </MenuPopup>
+        </Menu>
+        {props.workbarAvailable && (
+          <Tooltip>
+            <TooltipTrigger
+              render={<UiButton variant="quiet" size="icon-sm" />}
+              type="button"
+              className="maka-titlebar-action"
+              onClick={props.onToggleWorkbar}
+              aria-label={workbarLabel}
+              aria-expanded={!props.workbarCollapsed}
+            >
+              {props.workbarCollapsed ? <PanelRightOpen aria-hidden="true" /> : <PanelRightClose aria-hidden="true" />}
+            </TooltipTrigger>
+            <TooltipContent>{workbarLabel}</TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="maka-workspace-top-actions" role="toolbar" aria-label={copy.workspaceActions}>

@@ -51,9 +51,16 @@ export function SessionSidebarNav(props: {
   planReminders?: PlanReminder[];
   onSelect(selection: NavSelection): void;
   onNew(): void;
+  /**
+   * EXPERIMENT (subtraction variant, issue #1433): 'subtracted' reduces the
+   * primary nav to 新任务 + 定时任务 — Skills/MCP move to the main area and
+   * Daily Review to the command palette. Storybook discussion material only.
+   */
+  chrome?: 'default' | 'subtracted';
 }) {
   const locale = useUiLocale();
   const copy = getShellControlsCopy(locale).navigation;
+  const subtracted = props.chrome === 'subtracted';
   const extensionsTreeId = useId();
   const [extensionsOpen, setExtensionsOpen] = useState(true);
   const moduleNavLabel: Record<ModuleNavId, string> = {
@@ -85,6 +92,7 @@ export function SessionSidebarNav(props: {
           ⌘ N
         </kbd>
       </BaseButton>
+      {!subtracted && (
       <div className="maka-sidebar-nav-group" data-open={extensionsOpen ? 'true' : 'false'}>
         <BaseButton
           className={cn('maka-nav-row maka-nav-extension-toggle', navRowVariants())}
@@ -130,6 +138,8 @@ export function SessionSidebarNav(props: {
           </BaseButton>
         </div>
       </div>
+      )}
+      {!subtracted && (
       <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('daily-review')}
@@ -141,6 +151,7 @@ export function SessionSidebarNav(props: {
         <CalendarCheck className="maka-nav-icon" aria-hidden="true" />
         <span>{moduleNavLabel['daily-review']}</span>
       </BaseButton>
+      )}
       <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('automations')}

@@ -3,6 +3,9 @@ import type { NavSelection } from './nav-selection.js';
 import { SessionHistoryList, type SessionHistoryStatusGroup, type SessionRowActions } from './session-history-list.js';
 import { SessionSidebarFooter, SessionSidebarNav } from './session-sidebar-nav.js';
 import { Segmented } from './primitives/segmented.js';
+import { Menu, MenuPopup, MenuRadioGroup, MenuRadioItem, MenuTrigger } from './primitives/menu.js';
+import { Button as UiButton } from './ui.js';
+import { ListTodo } from './icons.js';
 import { useUiLocale } from './locale-context.js';
 import { getConversationCopy } from './conversation-copy.js';
 
@@ -25,6 +28,12 @@ export function SessionListPanel(props: {
   onNew(): void;
   rowActions?: SessionRowActions;
   sidebarCollapsed?: boolean;
+  /**
+   * EXPERIMENT (subtraction variant, issue #1433): 'subtracted' slims the
+   * primary nav (see SessionSidebarNav) and moves the status/project
+   * grouping control into a compact icon menu. Storybook material only.
+   */
+  chrome?: 'default' | 'subtracted';
 }) {
   const copy = getConversationCopy(useUiLocale()).sessions;
   const {
@@ -49,8 +58,9 @@ export function SessionListPanel(props: {
         planReminders={props.planReminders}
         onSelect={props.onSelect}
         onNew={props.onNew}
+        chrome={props.chrome}
       />
-      {showSessionNavigation && onViewModeChange && (
+      {showSessionNavigation && onViewModeChange && props.chrome !== 'subtracted' && (
         <div className="maka-view-mode-toggle">
           {/* Shared segmented primitive — same control family as the
               daily-review range tabs. The previous hand-rolled buttons
@@ -63,6 +73,26 @@ export function SessionListPanel(props: {
             ariaLabel={copy.groupingAriaLabel}
             className="maka-view-mode-segmented"
           />
+        </div>
+      )}
+      {showSessionNavigation && onViewModeChange && props.chrome === 'subtracted' && (
+        <div className="maka-view-mode-toggle maka-view-mode-toggle-icon">
+          <Menu>
+            <MenuTrigger
+              render={<UiButton variant="quiet" size="icon-sm" />}
+              type="button"
+              aria-label={copy.groupingAriaLabel}
+              title={copy.groupingAriaLabel}
+            >
+              <ListTodo size={15} aria-hidden="true" />
+            </MenuTrigger>
+            <MenuPopup align="start">
+              <MenuRadioGroup value={viewMode} onValueChange={(mode) => onViewModeChange(mode as SessionViewMode)}>
+                <MenuRadioItem value="status">{copy.groupByStatus}</MenuRadioItem>
+                <MenuRadioItem value="project">{copy.groupByProject}</MenuRadioItem>
+              </MenuRadioGroup>
+            </MenuPopup>
+          </Menu>
         </div>
       )}
       <SessionHistoryList
