@@ -96,13 +96,14 @@ test('a production Write survives a T2 crash and resumes through SessionManager'
     assert.ok(write);
 
     await assert.rejects(
-      runtime.wrapToolExecute(write, sourceTurnId, { push: () => {} })(
-        { path: 'result.txt', content: 'durable result' },
-        {
-          toolCallId: 'provider-write-1',
-          abortSignal: new AbortController().signal,
-        },
-      ),
+      runtime.settleToolCall({
+        tool: write,
+        turnId: sourceTurnId,
+        toolCallId: 'provider-write-1',
+        input: { path: 'result.txt', content: 'durable result' },
+        abortSignal: new AbortController().signal,
+        eventSink: { push: () => {} },
+      }),
       /T2 runtime commit failed: simulated process crash before T2/,
     );
     assert.equal(await readFile(join(root, 'result.txt'), 'utf8'), 'durable result');
@@ -195,6 +196,7 @@ test('a production Write survives a T2 crash and resumes through SessionManager'
     } catch {
       // The simulated process may already have closed its database handle.
     }
+    await sessionStore.close?.();
     await rm(root, { recursive: true, force: true });
   }
 });

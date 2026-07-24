@@ -81,13 +81,14 @@ describe('ToolRuntime with real SQLite boundary', () => {
         assert.ok(tool);
 
         await assert.rejects(
-          runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(
-            { path: 'notes.txt', content: 'after image' },
-            {
-              toolCallId: 'provider-Write',
-              abortSignal: new AbortController().signal,
-            },
-          ),
+          runtime.settleToolCall({
+            tool,
+            turnId: 'turn-1',
+            toolCallId: 'provider-Write',
+            input: { path: 'notes.txt', content: 'after image' },
+            abortSignal: new AbortController().signal,
+            eventSink: { push: () => {} },
+          }),
           (error: unknown) =>
             error instanceof Error &&
             error.name === 'DurableToolExecutionUnsettledError' &&
@@ -162,13 +163,14 @@ describe('ToolRuntime with real SQLite boundary', () => {
       }).find(({ name }) => name === 'Write');
       assert.ok(tool);
 
-      const result = await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(
-        { path: 'notes.txt', content: 'after image' },
-        {
-          toolCallId: 'provider-Write',
-          abortSignal: new AbortController().signal,
-        },
-      );
+      const { result } = await runtime.settleToolCall({
+        tool,
+        turnId: 'turn-1',
+        toolCallId: 'provider-Write',
+        input: { path: 'notes.txt', content: 'after image' },
+        abortSignal: new AbortController().signal,
+        eventSink: { push: () => {} },
+      });
 
       assert.deepEqual(result, {
         ok: true,
@@ -225,13 +227,14 @@ describe('ToolRuntime with real SQLite boundary', () => {
       assert.ok(tool);
 
       await assert.rejects(
-        runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(
-          { path: 'notes.txt', content: 'after image' },
-          {
-            toolCallId: 'provider-Write',
-            abortSignal: new AbortController().signal,
-          },
-        ),
+        runtime.settleToolCall({
+          tool,
+          turnId: 'turn-1',
+          toolCallId: 'provider-Write',
+          input: { path: 'notes.txt', content: 'after image' },
+          abortSignal: new AbortController().signal,
+          eventSink: { push: () => {} },
+        }),
         /unsettled/,
       );
 
@@ -284,9 +287,13 @@ describe('ToolRuntime with real SQLite boundary', () => {
         }).find(({ name }) => name === candidate.toolName);
         assert.ok(tool);
 
-        await runtime.wrapToolExecute(tool, 'turn-1', { push: () => {} })(candidate.args, {
+        await runtime.settleToolCall({
+          tool,
+          turnId: 'turn-1',
           toolCallId: `provider-${candidate.toolName}`,
+          input: candidate.args,
           abortSignal: new AbortController().signal,
+          eventSink: { push: () => {} },
         });
 
         const dispatch = (await store.readRuntimeEvents('session-1', 'run-1')).find(
