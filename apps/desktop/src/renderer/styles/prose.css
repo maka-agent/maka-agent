@@ -193,6 +193,14 @@
   /* Digit columns in technical replies align (price tables, version
      numbers, build outputs). */
   font-variant-numeric: tabular-nums;
+  /* Geist Mono ships programming ligatures on by default, which collapse
+     runs like `###`, `===`, and `=>` into combined glyphs whose ink and
+     advance can extend left of the source column — misaligning fenced
+     code lines. Markdown code is a literal surface (same policy as
+     `.maka-code` in maka-tokens.css); disable ligatures at this semantic
+     boundary so both inline and fenced code inherit literal shaping
+     (#1431). */
+  font-variant-ligatures: none;
   /* No vertical padding and no border: the Geist Mono font box is already
      15.5px at this size, and with 1px padding + 1px border the pill's ink
      box hit 19.5px — the full line box — so hard-break lines carrying
