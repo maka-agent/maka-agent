@@ -8,6 +8,14 @@ import { AppShellTopbarActions, AppShellWorkspaceTopActions } from '../src/rende
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
 
+// FIDELITY CONVENTION — every story in this file must map to an app state a
+// real user can reach, with the path noted above the story. A story that
+// composes an unreachable state (or a state that requires different app
+// data than shown) lies about the product, and every visual comparison or
+// review built on it is wrong. If the app changes so a story no longer
+// matches a reachable state, fix the story or delete it — do not keep both
+// "the app" and "the story version" of a surface alive.
+
 const meta = {
   title: 'Product/Shell Child Composition',
   parameters: {
@@ -230,14 +238,20 @@ function ComposedShell(props: {
   );
 }
 
+// Real path: returning user with session history → open a session that has
+// messages (sidebar expanded, composer ready).
 export const DefaultLayout: Story = {
   render: () => <ComposedShell />,
 };
 
+// Real path: same as DefaultLayout after the user collapses the sidebar
+// (topbar toggle).
 export const CollapsedSidebar: Story = {
   render: () => <ComposedShell sidebarCollapsed />,
 };
 
+// Real path: send a message → the turn is streaming (composer shows the
+// stop button and the streaming hint).
 export const StreamingTurn: Story = {
   render: () => (
     <ComposedShell
@@ -259,6 +273,9 @@ export const StreamingTurn: Story = {
   ),
 };
 
+// Real path: the agent calls a tool that needs approval → session enters
+// waiting_for_user, composer is disabled, the permission-mode picker is
+// locked with an explanatory reason.
 export const WaitingForPermission: Story = {
   render: () => (
     <ComposedShell
@@ -274,9 +291,9 @@ export const WaitingForPermission: Story = {
   ),
 };
 
-// The DAILY empty home: a returning user (sessions exist, sidebar expanded)
-// with no messages in the active chat. ChatView falls back to its built-in
-// EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —
+// Real path: returning user with session history → start a new chat (or
+// open a session with no messages yet). This is the DAILY empty home:
+// ChatView falls back to its built-in EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —
 // app-shell only shows it when sessions.length === 0 (first run), and those
 // states are covered by Product/Onboarding. Presenting the first-run hero as
 // the daily home makes every visual comparison against this story wrong.
