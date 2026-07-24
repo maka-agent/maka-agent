@@ -1397,7 +1397,7 @@ export class AiSdkBackend implements AgentBackend {
         const completedProviderSteps: RequestProjectionContext['completedSteps'][number][] = [];
         let requestMessages: ModelMessage[] = messages;
         let overflowRetryUsed = false;
-        let transportRetryUsed = false;
+        let providerRetryUsed = false;
         let result: ModelStreamResult;
         let finishReason: ModelFinishReason = 'stop';
         agentLoop: for (;;) {
@@ -1582,15 +1582,17 @@ export class AiSdkBackend implements AgentBackend {
               }
               const errorClass = this.modelAdapter.classifyError(streamFailure);
               if (
-                errorClass === 'Network' &&
-                !transportRetryUsed &&
+                (errorClass === 'Network' ||
+                  errorClass === 'ProviderUnavailable' ||
+                  errorClass === 'RateLimit') &&
+                !providerRetryUsed &&
                 stepBudgetRemains &&
                 returnedToolCalls.length === 0 &&
                 stepText.length === 0 &&
                 stepThinking.length === 0 &&
                 stepSignature === undefined
               ) {
-                transportRetryUsed = true;
+                providerRetryUsed = true;
                 // The failed request did not return authoritative usage. Keep
                 // effectiveness recoverable, but fail final metering closed.
                 sawUnusableStepUsage = true;

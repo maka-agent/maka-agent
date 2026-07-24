@@ -42,7 +42,9 @@ const OVERFLOW_MESSAGE = 'prompt is too long: 213462 tokens > 200000 maximum';
  *                 and the flush trailer keeps finishReason 'other' (the
  *                 isErrorChunk branch never reassigns it) — locks recovery
  *                 against per-family trailer drift
- *  - 'error500' → a non-overflow provider failure (never a recovery trigger)
+ *  - 'error400' → a non-overflow, non-retryable provider failure
+ *  - 'error500' → a retryable provider-unavailable failure
+ *  - 'rateLimit' → a retryable rate-limit failure
  *  - 'terminated' → the provider transport dies before returning authoritative
  *                 usage for the current request
  *  - 'terminatedMidBody' → the response starts, then its body errors while the
@@ -59,7 +61,9 @@ type CallKind =
   | 'overflow'
   | 'overflowPart'
   | 'overflowPartResponses'
+  | 'error400'
   | 'error500'
+  | 'rateLimit'
   | 'terminated'
   | 'terminatedMidBody'
   | 'partialThenTerminated';
@@ -173,6 +177,18 @@ function buildReactiveFixture(options: ReactiveFixtureOptions): ReactiveFixture 
       throw Object.assign(new Error('internal server error'), {
         name: 'AI_APICallError',
         statusCode: 500,
+      });
+    }
+    if (kind === 'error400') {
+      throw Object.assign(new Error('bad request'), {
+        name: 'AI_APICallError',
+        statusCode: 400,
+      });
+    }
+    if (kind === 'rateLimit') {
+      throw Object.assign(new Error('too many requests'), {
+        name: 'AI_APICallError',
+        statusCode: 429,
       });
     }
     if (kind === 'terminated') {
@@ -473,7 +489,7 @@ describe('reactive overflow recovery in the streaming backend', () => {
   });
 
   test('a non-overflow provider failure ends as a real error without any recovery attempt', async () => {
-    const fixture = buildReactiveFixture({ script: ['error500'], bigPriors: true });
+    const fixture = buildReactiveFixture({ script: ['error400'], bigPriors: true });
     await runTurn(fixture);
 
     assert.equal(fixture.model.doStreamCalls.length, 1);
@@ -485,6 +501,32 @@ describe('reactive overflow recovery in the streaming backend', () => {
     // Not a context-length error → no compaction, no retry.
     assert.equal(fixture.recorded.length, 0);
     assert.equal(fixture.summarizerCalls(), 0);
+  });
+
+  test('retries one provider-unavailable failure from the request boundary', async () => {
+    const fixture = buildReactiveFixture({ script: ['error500', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
+    assert.equal(fixture.recorded.length, 0);
+    assert.equal(fixture.summarizerCalls(), 0);
+  });
+
+  test('retries one rate-limit failure from the request boundary', async () => {
+    const fixture = buildReactiveFixture({ script: ['rateLimit', 'done'] });
+    await runTurn(fixture);
+
+    assert.equal(fixture.model.doStreamCalls.length, 2);
+    assert.equal(complete(fixture)?.stopReason, 'end_turn');
+    assert.equal(
+      fixture.events.some((event) => event.type === 'error'),
+      false,
+    );
   });
 
   test('retries one transient transport failure from the completed-step request boundary', async () => {
