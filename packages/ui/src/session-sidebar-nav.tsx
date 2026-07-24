@@ -57,10 +57,15 @@ export function SessionSidebarNav(props: {
    * Daily Review to the command palette. Storybook discussion material only.
    */
   chrome?: 'default' | 'subtracted';
+  /** Storybook-only sidebar alternatives for the #1433 shape study. */
+  studyVariant?: 'current' | 'extensions-hub' | 'compact-grouping' | 'balanced' | 'minimal';
 }) {
   const locale = useUiLocale();
   const copy = getShellControlsCopy(locale).navigation;
   const subtracted = props.chrome === 'subtracted';
+  const studyVariant = props.studyVariant ?? 'current';
+  const extensionsHub = studyVariant !== 'current';
+  const showDailyReview = ['current', 'extensions-hub', 'compact-grouping'].includes(studyVariant);
   const extensionsTreeId = useId();
   const [extensionsOpen, setExtensionsOpen] = useState(true);
   const moduleNavLabel: Record<ModuleNavId, string> = {
@@ -92,7 +97,7 @@ export function SessionSidebarNav(props: {
           ⌘ N
         </kbd>
       </BaseButton>
-      {!subtracted && (
+      {!subtracted && !extensionsHub && (
       <div className="maka-sidebar-nav-group" data-open={extensionsOpen ? 'true' : 'false'}>
         <BaseButton
           className={cn('maka-nav-row maka-nav-extension-toggle', navRowVariants())}
@@ -139,7 +144,20 @@ export function SessionSidebarNav(props: {
         </div>
       </div>
       )}
-      {!subtracted && (
+      {!subtracted && extensionsHub && (
+        <BaseButton
+          className={cn('maka-nav-row', navRowVariants())}
+          data-active={isModuleActive('skills') || isModuleActive('mcp')}
+          aria-current={isModuleActive('skills') || isModuleActive('mcp') ? 'page' : undefined}
+          aria-label={copy.extensions}
+          type="button"
+          onClick={() => selectModule('skills')}
+        >
+          <Blocks className="maka-nav-icon" aria-hidden="true" />
+          <span>{copy.extensions}</span>
+        </BaseButton>
+      )}
+      {!subtracted && showDailyReview && (
       <BaseButton
         className={cn('maka-nav-row', navRowVariants())}
         data-active={isModuleActive('daily-review')}

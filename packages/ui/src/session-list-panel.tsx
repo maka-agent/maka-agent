@@ -34,6 +34,8 @@ export function SessionListPanel(props: {
    * grouping control into a compact icon menu. Storybook material only.
    */
   chrome?: 'default' | 'subtracted';
+  /** Storybook-only sidebar alternatives for the #1433 shape study. */
+  studyVariant?: 'current' | 'extensions-hub' | 'compact-grouping' | 'balanced' | 'minimal';
 }) {
   const copy = getConversationCopy(useUiLocale()).sessions;
   const {
@@ -59,8 +61,9 @@ export function SessionListPanel(props: {
         onSelect={props.onSelect}
         onNew={props.onNew}
         chrome={props.chrome}
+        studyVariant={props.studyVariant}
       />
-      {showSessionNavigation && onViewModeChange && props.chrome !== 'subtracted' && (
+      {showSessionNavigation && onViewModeChange && props.chrome !== 'subtracted' && !['compact-grouping', 'balanced', 'minimal'].includes(props.studyVariant ?? '') && (
         <div className="maka-view-mode-toggle">
           {/* Shared segmented primitive — same control family as the
               daily-review range tabs. The previous hand-rolled buttons
@@ -75,8 +78,9 @@ export function SessionListPanel(props: {
           />
         </div>
       )}
-      {showSessionNavigation && onViewModeChange && props.chrome === 'subtracted' && (
+      {showSessionNavigation && onViewModeChange && (props.chrome === 'subtracted' || ['compact-grouping', 'balanced', 'minimal'].includes(props.studyVariant ?? '')) && (
         <div className="maka-view-mode-toggle maka-view-mode-toggle-icon">
+          <span className="maka-session-list-heading">{copy.title}</span>
           <Menu>
             <MenuTrigger
               render={<UiButton variant="quiet" size="icon-sm" />}
@@ -106,7 +110,7 @@ export function SessionListPanel(props: {
         onSelectSession={props.onSelectSession}
         rowActions={props.rowActions}
       />
-      <SessionSidebarFooter onOpenSettings={props.onOpenSettings} />
+      {props.studyVariant !== 'minimal' && <SessionSidebarFooter onOpenSettings={props.onOpenSettings} />}
     </aside>
   );
 }

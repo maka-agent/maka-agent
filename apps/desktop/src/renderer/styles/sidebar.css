@@ -527,6 +527,22 @@
   flex: 1 1 0;
 }
 
+/* Storybook-only #1433 shape study: compare a full segmented grouping
+   control with a quiet action carried by the session-list heading. */
+.maka-view-mode-toggle-icon {
+  min-height: var(--h-control-lg);
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-2) var(--space-0-5);
+}
+
+.maka-session-list-heading {
+  padding-left: var(--space-1-5);
+  color: var(--muted-foreground);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+}
+
 /* List-row status family — merged back from onboarding.css — issue #546 PR3. */
 .maka-list-row-name {
   display: flex;
