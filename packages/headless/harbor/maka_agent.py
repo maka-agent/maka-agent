@@ -33,6 +33,11 @@ from harness_compat import (
     format_trajectory_json,
     with_prompt_template,
 )
+from maka_trajectory import (
+    load_runtime_trajectory,
+    redact_value,
+    referenced_image_artifact_paths,
+)
 from process_scope import (
     COMMAND_SCOPE_ENV as _COMMAND_SCOPE_ENV,
     COMMAND_SCOPE_ROOT as _COMMAND_SCOPE_ROOT,
@@ -343,6 +348,8 @@ class MakaAgent(BaseInstalledAgent):
             await self.exec_as_agent(environment, command=command, env=env, timeout_sec=self._cell_timeout_sec())
             await self._download_cell_output(environment)
         output = self._read_cell_output(required=True)
+        await self._download_runtime_events(environment, output)
+        await self._download_runtime_artifacts(environment)
         self._apply_cell_output(context, output)
 
     def populate_context_post_run(self, context: AgentContext) -> None:
@@ -645,19 +652,83 @@ class MakaAgent(BaseInstalledAgent):
         }
         self._write_trajectory(output)
 
+    async def _download_runtime_events(
+        self,
+        environment: BaseEnvironment,
+        output: dict[str, Any],
+    ) -> None:
+        if self._resolve_runtime_events_path() is not None:
+            return
+        remote = output.get("runtimeEventsPath")
+        if not isinstance(remote, str) or not remote:
+            return
+        expected_remote = EnvironmentPaths.agent_dir / self._RUNTIME_EVENTS_FILENAME
+        if Path(remote) != expected_remote:
+            self.logger.debug("Ignoring unexpected Maka runtime events path %s", remote)
+            return
+        local = self.logs_dir / self._RUNTIME_EVENTS_FILENAME
+        try:
+            await environment.download_file(remote, local)
+        except Exception as exc:  # noqa: BLE001 - summary fallback records the missing evidence.
+            self.logger.debug("Could not download Maka runtime events %s: %s", remote, exc)
+
+    def _resolve_runtime_events_path(self) -> Path | None:
+        local = self.logs_dir / self._RUNTIME_EVENTS_FILENAME
+        return local if local.is_file() else None
+
+    async def _download_runtime_artifacts(self, environment: BaseEnvironment) -> None:
+        runtime_events_path = self._resolve_runtime_events_path()
+        if runtime_events_path is None:
+            return
+        local_artifact_root = self._trajectory_artifact_store_root() / "artifacts"
+        metadata_path = local_artifact_root / "metadata.jsonl"
+        if metadata_path.is_file():
+            return
+        remote_artifact_root = EnvironmentPaths.agent_dir / "maka-storage" / "artifacts"
+        try:
+            metadata_path.parent.mkdir(parents=True, exist_ok=True)
+            await environment.download_file(
+                (remote_artifact_root / "metadata.jsonl").as_posix(), metadata_path
+            )
+            for relative_path in referenced_image_artifact_paths(
+                runtime_events_path, metadata_path
+            ):
+                local = local_artifact_root / relative_path
+                local.parent.mkdir(parents=True, exist_ok=True)
+                await environment.download_file(
+                    (remote_artifact_root / relative_path).as_posix(), local
+                )
+        except Exception as exc:  # noqa: BLE001 - trajectory builder fails closed.
+            self.logger.debug("Could not download Maka runtime artifacts: %s", exc)
+
     def _write_trajectory(self, output: dict[str, Any]) -> None:
         token_summary = output.get("tokenSummary")
         tool_summary = output.get("toolSummary")
+        output_status = output.get("status") if isinstance(output.get("status"), str) else None
+        runtime_refs = output.get("runtimeRefs")
+        if not isinstance(runtime_refs, dict):
+            runtime_refs = None
+        evidence = load_runtime_trajectory(
+            self._resolve_runtime_events_path(),
+            output_status,
+            runtime_refs,
+            self._trajectory_artifact_store_root(),
+            self.logs_dir,
+        )
+        steps = [Step(**step) for step in evidence.steps]
         final_metrics = FinalMetrics(
             total_prompt_tokens=_optional_int(token_summary, "input"),
             total_completion_tokens=_optional_int(token_summary, "output"),
+            total_cached_tokens=_optional_int(token_summary, "cachedInput"),
             total_cost_usd=_optional_float(token_summary, "costUsd"),
-            total_steps=output.get("steps") if isinstance(output.get("steps"), int) else None,
-            extra={
+            total_steps=len(steps),
+            extra=redact_value({
                 "maka_status": output.get("status"),
                 "maka_error_class": output.get("errorClass"),
                 "maka_prompt_hash": output.get("promptHash"),
                 "runtime_events_path": output.get("runtimeEventsPath"),
+                "runtime_event_count": evidence.runtime_event_count,
+                "reported_runtime_steps": output.get("steps") if isinstance(output.get("steps"), int) else None,
                 "cached_input_tokens": _optional_int(token_summary, "cachedInput"),
                 "cache_hit_input_tokens": _optional_int(token_summary, "cacheHitInput"),
                 "cache_miss_input_tokens": _optional_int(token_summary, "cacheMissInput"),
@@ -668,22 +739,43 @@ class MakaAgent(BaseInstalledAgent):
                 "actual_tool_calls": _optional_int(tool_summary, "actualToolCalls"),
                 "actual_tool_names": _optional_string_list(tool_summary, "actualToolNames"),
                 "actual_tool_call_counts": _optional_dict(tool_summary, "actualToolCallCounts"),
-            },
+            }),
+        )
+        notes = (
+            f"Complete Maka trajectory derived from {evidence.runtime_event_count} immutable RuntimeEvents."
+            if evidence.artifact_kind == "full"
+            else f"Summary artifact only; complete RuntimeEvent trajectory unavailable: {evidence.reason}."
+        )
+        session_id = (
+            runtime_refs.get("sessionId")
+            if isinstance(runtime_refs, dict) and isinstance(runtime_refs.get("sessionId"), str)
+            else None
         )
         trajectory = Trajectory(
-            session_id=(output.get("runtimeRefs") or {}).get("sessionId"),
+            session_id=session_id,
             agent=Agent(name="maka", version=self.version() or "unknown", model_name=self.model_name),
-            steps=[
-                Step(step_id=1, source="user", message="Harbor task instruction"),
-                Step(step_id=2, source="agent", message=f"Maka cell {output.get('status', 'finished')}"),
-            ],
+            steps=steps,
+            notes=notes,
             final_metrics=final_metrics,
+            extra={
+                "maka_artifact_kind": evidence.artifact_kind,
+                "maka_terminal_status": evidence.terminal_status,
+                **({"maka_summary_reason": evidence.reason} if evidence.reason else {}),
+            },
         )
         trajectory_path = self.logs_dir / "trajectory.json"
         try:
             trajectory_path.write_text(format_trajectory_json(trajectory.to_json_dict()), encoding="utf-8")
         except OSError as exc:
             self.logger.debug("Could not write Maka trajectory %s: %s", trajectory_path, exc)
+
+    def _trajectory_artifact_store_root(self) -> Path:
+        configured = getattr(self, "_trajectory_storage_root", None)
+        if isinstance(configured, Path):
+            return configured
+        if self._harbor_mode() == "task-run":
+            return self.logs_dir / "maka-task-run" / "runs"
+        return self.logs_dir / "maka-storage"
 
 
     async def _run_task_run_host(
@@ -700,18 +792,28 @@ class MakaAgent(BaseInstalledAgent):
         env.update(_load_env_file(_DEFAULT_RUNNER_ENV))
         env.update(getattr(self, "_extra_env", {}) or {})
         _normalize_cli_env(env)
-        env.setdefault("MAKA_REPO_DIR", str(self._host_repo_root()))
+        host_repo_root = self._host_repo_root()
+        if not host_repo_root.is_absolute():
+            host_repo_root = Path(os.path.abspath(host_repo_root))
+        env.setdefault("MAKA_REPO_DIR", str(host_repo_root))
         env.setdefault("MAKA_MODEL", "deepseek-chat")
         env.setdefault("MAKA_TASK_RUN_OUT_DIR", str(self.logs_dir / "maka-task-run"))
         env.setdefault("MAKA_CELL_ARTIFACT_DIR", str(self.logs_dir))
         task_run_out_dir = Path(env["MAKA_TASK_RUN_OUT_DIR"])
         if not task_run_out_dir.is_absolute():
-            task_run_out_dir = task_run_out_dir.resolve()
-            env["MAKA_TASK_RUN_OUT_DIR"] = str(task_run_out_dir)
-        # _normalize_cli_env derives MAKA_OUTPUT_DIR/MAKA_STORAGE_ROOT from
-        # MAKA_TASK_RUN_OUT_DIR; re-apply now that the out dir is finalized.
+            task_run_out_dir = host_repo_root / task_run_out_dir
+        env["MAKA_TASK_RUN_OUT_DIR"] = str(task_run_out_dir)
         env.setdefault("MAKA_OUTPUT_DIR", str(task_run_out_dir))
         env.setdefault("MAKA_STORAGE_ROOT", str(task_run_out_dir / "runs"))
+        output_dir = Path(env["MAKA_OUTPUT_DIR"])
+        storage_root = Path(env["MAKA_STORAGE_ROOT"])
+        if not output_dir.is_absolute():
+            output_dir = host_repo_root / output_dir
+        if not storage_root.is_absolute():
+            storage_root = host_repo_root / storage_root
+        env["MAKA_OUTPUT_DIR"] = str(output_dir)
+        env["MAKA_STORAGE_ROOT"] = str(storage_root)
+        self._trajectory_storage_root = storage_root
         env["MAKA_CELL_SOFT_TIMEOUT_MS"] = str(self._cell_soft_timeout_ms(env))
 
         task_workdir, workdir_probe = await self._resolve_task_workdir(environment)
@@ -755,7 +857,7 @@ class MakaAgent(BaseInstalledAgent):
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *command,
-                    cwd=str(self._host_repo_root()),
+                    cwd=str(host_repo_root),
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
