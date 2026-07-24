@@ -232,6 +232,49 @@ describe('committed stream graph projection', () => {
     assert.deepEqual(reorderedWithDuplicates, canonical);
   });
 
+  test('rejects one Session projected under different operators across observations', () => {
+    const run = runHeader({
+      sessionId: 'child-a',
+      runId: 'run-a',
+      turnId: 'turn-a',
+      status: 'running',
+      createdAt: baseTs,
+    });
+    const event = runtimeEvent(run, {
+      id: 'shared-event',
+      ts: baseTs + 1,
+      role: 'model',
+      author: 'agent',
+      content: { kind: 'text', text: 'one durable fact' },
+    });
+    const first = projectAgentGraphRecords({
+      graphId: 'graph-session-owner',
+      streams: [
+        {
+          operator: { operatorId: 'one', sessionId: run.sessionId },
+          run,
+          events: [event],
+        },
+      ],
+    });
+    const second = projectAgentGraphRecords({
+      graphId: 'graph-session-owner',
+      streams: [
+        {
+          operator: { operatorId: 'two', sessionId: run.sessionId },
+          run,
+          events: [event],
+        },
+      ],
+    });
+
+    assert.notEqual(first.records[0]?.recordId, second.records[0]?.recordId);
+    assert.throws(
+      () => replayAgentGraphRecords([...first.records, ...second.records]),
+      /Session child-a is bound to both one and two/,
+    );
+  });
+
   test('keeps existing records byte-stable when a late operator contributes earlier event time', () => {
     const runA = runHeader({
       sessionId: 'child-a',

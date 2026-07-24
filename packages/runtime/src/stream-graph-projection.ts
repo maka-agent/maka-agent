@@ -377,9 +377,17 @@ export function replayAgentGraphRecords(
   const ordered = [...uniqueRecords.values()].sort(compareAgentGraphRecords);
   const graphId = ordered[0]!.graphId;
   const operators: Record<string, AgentGraphOperatorState> = {};
+  const operatorBySession = new Map<string, string>();
 
   for (const record of ordered) {
     assertReplayRecord(record, graphId);
+    const sessionOwner = operatorBySession.get(record.sessionId);
+    if (sessionOwner && sessionOwner !== record.operatorId) {
+      throw new Error(
+        `Session ${record.sessionId} is bound to both ${sessionOwner} and ${record.operatorId}`,
+      );
+    }
+    operatorBySession.set(record.sessionId, record.operatorId);
 
     let operator = operators[record.operatorId];
     if (!operator) {
