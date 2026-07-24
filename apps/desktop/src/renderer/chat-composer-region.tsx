@@ -68,6 +68,9 @@ export function ChatComposerRegion({
       <Composer
         ref={composerRef}
         {...composerRest}
+        // EXPERIMENT (#1433): force the subtracted chrome in this branch so
+        // the variant can be tried in the real app. Not for merge.
+        chrome="subtracted"
         hidden={!active || onboardingComposerHidden || Boolean(activeInteraction)}
         draftKey={activeId ?? 'new-session'}
         stopPending={activeId ? stopPendingBySession[activeId] === true : false}

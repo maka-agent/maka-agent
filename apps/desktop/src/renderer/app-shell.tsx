@@ -1571,6 +1571,9 @@ function AppShellContent({
             onNew={createSession}
             rowActions={sessionRowActions}
             sidebarCollapsed={sessionListCollapsed}
+            // EXPERIMENT (#1433): force the subtracted chrome in this
+            // branch so the variant can be tried in the real app.
+            chrome="subtracted"
           />
         </div>
         <div
@@ -1609,6 +1612,9 @@ function AppShellContent({
             onOpenPalette={openPalette}
             onOpenHelp={openHelp}
             onOpenHealth={() => openSettingsSection('health')}
+            // EXPERIMENT (#1433): force the subtracted chrome in this
+            // branch so the variant can be tried in the real app.
+            chrome="subtracted"
           />
           {/* PR-UI-RENDER-2: install the internal-URI dispatcher
               for any Markdown rendered inside ChatView (assistant
