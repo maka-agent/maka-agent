@@ -534,7 +534,7 @@
      content nor titlebar hit regions sit underneath the toolbar. Companion to
      PR-CHAT-HEADER-STATUS-CLUSTER-0, which only relocated the status cluster and
      left the in-header pills overlapping. */
-  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 176px);
+  --maka-workspace-top-actions-inset: calc(var(--maka-workspace-top-actions-right) + 74px);
 
   /* PR-WINDOW-TITLEBAR-0: Electron exposes the titlebar safe area through
      `titlebar-area-*` CSS env vars. The safe area is the usable titlebar

@@ -101,7 +101,10 @@ describe('chat header actions inset contract', () => {
     const gap = pxDeclaration(toolbarBody, 'gap');
     const insetAddend = workspaceTopActionsInsetAddend(css);
 
-    assert.equal(buttonCount, 5, 'current top-actions toolbar renders five icon buttons');
+    // buttonCount is intentionally not pinned: the inset formula below must
+    // track whatever the toolbar actually renders (see topbar-overflow.spec.ts
+    // for the structural contract). Adding/folding buttons without updating
+    // --maka-workspace-top-actions-inset fails the formula assertion below.
     assert.equal(buttonSize, 28, 'top-actions use the governed compact Button tier');
     assert.equal(gap, 6, 'top-actions icon buttons use a 6px gap');
     assert.equal(
