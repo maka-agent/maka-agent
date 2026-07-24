@@ -6370,6 +6370,46 @@ describe('AiSdkBackend usage telemetry', () => {
     assert.ok(events.some((event) => event.type === 'error'));
   });
 
+  test('checks that the durable ledger is readable before tool side effects', async () => {
+    const loop = countingToolLoopModel(1);
+    const durable = durableTurnHarness('turn-1', 'hi');
+    let reads = 0;
+    let executions = 0;
+    const backend = new AiSdkBackend({
+      sessionId: 'session-1',
+      header: header(),
+      appendMessage: async () => {},
+      connection: connection(),
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      permissionEngine: new PermissionEngine({ newId: () => 'permission-id', now: () => 1 }),
+      modelFactory: () => loop.model,
+      tools: [
+        {
+          ...testTool('Read', z.object({ path: z.string() })),
+          impl: async () => {
+            executions += 1;
+            return { ok: true };
+          },
+        },
+      ],
+      maxSteps: 2,
+      loadTurnRuntimeEvents: async (turnId) => {
+        reads += 1;
+        if (reads === 2) throw new Error('runtime ledger unavailable');
+        return await durable.loadTurnRuntimeEvents(turnId);
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    const events = await drainDurably(backend.send(durable.input()), durable);
+
+    assert.equal(loop.callCount(), 1);
+    assert.equal(executions, 0);
+    assert.ok(events.some((event) => event.type === 'error'));
+  });
+
   test('keeps an explicitly configured step limit', async () => {
     const loop = countingToolLoopModel();
     const durable = durableTurnHarness('turn-1', 'hi');

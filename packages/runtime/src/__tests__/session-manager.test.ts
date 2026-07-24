@@ -7532,6 +7532,28 @@ describe('SessionManager permission mode updates', () => {
     ).toEqual([]);
   });
 
+  test('omits the durable-reader capability when no RuntimeEventStore is configured', async () => {
+    const store = new MemorySessionStore();
+    const backends = new BackendRegistry();
+    let context: BackendFactoryContext | undefined;
+    backends.register('fake', (ctx) => {
+      context = ctx;
+      return new TestBackend(ctx);
+    });
+    const manager = new SessionManager({
+      store,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_849),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput({ permissionMode: 'ask' }));
+
+    await drain(manager.sendMessage(session.id, { turnId: 'turn-1', text: 'hello' }));
+
+    expect(context?.loadTurnRuntimeEvents).toBe(undefined);
+  });
+
   test('parent and child runs can read their ledger while only parents may compact session history', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();

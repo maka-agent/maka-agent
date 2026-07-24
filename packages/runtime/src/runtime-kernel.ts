@@ -1539,14 +1539,19 @@ export class RuntimeKernel implements RuntimeKernelLike {
             },
           }
         : {}),
-      loadTurnRuntimeEvents: (turnId: string) => {
-        const active = this.active.get(sessionId);
-        const runId = active?.turnToRunId.get(turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
-        return run.loadTurnRuntimeEvents();
-      },
-      allowMidTurnHistoryCompaction: true,
+      ...(this.deps.runtimeEventStore
+        ? {
+            loadTurnRuntimeEvents: (turnId: string) => {
+              const active = this.active.get(sessionId);
+              const runId = active?.turnToRunId.get(turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              if (!run)
+                return Promise.reject(new Error('No active AgentRun for turn runtime events'));
+              return run.loadTurnRuntimeEvents();
+            },
+          }
+        : {}),
+      allowMidTurnHistoryCompaction: Boolean(this.deps.runtimeEventStore),
       recordActiveFullCompactBlock: (block) => {
         const active = this.active.get(sessionId);
         const runId = active?.turnToRunId.get(block.turnId);
@@ -1659,13 +1664,18 @@ export class RuntimeKernel implements RuntimeKernelLike {
             },
           }
         : {}),
-      loadTurnRuntimeEvents: (turnId: string) => {
-        const active = this.childActive.get(activeKey);
-        const runId = active?.turnToRunId.get(turnId);
-        const run = runId ? active?.activeRuns.get(runId) : undefined;
-        if (!run) return Promise.reject(new Error('No active AgentRun for turn runtime events'));
-        return run.loadTurnRuntimeEvents();
-      },
+      ...(this.deps.runtimeEventStore
+        ? {
+            loadTurnRuntimeEvents: (turnId: string) => {
+              const active = this.childActive.get(activeKey);
+              const runId = active?.turnToRunId.get(turnId);
+              const run = runId ? active?.activeRuns.get(runId) : undefined;
+              if (!run)
+                return Promise.reject(new Error('No active AgentRun for turn runtime events'));
+              return run.loadTurnRuntimeEvents();
+            },
+          }
+        : {}),
       // A child-only ledger cannot claim coverage of the parent session prefix.
       allowMidTurnHistoryCompaction: false,
       recordActiveFullCompactBlock: (block) => {

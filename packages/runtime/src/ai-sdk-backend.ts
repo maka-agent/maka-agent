@@ -1125,15 +1125,16 @@ export class AiSdkBackend implements AgentBackend {
             await queue.waitForProgress();
           }
         };
-        const loadDurableTurnProjection = async (): Promise<ModelMessage[]> => {
+        const loadDurableTurnEvents = async (): Promise<RuntimeEvent[]> => {
           const loadTurnRuntimeEvents = this.input.loadTurnRuntimeEvents;
           if (!loadTurnRuntimeEvents) {
             throw new Error('durable current-run reader is required for tool continuation');
           }
           await waitForDurableQueueBoundary();
-          const turnEvents = (await loadTurnRuntimeEvents(turnId)).filter(
-            (event) => event.turnId === turnId,
-          );
+          return (await loadTurnRuntimeEvents(turnId)).filter((event) => event.turnId === turnId);
+        };
+        const loadDurableTurnProjection = async (): Promise<ModelMessage[]> => {
+          const turnEvents = await loadDurableTurnEvents();
           const replayPlan = buildRuntimeEventModelReplayPlan(turnEvents, {
             toolActivityTurnIds: collectToolActivityTurnIds([
               ...(input.runtimeContext ?? []),
@@ -1633,6 +1634,12 @@ export class AiSdkBackend implements AgentBackend {
               this.maxSteps === undefined || runtimeSteps < this.maxSteps;
             if (continuationBudgetRemains && !this.input.loadTurnRuntimeEvents) {
               throw new Error('durable current-run reader is required for tool continuation');
+            }
+            if (this.input.loadTurnRuntimeEvents) {
+              // Queue consumption alone does not prove that the latest assistant
+              // facts remain readable. Fail before any external tool side effect
+              // when the authoritative ledger became unavailable after the step.
+              await loadDurableTurnEvents();
             }
             const toolsByName = new Map(providerTools.map((tool) => [tool.name, tool]));
             const settlementOutcomes = await Promise.allSettled(
