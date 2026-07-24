@@ -180,8 +180,13 @@ function ComposedShell(props: {
           onExpandSidebar={() => setCollapsed(false)}
           onCreateSession={noop}
         />
-        {!collapsed && (
-          <div className="maka-panel maka-panel-list maka-floating-panel">
+        {/* Grid is 3 columns (sidebar / handle / detail): the handle must
+            always render or the detail panel falls into the 0px handle
+            column. When collapsed, keep the sidebar mounted (production
+            hides it via the data-sidebar-state CSS) so auto-placement
+            stays aligned. */}
+        <div className="maka-panel maka-panel-list maka-floating-panel">
+          {!collapsed && (
             <SessionListPanel
               selection={{ section: 'sessions', filter: 'chats' }}
               sessions={sidebarSessions}
@@ -194,8 +199,9 @@ function ComposedShell(props: {
               onNew={noop}
               rowActions={sidebarRowActions}
             />
-          </div>
-        )}
+          )}
+        </div>
+        <div className="maka-resize-handle" aria-hidden="true" />
         <div
           className="maka-panel maka-panel-detail maka-floating-panel agents-content-area agents-parchment-paper-surface"
           data-sidebar-state={collapsed ? 'collapsed' : 'expanded'}
