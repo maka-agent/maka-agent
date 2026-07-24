@@ -67,6 +67,7 @@ import {
   createSessionStore,
   createSettingsStore,
   createShellRunStore,
+  assertSessionBundleRootLayout,
   type ForeignSessionStore,
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
@@ -87,7 +88,12 @@ import { CliGoalContinuation } from './cli-goal-continuation.js';
 import { RECAP_INSTRUCTION, cleanRecapText } from './session-recap.js';
 
 export interface MakaCliRuntimeContext {
+  /** Legacy shared-root input retained for callers that do not split roots. */
   workspaceRoot: string;
+  /** Durable session-owned state root used by the runtime stores. */
+  stateRoot: string;
+  /** Host-injected configuration root used by connections, credentials, and settings. */
+  configRoot: string;
   cwd: string;
   runtime: SessionManager;
   target: ReadySessionTarget;
@@ -132,7 +138,12 @@ export interface SessionRecapGenerator {
 
 export interface CreateMakaCliRuntimeContextInput {
   surface: 'tui' | 'run';
+  /** Legacy root; both new roots default to this path. */
   workspaceRoot: string;
+  /** Optional portable session-owned state root. */
+  stateRoot?: string;
+  /** Optional host-injected configuration root. */
+  configRoot?: string;
   cwd: string;
   requestedConnectionSlug?: string;
   requestedModel?: string;
@@ -174,19 +185,28 @@ export function isMakaClaudeSubscriptionCloakEnabled(
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
-  await resolveStorageRoot({ path: input.workspaceRoot, kind: 'interactive' });
-  const store = createSessionStore(input.workspaceRoot);
-  const runStore = createAgentRunStore(input.workspaceRoot);
+  const stateRoot = input.stateRoot ?? input.workspaceRoot;
+  const configRoot = input.configRoot ?? input.workspaceRoot;
+  if (input.stateRoot !== undefined || input.configRoot !== undefined) {
+    await assertSessionBundleRootLayout({
+      stateRoot,
+      configRoot,
+      allowShared: false,
+    });
+  }
+  await resolveStorageRoot({ path: stateRoot, kind: 'interactive' });
+  const store = createSessionStore(stateRoot);
+  const runStore = createAgentRunStore(stateRoot);
   const runtimePersistence = await openRuntimeEventPersistence({
-    workspaceRoot: input.workspaceRoot,
+    workspaceRoot: stateRoot,
     sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
   });
   const runtimeEventStore = runtimePersistence.runtimeEventStore;
-  const shellRunStore = createShellRunStore(input.workspaceRoot);
-  const artifactStore = createArtifactStore(input.workspaceRoot);
-  const connectionStore = createConnectionStore(input.workspaceRoot);
-  const credentialStore = createFileCredentialStore(input.workspaceRoot);
-  const settingsStore = createSettingsStore(input.workspaceRoot);
+  const shellRunStore = createShellRunStore(stateRoot);
+  const artifactStore = createArtifactStore(stateRoot);
+  const connectionStore = createConnectionStore(configRoot);
+  const credentialStore = createFileCredentialStore(configRoot);
+  const settingsStore = createSettingsStore(configRoot);
   // Read-only scanner over other agents' local session stores (~/.claude,
   // ~/.codex). Independent of the Maka workspace — takes no workspaceRoot.
   const foreignSessions = createForeignSessionStore();
@@ -295,7 +315,7 @@ export async function createMakaCliRuntimeContext(
   // host that owns it. (Two cron-enabled hosts sharing a store is the separate,
   // still-deferred leader-lock concern.)
   const cronEnabled = input.automationCreateFreshRun !== undefined;
-  const automationStore = createAutomationStore<AutomationDefinition>(input.workspaceRoot);
+  const automationStore = createAutomationStore<AutomationDefinition>(configRoot);
   // If the durable store fails to READ, we must not WRITE over it (a full sync
   // would erase unread crons). Disable persistence loudly until restart.
   let durableStoreReadable = true;
@@ -359,7 +379,7 @@ export async function createMakaCliRuntimeContext(
             ? {
                 claude: {
                   cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-                  deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                  deviceId: await getOrCreateCliClaudeDeviceId(configRoot),
                   accountUuid: ready.oauthTokens?.account_uuid ?? '',
                 },
               }
@@ -437,7 +457,7 @@ export async function createMakaCliRuntimeContext(
             ? {
                 claude: {
                   cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-                  deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                  deviceId: await getOrCreateCliClaudeDeviceId(configRoot),
                   accountUuid: ready.oauthTokens?.account_uuid ?? '',
                 },
               }
@@ -556,12 +576,12 @@ export async function createMakaCliRuntimeContext(
       : undefined;
   const skillShadowTracker = new SkillShadowSelectionTracker();
   const skillTool = buildSkillAgentTool(
-    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, configRoot),
     host,
     { shadowTracker: skillShadowTracker },
   );
   const skillSearchTool = buildSkillSearchAgentTool(
-    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+    ({ cwd }) => resolveSkillDiscoveryPaths(cwd, configRoot),
     host,
     { shadowTracker: skillShadowTracker },
   );
@@ -596,7 +616,7 @@ export async function createMakaCliRuntimeContext(
         ? {
             claude: {
               cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-              deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+              deviceId: await getOrCreateCliClaudeDeviceId(configRoot),
               accountUuid: ready.oauthTokens?.account_uuid ?? '',
             },
           }
@@ -681,7 +701,7 @@ export async function createMakaCliRuntimeContext(
           return buildCliSystemPrompt({
             settings,
             cwd,
-            workspaceRoot: input.workspaceRoot,
+            workspaceRoot: configRoot,
             host,
             modelContextWindow: resolveSelectedModelContextWindow(ready.connection, ready.model),
             onSkillSelection: (report) =>
@@ -780,7 +800,7 @@ export async function createMakaCliRuntimeContext(
                 ? {
                     claude: {
                       cloakEnabled: isMakaClaudeSubscriptionCloakEnabled(),
-                      deviceId: await getOrCreateCliClaudeDeviceId(input.workspaceRoot),
+                      deviceId: await getOrCreateCliClaudeDeviceId(configRoot),
                       accountUuid: ready.oauthTokens?.account_uuid ?? '',
                     },
                   }
@@ -876,13 +896,15 @@ export async function createMakaCliRuntimeContext(
 
   return {
     workspaceRoot: input.workspaceRoot,
+    stateRoot,
+    configRoot,
     cwd: input.cwd,
     runtime,
     target,
     modelChoices,
     tools: allTools,
     skills: {
-      source: (cwd) => resolveSkillDiscoveryPaths(cwd, input.workspaceRoot),
+      source: (cwd) => resolveSkillDiscoveryPaths(cwd, configRoot),
       host,
     },
     automationManager,

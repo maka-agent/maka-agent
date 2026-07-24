@@ -33,6 +33,8 @@ export interface LegacySessionTreeExportReport {
 export async function exportLegacySessionTree(input: {
   workspaceRoot: string;
   destinationRoot: string;
+  /** Optional selected-session export; omitted preserves the full backup behavior. */
+  sessionIds?: readonly string[];
   now?: () => number;
 }): Promise<LegacySessionTreeExportReport> {
   const workspaceRoot = resolve(input.workspaceRoot);
@@ -53,7 +55,24 @@ export async function exportLegacySessionTree(input: {
   const metadata = createSqliteSessionMetadataStore(databasePath);
   const stagingRoot = `${destinationRoot}.${process.pid}.${randomUUID()}.tmp`;
   try {
-    const records = (await metadata.list()).sort((a, b) => a.header.id.localeCompare(b.header.id));
+    const allRecords = await metadata.list();
+    const selectedIds = input.sessionIds === undefined ? undefined : new Set(input.sessionIds);
+    if (selectedIds?.size !== input.sessionIds?.length) {
+      throw new Error('Session metadata export contains duplicate session ids');
+    }
+    const records = allRecords
+      .filter((record) => selectedIds === undefined || selectedIds.has(record.header.id))
+      .sort((a, b) => a.header.id.localeCompare(b.header.id));
+    if (selectedIds !== undefined) {
+      const exportedIds = new Set(records.map((record) => record.header.id));
+      const missing = [...selectedIds].filter((sessionId) => !exportedIds.has(sessionId));
+      if (missing.length > 0) {
+        throw new Error(`Session metadata export session does not exist: ${missing.join(', ')}`);
+      }
+      if (records.length === 0) {
+        throw new Error('Session metadata export requires at least one selected session');
+      }
+    }
     await mkdir(join(stagingRoot, 'sessions'), { recursive: true });
     for (const record of records) {
       const sourcePath = join(sourceSessionsRoot, record.header.id, 'session.jsonl');
