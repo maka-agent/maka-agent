@@ -115,6 +115,7 @@ export const AGENT_RUN_EVENT_TYPES = [
   'tool_started',
   'tool_completed',
   'tool_failed',
+  'tool_unsettled',
   'skill_catalog_built',
   'skill_searched',
   'skill_loaded',
@@ -312,6 +313,50 @@ export interface AgentRunStore {
     event: AgentRunEvent | null,
     options?: { replaceEventId?: string },
   ): Promise<void>;
+}
+
+export interface ContinuationAdmission {
+  schemaVersion: 1;
+  sessionId: string;
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+  invocationId: string;
+  runId: string;
+  turnId: string;
+  admittedAt: number;
+}
+
+export interface AdmitContinuationInput {
+  sessionId: string;
+  sourceInvocationId: string;
+  sourceRunId: string;
+  sourceTurnId: string;
+  sourceRuntimeEventHighWater: number;
+  proposedInvocationId: string;
+  proposedRunId: string;
+  proposedTurnId: string;
+  admittedAt: number;
+}
+
+export type AdmitContinuationResult =
+  | { kind: 'admitted'; admission: ContinuationAdmission }
+  | { kind: 'existing'; admission: ContinuationAdmission }
+  | { kind: 'conflict'; admission: ContinuationAdmission };
+
+/**
+ * Atomically reserves one continuation identity for a committed source
+ * boundary. Implementations arbitrate by the source business key, never by
+ * the proposed target run id.
+ */
+export interface ContinuationAdmissionStore {
+  admitContinuation(input: AdmitContinuationInput): Promise<AdmitContinuationResult>;
+  readContinuationAdmission(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined>;
 }
 
 /**

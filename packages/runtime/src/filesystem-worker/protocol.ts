@@ -1,7 +1,10 @@
 import { z } from 'zod';
 import { validateAdditionalPermissionProfile } from '@maka/core/additional-permissions';
 
-export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 2 as const;
+export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 4 as const;
+// A prepared mutation may carry a 32 MiB after-image as base64 (4/3 expansion)
+// plus its durable fact and protocol envelope.
+export const FILESYSTEM_WORKER_MAX_REQUEST_BYTES = 48 * 1024 * 1024;
 
 const path = z.string().min(1).max(4096);
 const cwd = z.string().min(1).max(4096);
@@ -62,6 +65,23 @@ export const FilesystemWorkerOperationSchema = z.discriminatedUnion('kind', [
       path,
       oldString: z.string(),
       newString: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('prepared_file_apply'),
+      cwd,
+      path,
+      fact: z.unknown(),
+      expectedContentBase64: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('prepared_file_finalize'),
+      cwd,
+      path,
+      fact: z.unknown(),
     })
     .strict(),
   z
@@ -134,6 +154,8 @@ export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
       endLine: z.number().int().positive(),
     })
     .strict(),
+  z.object({ kind: z.literal('prepared_file_apply'), ok: z.literal(true) }).strict(),
+  z.object({ kind: z.literal('prepared_file_finalize'), ok: z.literal(true) }).strict(),
   z
     .object({
       kind: z.literal('format_json'),
@@ -157,6 +179,7 @@ export const FilesystemWorkerErrorCodeSchema = z.enum([
   'path_changed',
   'not_found',
   'edit_conflict',
+  'effect_unsettled',
   'grep_unavailable',
   'filesystem_denied',
   'filesystem_error',

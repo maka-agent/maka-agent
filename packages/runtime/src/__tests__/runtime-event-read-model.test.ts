@@ -776,6 +776,94 @@ describe('projectRuntimeEventsToStoredMessages', () => {
     expect(out.diagnostics).toEqual([]);
   });
 
+  test('unknown invisible runtime facts keep the session readable and emit a soft diagnostic', () => {
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'future-runtime-fact',
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.test.future_fact',
+              version: 7,
+              legacyProjection: 'invisible',
+              payload: { checkpointId: 'checkpoint-1' },
+            },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics.map(({ code, eventId, detail }) => ({ code, eventId, detail }))).toEqual(
+      [
+        {
+          code: 'unknown_runtime_fact',
+          eventId: 'future-runtime-fact',
+          detail: { kind: 'maka.test.future_fact', version: 7 },
+        },
+      ],
+    );
+  });
+
+  test('known tool recovery facts stay invisible without an unknown-fact diagnostic', () => {
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'tool-recovery-decision',
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.tool.recovery_decision',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: {
+                protocol: 'tool_recovery_v1',
+                operationId: 'operation-1',
+                disposition: 'parked',
+                reasonCode: 'manual_recovery_required',
+                evidenceEventIds: ['dispatch-1'],
+              },
+            },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(out.messages).toEqual([]);
+    expect(out.diagnostics).toEqual([]);
+  });
+
+  test('projects visible content while diagnosing an unknown runtime fact on the same event', () => {
+    const out = projectRuntimeEventsToStoredMessages(
+      [
+        ev({
+          id: 'mixed-future-runtime-fact',
+          role: 'model',
+          author: 'agent',
+          content: { kind: 'text', text: 'visible answer' },
+          actions: {
+            runtimeFact: {
+              kind: 'maka.test.future_fact',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: {},
+            },
+          },
+        }),
+      ],
+      { runHeaders: [header] },
+    );
+
+    expect(out.messages).toHaveLength(1);
+    expect(out.messages[0]).toMatchObject({ type: 'assistant', text: 'visible answer' });
+    expect(out.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(['unknown_runtime_fact']);
+  });
+
   test('continuation-start recovery facts are accepted without creating legacy message rows', () => {
     const out = projectRuntimeEventsToStoredMessages(
       [

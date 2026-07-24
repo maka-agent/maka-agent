@@ -25,10 +25,14 @@ import { chainWrite } from './write-queue.js';
 import {
   DurableStoreWriteError,
   isTerminalRuntimeEvent,
+  type AdmitContinuationInput,
+  type AdmitContinuationResult,
   type AgentRunEvent,
   type AgentRunEventType,
   type AgentRunHeader,
   type AgentRunStore,
+  type ContinuationAdmission,
+  type ContinuationAdmissionStore,
   type RuntimeEvent,
   type RuntimeEventStore,
 } from '@maka/core';
@@ -38,6 +42,12 @@ const EXCLUSIVE_TEMP_SUFFIX_PATTERN =
   /^\d+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp$/;
 
 export const ROOT_TURN_ADMISSION_SCHEMA_VERSION = 2 as const;
+export const CONTINUATION_ADMISSION_SCHEMA_VERSION = 1 as const;
+export type {
+  AdmitContinuationInput,
+  AdmitContinuationResult,
+  ContinuationAdmission,
+} from '@maka/core';
 
 export interface RootTurnAdmissionInput {
   text: string;
@@ -75,7 +85,10 @@ export interface RootTurnAdmissionStore {
   listRootTurnAdmissionsForRecovery(sessionId: string): Promise<RootTurnAdmission[]>;
 }
 
-export interface DurableAgentRunStore extends AgentRunStore, RootTurnAdmissionStore {
+export interface DurableAgentRunStore
+  extends AgentRunStore,
+    RootTurnAdmissionStore,
+    ContinuationAdmissionStore {
   listSessionRunsForRecovery(sessionId: string): Promise<AgentRunHeader[]>;
   readEventsForRecovery(sessionId: string, runId: string): Promise<AgentRunEvent[]>;
   readEventProjection(
@@ -189,6 +202,84 @@ class FileAgentRunStore implements DurableAgentRunStore {
       existing.normalizedInput.text === normalizedInput.text
       ? { kind: 'existing', admission: existing }
       : { kind: 'conflict', admission: existing };
+  }
+
+  async admitContinuation(input: AdmitContinuationInput): Promise<AdmitContinuationResult> {
+    assertSafeId(input.sessionId, 'Invalid session id');
+    assertSafeId(input.sourceInvocationId, 'Invalid source invocation id');
+    assertSafeId(input.sourceRunId, 'Invalid source run id');
+    assertSafeId(input.sourceTurnId, 'Invalid source turn id');
+    assertSafeId(input.proposedInvocationId, 'Invalid continuation invocation id');
+    assertSafeId(input.proposedRunId, 'Invalid continuation run id');
+    assertSafeId(input.proposedTurnId, 'Invalid continuation turn id');
+    assertRuntimeEventHighWater(input.sourceRuntimeEventHighWater);
+    if (!Number.isSafeInteger(input.admittedAt) || input.admittedAt < 0) {
+      throw new Error('Invalid continuation admission timestamp');
+    }
+    const admission: ContinuationAdmission = {
+      schemaVersion: CONTINUATION_ADMISSION_SCHEMA_VERSION,
+      sessionId: input.sessionId,
+      sourceInvocationId: input.sourceInvocationId,
+      sourceRunId: input.sourceRunId,
+      sourceTurnId: input.sourceTurnId,
+      sourceRuntimeEventHighWater: input.sourceRuntimeEventHighWater,
+      invocationId: input.proposedInvocationId,
+      runId: input.proposedRunId,
+      turnId: input.proposedTurnId,
+      admittedAt: input.admittedAt,
+    };
+    const path = this.continuationAdmissionPath(
+      input.sessionId,
+      input.sourceRunId,
+      input.sourceRuntimeEventHighWater,
+    );
+    const created = await writeExclusiveAtomic(
+      path,
+      JSON.stringify(admission) + '\n',
+      { durable: true },
+      this.durabilityRoot,
+    );
+    if (created) return { kind: 'admitted', admission };
+    const existing = await this.readContinuationAdmission(
+      input.sessionId,
+      input.sourceRunId,
+      input.sourceRuntimeEventHighWater,
+    );
+    if (!existing) {
+      throw new Error(
+        `Continuation admission disappeared: ${input.sourceRunId}@${input.sourceRuntimeEventHighWater}`,
+      );
+    }
+    return existing.sourceInvocationId === input.sourceInvocationId &&
+      existing.sourceTurnId === input.sourceTurnId
+      ? { kind: 'existing', admission: existing }
+      : { kind: 'conflict', admission: existing };
+  }
+
+  async readContinuationAdmission(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined> {
+    assertSafeId(sessionId, 'Invalid session id');
+    assertSafeId(sourceRunId, 'Invalid source run id');
+    assertRuntimeEventHighWater(sourceRuntimeEventHighWater);
+    let raw: string;
+    try {
+      raw = await readFile(
+        this.continuationAdmissionPath(sessionId, sourceRunId, sourceRuntimeEventHighWater),
+        'utf8',
+      );
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+      throw error;
+    }
+    return normalizeContinuationAdmission(
+      JSON.parse(raw),
+      sessionId,
+      sourceRunId,
+      sourceRuntimeEventHighWater,
+    );
   }
 
   async readRootTurnAdmission(
@@ -524,6 +615,19 @@ class FileAgentRunStore implements DurableAgentRunStore {
     return join(this.sessionsRoot, sessionId, 'turn-admissions');
   }
 
+  private continuationAdmissionPath(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): string {
+    return join(
+      this.sessionsRoot,
+      sessionId,
+      'continuation-admissions',
+      `${sourceRunId}.${sourceRuntimeEventHighWater}.json`,
+    );
+  }
+
   private async removeUncommittedRunDirectory(sessionId: string, runId: string): Promise<boolean> {
     const directory = this.runDir(sessionId, runId);
     const entries = await readdir(directory, { withFileTypes: true });
@@ -681,6 +785,7 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     event: RuntimeEvent,
     options: { durable?: boolean } = {},
   ): Promise<void> {
+    assertLegacyRuntimeEventWriteSupported(event);
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     await this.withQueue(sessionId, runId, async () => {
@@ -741,6 +846,7 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     runId: string,
     event: RuntimeEvent,
   ): Promise<void> {
+    assertLegacyRuntimeEventWriteSupported(event);
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     if (event.partial || !isTerminalRuntimeEvent(event)) {
@@ -926,6 +1032,14 @@ class FileRuntimeEventStore implements DurableRuntimeEventStore {
     assertSafeId(sessionId, 'Invalid session id');
     assertSafeId(runId, 'Invalid run id');
     return chainWrite(this.writeQueues, `${sessionId}:${runId}`, operation);
+  }
+}
+
+function assertLegacyRuntimeEventWriteSupported(event: RuntimeEvent): void {
+  if (event.actions?.runtimeFact) {
+    throw new Error(
+      'Runtime fact writer capability is unavailable in the legacy JSONL RuntimeEvent store',
+    );
   }
 }
 
@@ -1205,7 +1319,10 @@ async function writeExclusiveAtomicUnchecked(
     await unlink(tempPath).catch(() => {});
     if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
       if (options.durable) {
-        await syncFile(path);
+        // The winning writer fsyncs the inode before linking it into place.
+        // A losing concurrent admission only needs to stabilize the directory
+        // entry; opening an existing file read-only and fsyncing it fails with
+        // EPERM on Windows.
         await syncDirectoryChain(directory, durabilityRoot);
       }
       return false;
@@ -1220,6 +1337,72 @@ function assertSafeId(value: string, message: string): void {
 
 function isSafeId(value: string): boolean {
   return SAFE_ID_PATTERN.test(value);
+}
+
+function assertRuntimeEventHighWater(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error('Invalid source RuntimeEvent high-water');
+  }
+}
+
+function normalizeContinuationAdmission(
+  value: unknown,
+  sessionId: string,
+  sourceRunId: string,
+  sourceRuntimeEventHighWater: number,
+): ContinuationAdmission {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(
+      `Invalid continuation admission for ${sourceRunId}@${sourceRuntimeEventHighWater}: expected an object`,
+    );
+  }
+  const record = value as Record<string, unknown>;
+  const valid =
+    record.schemaVersion === CONTINUATION_ADMISSION_SCHEMA_VERSION &&
+    record.sessionId === sessionId &&
+    record.sourceRunId === sourceRunId &&
+    record.sourceRuntimeEventHighWater === sourceRuntimeEventHighWater &&
+    typeof record.sourceInvocationId === 'string' &&
+    isSafeId(record.sourceInvocationId) &&
+    typeof record.sourceTurnId === 'string' &&
+    isSafeId(record.sourceTurnId) &&
+    typeof record.invocationId === 'string' &&
+    isSafeId(record.invocationId) &&
+    typeof record.runId === 'string' &&
+    isSafeId(record.runId) &&
+    typeof record.turnId === 'string' &&
+    isSafeId(record.turnId) &&
+    Number.isSafeInteger(record.admittedAt) &&
+    (record.admittedAt as number) >= 0 &&
+    hasExactKeys(record, [
+      'schemaVersion',
+      'sessionId',
+      'sourceInvocationId',
+      'sourceRunId',
+      'sourceTurnId',
+      'sourceRuntimeEventHighWater',
+      'invocationId',
+      'runId',
+      'turnId',
+      'admittedAt',
+    ]);
+  if (!valid) {
+    throw new Error(
+      `Invalid continuation admission for ${sourceRunId}@${sourceRuntimeEventHighWater}: malformed fields`,
+    );
+  }
+  return {
+    schemaVersion: CONTINUATION_ADMISSION_SCHEMA_VERSION,
+    sessionId,
+    sourceInvocationId: record.sourceInvocationId as string,
+    sourceRunId,
+    sourceTurnId: record.sourceTurnId as string,
+    sourceRuntimeEventHighWater,
+    invocationId: record.invocationId as string,
+    runId: record.runId as string,
+    turnId: record.turnId as string,
+    admittedAt: record.admittedAt as number,
+  };
 }
 
 function normalizeRootTurnAdmission(

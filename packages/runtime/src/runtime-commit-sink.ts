@@ -9,6 +9,8 @@ export interface ToolPreparedCommit {
   journalEventId: string;
   /** Provider-visible function_call fact; it may pre-exist while permission waits. */
   runtimeEvent: RuntimeEvent;
+  /** Canonical preparation facts committed after the call and before dispatch. */
+  preparationRuntimeEvents?: RuntimeEvent[];
   /** Canonical, non-model-visible fact that T1 was crossed. */
   dispatchRuntimeEvent: RuntimeEvent;
   providerToolCallId: string;

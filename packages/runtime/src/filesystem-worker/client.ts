@@ -16,8 +16,10 @@ import {
   revalidateAdditionalPermissionGrant,
   type AdditionalPermissionGrant,
 } from '../additional-permissions.js';
+import { preparedFileMutationAuxiliaryPaths } from '../local-file-checkpoint-carrier.js';
 import type { SandboxManager } from '../sandbox/sandbox-manager.js';
 import type { SandboxPlatform } from '../sandbox/types.js';
+import { parsePreparedFileMutationFact } from '../tool-recovery-facts.js';
 import type { FilesystemWorkerLaunchSpecProvider } from './launch-spec.js';
 import {
   FILESYSTEM_WORKER_DEFAULT_TIMEOUT_MS,
@@ -25,6 +27,7 @@ import {
   type FilesystemWorkerProcessRunner,
 } from './process-runner.js';
 import {
+  FILESYSTEM_WORKER_MAX_REQUEST_BYTES,
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   FilesystemWorkerOperationSchema,
   parseFilesystemWorkerResponse,
@@ -33,7 +36,7 @@ import {
   type FilesystemWorkerResult,
 } from './protocol.js';
 
-export const FILESYSTEM_WORKER_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+export { FILESYSTEM_WORKER_MAX_REQUEST_BYTES } from './protocol.js';
 
 export type FilesystemWorkerClientOperation = FilesystemWorkerOperation extends infer Operation
   ? Operation extends { cwd: string }
@@ -86,6 +89,11 @@ export class FilesystemWorkerClientError extends Error {
   readonly reason: FilesystemWorkerClientErrorReason;
   readonly stage: 'validation' | 'transform' | 'launch' | 'protocol' | 'operation';
   readonly recoverable: boolean;
+  /**
+   * True only after the worker process was launched and the caller can no
+   * longer prove that a mutating operation had no effect.
+   */
+  readonly effectMayHaveStarted: boolean;
   readonly requestId?: string;
   readonly backend?: 'none' | 'macos-seatbelt' | 'linux';
   readonly profileName?: string;
@@ -95,6 +103,7 @@ export class FilesystemWorkerClientError extends Error {
     stage: FilesystemWorkerClientError['stage'];
     message?: string;
     recoverable?: boolean;
+    effectMayHaveStarted?: boolean;
     requestId?: string;
     backend?: 'none' | 'macos-seatbelt' | 'linux';
     profileName?: string;
@@ -104,6 +113,7 @@ export class FilesystemWorkerClientError extends Error {
     this.reason = input.reason;
     this.stage = input.stage;
     this.recoverable = input.recoverable ?? false;
+    this.effectMayHaveStarted = input.effectMayHaveStarted ?? false;
     this.requestId = input.requestId;
     this.backend = input.backend;
     this.profileName = input.profileName;
@@ -180,9 +190,29 @@ export class FilesystemWorkerClient {
         : canReadPath(effectiveProfile, target.enforcementPath, pathContext);
     if (!allowed) throw clientError('path_denied', 'validation', requestId);
 
+    const operationPermissionEntries: Array<{
+      path: string;
+      access: 'read' | 'write';
+      scope: 'exact' | 'subtree';
+    }> = [{ path: target.enforcementPath, access, scope: target.scope }];
+    if (
+      parsedOperation.data.kind === 'prepared_file_apply' ||
+      parsedOperation.data.kind === 'prepared_file_finalize'
+    ) {
+      const fact = parsePreparedFileMutationFact(parsedOperation.data.fact);
+      if (!fact || fact.canonicalPath !== target.enforcementPath) {
+        throw clientError('invalid_operation', 'validation', requestId);
+      }
+      const auxiliary = preparedFileMutationAuxiliaryPaths(fact);
+      operationPermissionEntries.push(
+        { path: auxiliary.tempPath, access: 'write', scope: 'exact' },
+        { path: auxiliary.beforeBackupPath, access: 'write', scope: 'exact' },
+        { path: auxiliary.parentDirectory, access: 'write', scope: 'exact' },
+      );
+    }
     const operationPermission = {
       fileSystem: {
-        entries: [{ path: target.enforcementPath, access, scope: target.scope }],
+        entries: operationPermissionEntries,
       },
     } as const;
     const operation = FilesystemWorkerOperationSchema.parse({
@@ -245,15 +275,26 @@ export class FilesystemWorkerClient {
     } catch {
       throw clientError('spawn_failed', 'launch', requestId);
     }
-    if (processResult.timedOut) throw clientError('timeout', 'launch', requestId);
-    if (processResult.aborted) throw clientError('aborted', 'launch', requestId);
-    if (processResult.responseOverflow) throw clientError('response_overflow', 'launch', requestId);
+    if (processResult.timedOut)
+      throw clientError('timeout', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
+    if (processResult.aborted)
+      throw clientError('aborted', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
+    if (processResult.responseOverflow)
+      throw clientError('response_overflow', 'launch', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     if (processResult.exitCode !== 0) {
       throw clientError(
         'worker_crashed',
         'launch',
         requestId,
         processResult.stderrTail || undefined,
+        false,
+        { effectMayHaveStarted: true },
       );
     }
 
@@ -261,10 +302,14 @@ export class FilesystemWorkerClient {
     try {
       response = parseFilesystemWorkerResponse(JSON.parse(processResult.stdout));
     } catch {
-      throw clientError('invalid_response', 'protocol', requestId);
+      throw clientError('invalid_response', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     }
     if (response.requestId !== requestId)
-      throw clientError('response_id_mismatch', 'protocol', requestId);
+      throw clientError('response_id_mismatch', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     if (!response.ok) {
       throw clientError(
         response.error.code,
@@ -272,13 +317,16 @@ export class FilesystemWorkerClient {
         requestId,
         response.error.message,
         response.error.code === 'not_found' || response.error.code === 'edit_conflict',
+        response.error.code === 'effect_unsettled' ? { effectMayHaveStarted: true } : undefined,
       );
     }
     if (
       response.result.kind !== operation.kind &&
       !(operation.kind === 'read' && response.result.kind === 'read_image')
     ) {
-      throw clientError('response_kind_mismatch', 'protocol', requestId);
+      throw clientError('response_kind_mismatch', 'protocol', requestId, undefined, false, {
+        effectMayHaveStarted: true,
+      });
     }
     return response.result;
   }
@@ -288,30 +336,27 @@ function deriveWorkerProfile(
   profile: PermissionProfile,
   operationPermission: {
     readonly fileSystem: {
-      readonly entries: readonly [
-        {
-          readonly path: string;
-          readonly access: 'read' | 'write';
-          readonly scope: 'exact' | 'subtree';
-        },
-      ];
+      readonly entries: readonly {
+        readonly path: string;
+        readonly access: 'read' | 'write';
+        readonly scope: 'exact' | 'subtree';
+      }[];
     };
   },
 ): PermissionProfile {
   if (profile.type !== 'managed' || profile.fileSystem.kind !== 'restricted') return profile;
-  const target = operationPermission.fileSystem.entries[0];
   return {
     ...profile,
     fileSystem: {
       ...profile.fileSystem,
       entries: [
         ...profile.fileSystem.entries.filter((entry) => entry.access === 'deny'),
-        {
-          kind: 'path',
-          path: target.path,
-          access: target.access,
-          match: target.scope,
-        },
+        ...operationPermission.fileSystem.entries.map((entry) => ({
+          kind: 'path' as const,
+          path: entry.path,
+          access: entry.access,
+          match: entry.scope,
+        })),
       ],
     },
     network: { kind: 'restricted' },
@@ -319,7 +364,13 @@ function deriveWorkerProfile(
 }
 
 function operationAccess(kind: FilesystemWorkerOperation['kind']): 'read' | 'write' {
-  return kind === 'write' || kind === 'edit' || kind === 'format_json' ? 'write' : 'read';
+  return kind === 'write' ||
+    kind === 'edit' ||
+    kind === 'prepared_file_apply' ||
+    kind === 'prepared_file_finalize' ||
+    kind === 'format_json'
+    ? 'write'
+    : 'read';
 }
 
 function operationScope(kind: FilesystemWorkerOperation['kind']): 'exact' | 'subtree' | 'auto' {
@@ -340,6 +391,7 @@ function clientError(
   metadata: {
     backend?: 'none' | 'macos-seatbelt' | 'linux';
     profileName?: string;
+    effectMayHaveStarted?: boolean;
   } = {},
 ): FilesystemWorkerClientError {
   return new FilesystemWorkerClientError({

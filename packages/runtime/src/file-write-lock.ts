@@ -18,6 +18,36 @@
 
 const tails = new Map<string, Promise<void>>();
 
+export interface FileWriteLockLease {
+  release(): void;
+}
+
+/** Acquire a per-file lease that may span preparation, T1, replace, and T2. */
+export async function acquireFileWriteLock(key: string): Promise<FileWriteLockLease> {
+  const previous = tails.get(key) ?? Promise.resolve();
+  let releaseHold!: () => void;
+  const hold = new Promise<void>((resolve) => {
+    releaseHold = resolve;
+  });
+  const tail = previous.then(
+    () => hold,
+    () => hold,
+  );
+  tails.set(key, tail);
+  await previous.catch(() => undefined);
+  let released = false;
+  return {
+    release: () => {
+      if (released) return;
+      released = true;
+      releaseHold();
+      void tail.then(() => {
+        if (tails.get(key) === tail) tails.delete(key);
+      });
+    },
+  };
+}
+
 /**
  * Runs `fn` exclusively for `key`: it waits until any prior work for `key`
  * settles, then runs, then releases the key for the next waiter. Distinct keys
@@ -29,20 +59,11 @@ const tails = new Map<string, Promise<void>>();
  * one process-global queue by accident.
  */
 export function withFileWriteLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
-  const prev = tails.get(key) ?? Promise.resolve();
-  // Run fn after prev settles either way: a prior failed task must not wedge the
-  // key. `prev.then(fn, fn)` ignores prev's outcome and just sequences.
-  const run = prev.then(fn, fn);
-  // The next waiter chains off `tail`, which tracks completion only (swallowing
-  // result and error) so one task's rejection never propagates down the chain.
-  const tail = run.then(
-    () => {},
-    () => {},
-  );
-  tails.set(key, tail);
-  void tail.then(() => {
-    // Drop the key once nobody chained after us, so the map stays bounded.
-    if (tails.get(key) === tail) tails.delete(key);
+  return acquireFileWriteLock(key).then(async (lease) => {
+    try {
+      return await fn();
+    } finally {
+      lease.release();
+    }
   });
-  return run;
 }

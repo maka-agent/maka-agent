@@ -5,6 +5,7 @@ import { dirname } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import {
+  RUNTIME_FACT_WRITE_CAPABILITY_V1,
   isPartialRuntimeEvent,
   isTerminalRuntimeEvent,
   type RuntimeEvent,
@@ -27,11 +28,17 @@ function loadDatabaseSync(): typeof import('node:sqlite').DatabaseSync {
   return (require('node:sqlite') as typeof import('node:sqlite')).DatabaseSync;
 }
 
-export type ToolJournalState = 'prepared' | 'outcome_committed';
+export type ToolJournalState =
+  | 'prepared'
+  | 'reconcile_recorded'
+  | 'recovery_decided'
+  | 'outcome_committed';
 
 export type SqliteRuntimeStoreFailpoint =
   | 'after_runtime_event_insert'
-  | 'after_journal_event_insert';
+  | 'after_journal_event_insert'
+  | 'after_recovery_reconcile'
+  | 'after_recovery_outcome';
 
 export interface SqliteRuntimeStoreOptions {
   failpoint?: (point: SqliteRuntimeStoreFailpoint) => void;
@@ -41,6 +48,7 @@ export interface CommitToolPreparedInput {
   operationId: string;
   journalEventId: string;
   runtimeEvent: RuntimeEvent;
+  preparationRuntimeEvents?: RuntimeEvent[];
   dispatchRuntimeEvent: RuntimeEvent;
   providerToolCallId: string;
   toolName: string;
@@ -51,6 +59,27 @@ export interface CommitToolPreparedInput {
 
 export interface CommitToolOutcomeInput {
   operationId: string;
+  journalEventId: string;
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
+}
+
+export interface CommitToolRecoveryFactInput {
+  operationId: string;
+  journalEventId: string;
+  state: 'reconcile_recorded' | 'recovery_decided';
+  runtimeEvent: RuntimeEvent;
+  committedAt: number;
+}
+
+export interface CommitToolRecoveryBundleInput {
+  operationId: string;
+  reconcile: CommitToolRecoveryBundleEntry;
+  outcome?: CommitToolRecoveryBundleEntry;
+  decision: CommitToolRecoveryBundleEntry;
+}
+
+export interface CommitToolRecoveryBundleEntry {
   journalEventId: string;
   runtimeEvent: RuntimeEvent;
   committedAt: number;
@@ -112,6 +141,7 @@ export function createSqliteRuntimeStore(
 export class SqliteRuntimeStore implements RuntimeEventStore {
   readonly durability = 'canonical' as const;
   readonly toolBoundaryProtocol = 't1_after_preflight_v1' as const;
+  readonly runtimeFactWriteCapability: typeof RUNTIME_FACT_WRITE_CAPABILITY_V1;
   private readonly db: DatabaseSync;
   private closed = false;
 
@@ -122,8 +152,14 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     const DatabaseSync = loadDatabaseSync();
     this.db = new DatabaseSync(path);
-    configureSqliteRuntimeDatabase(this.db);
-    migrateSqliteRuntimeDatabase(this.db);
+    try {
+      configureSqliteRuntimeDatabase(this.db);
+      migrateSqliteRuntimeDatabase(this.db);
+      this.runtimeFactWriteCapability = readRuntimeFactWriteCapability(this.db);
+    } catch (error) {
+      this.db.close();
+      throw error;
+    }
   }
 
   schemaVersion(): number {
@@ -317,6 +353,9 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
           input.runtimeEvent,
           this.readRuntimeEventJson(input.runtimeEvent.id),
         );
+        for (const event of input.preparationRuntimeEvents ?? []) {
+          assertStoredRuntimeEventEquals(event, this.readRuntimeEventJson(event.id));
+        }
         assertStoredRuntimeEventEquals(
           input.dispatchRuntimeEvent,
           this.readRuntimeEventJson(input.dispatchRuntimeEvent.id),
@@ -327,6 +366,9 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
         };
       }
       this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, true);
+      for (const event of input.preparationRuntimeEvents ?? []) {
+        this.insertRuntimeEvent(event, input.committedAt, false);
+      }
       const runtimeEventSeq = this.insertRuntimeEvent(
         input.dispatchRuntimeEvent,
         input.committedAt,
@@ -378,52 +420,30 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
 
   async commitToolOutcome(input: CommitToolOutcomeInput): Promise<ToolCommitResult> {
     assertOutcomeInput(input);
-    return this.transaction(() => {
-      const operation = this.readToolOperationSync(input.operationId);
-      if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
-      assertOutcomeIdentity(operation, input.runtimeEvent);
-      if (operation.resultEventId) {
-        if (operation.resultEventId !== input.runtimeEvent.id) {
-          throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
-        }
-        assertStoredRuntimeEventEquals(
-          input.runtimeEvent,
-          this.readRuntimeEventJson(input.runtimeEvent.id),
-        );
-        return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
+    return this.transaction(() => this.commitToolOutcomeSync(input));
+  }
+
+  async commitToolRecoveryFact(input: CommitToolRecoveryFactInput): Promise<ToolCommitResult> {
+    return this.transaction(() => this.commitToolRecoveryFactSync(input));
+  }
+
+  async commitToolRecoveryBundle(input: CommitToolRecoveryBundleInput): Promise<void> {
+    this.transaction(() => {
+      this.commitToolRecoveryFactSync({
+        operationId: input.operationId,
+        state: 'reconcile_recorded',
+        ...input.reconcile,
+      });
+      this.options.failpoint?.('after_recovery_reconcile');
+      if (input.outcome) {
+        this.commitToolOutcomeSync({ operationId: input.operationId, ...input.outcome });
+        this.options.failpoint?.('after_recovery_outcome');
       }
-      const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
-      this.options.failpoint?.('after_runtime_event_insert');
-      this.db
-        .prepare(`
-        INSERT INTO tool_journal_events (
-          journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
-          runtime_event_id, canonical_args_hash, recovery_mode, committed_at
-        ) VALUES (?, ?, ?, ?, ?, 'outcome_committed', ?, ?, ?, ?)
-      `)
-        .run(
-          input.journalEventId,
-          input.operationId,
-          operation.invocationId,
-          operation.runId,
-          operation.turnId,
-          input.runtimeEvent.id,
-          operation.canonicalArgsHash,
-          operation.recoveryMode,
-          input.committedAt,
-        );
-      this.options.failpoint?.('after_journal_event_insert');
-      const updated = this.db
-        .prepare(`
-        UPDATE tool_operations
-        SET current_state = 'outcome_committed', result_event_id = ?, version = version + 1
-        WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL
-      `)
-        .run(input.runtimeEvent.id, input.operationId);
-      if (updated.changes !== 1) {
-        throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
-      }
-      return { created: true, runtimeEventSeq };
+      this.commitToolRecoveryFactSync({
+        operationId: input.operationId,
+        state: 'recovery_decided',
+        ...input.decision,
+      });
     });
   }
 
@@ -473,14 +493,19 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
           `Cannot rebuild legacy tool operation ${legacy.operation_id} without a dispatch RuntimeEvent`,
         );
       }
-      const events = (
-        this.db
-          .prepare(`
-        SELECT payload_json FROM runtime_events
+      const runtimeRows = this.db
+        .prepare(`
+        SELECT payload_json, committed_at, event_seq FROM runtime_events
         ORDER BY invocation_id ASC, event_seq ASC, event_id ASC
       `)
-          .all() as Array<{ payload_json: string }>
-      ).map((row) => JSON.parse(row.payload_json) as RuntimeEvent);
+        .all() as Array<{ payload_json: string; committed_at: number; event_seq: number }>;
+      const events = runtimeRows.map((row) => JSON.parse(row.payload_json) as RuntimeEvent);
+      const committedAtByEventId = new Map(
+        runtimeRows.map((row, index) => [events[index]!.id, row.committed_at] as const),
+      );
+      const eventSeqByEventId = new Map(
+        runtimeRows.map((row, index) => [events[index]!.id, row.event_seq] as const),
+      );
       const calls = new Map<string, RuntimeEvent>();
       const dispatches: Array<{
         event: RuntimeEvent;
@@ -488,6 +513,14 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
         dispatch: NonNullable<NonNullable<RuntimeEvent['actions']>['toolDispatch']>;
       }> = [];
       const responses = new Map<string, RuntimeEvent>();
+      const recoveryFacts = new Map<
+        string,
+        Array<{
+          event: RuntimeEvent;
+          state: 'reconcile_recorded' | 'recovery_decided';
+          runtimeFact: NonNullable<NonNullable<RuntimeEvent['actions']>['runtimeFact']>;
+        }>
+      >();
 
       for (const event of events) {
         if (event.partial) continue;
@@ -518,6 +551,30 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
             throw new Error(`Conflicting tool response for ${event.refs.operationId}`);
           }
           responses.set(event.refs.operationId, event);
+          continue;
+        }
+        const runtimeFact = event.actions?.runtimeFact;
+        const projection = recoveryJournalProjection(runtimeFact?.kind, runtimeFact?.version);
+        if (runtimeFact && projection === 'unsupported_durable_recovery_fact') {
+          throw new Error(
+            `Unsupported durable recovery RuntimeEvent fact ${runtimeFact.kind}@${runtimeFact.version}`,
+          );
+        }
+        if (
+          runtimeFact &&
+          (projection === 'reconcile_recorded' || projection === 'recovery_decided')
+        ) {
+          const state = projection;
+          const operationId = recoveryFactOperationId(runtimeFact.payload);
+          if (!operationId || event.refs?.operationId !== operationId) {
+            throw new Error(`Corrupt tool recovery RuntimeEvent ${event.id}`);
+          }
+          const operationFacts = recoveryFacts.get(operationId) ?? [];
+          if (operationFacts.some((candidate) => candidate.state === state)) {
+            throw new Error(`Conflicting tool recovery facts for ${operationId}`);
+          }
+          operationFacts.push({ event, state, runtimeFact });
+          recoveryFacts.set(operationId, operationFacts);
         }
       }
 
@@ -540,7 +597,7 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
             event.id,
             dispatch.canonicalArgsHash,
             dispatch.recoveryMode,
-            event.ts,
+            committedAtByEventId.get(event.id) ?? event.ts,
           );
         journalEvents += 1;
         const response = responses.get(dispatch.operationId);
@@ -556,6 +613,26 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
         ) {
           throw new Error(`Corrupt tool response RuntimeEvent ${response.id}`);
         }
+        const operationRecoveryFacts = recoveryFacts.get(dispatch.operationId) ?? [];
+        const tailJournalEvents: Array<
+          | {
+              state: 'outcome_committed';
+              event: RuntimeEvent;
+            }
+          | {
+              state: 'reconcile_recorded' | 'recovery_decided';
+              event: RuntimeEvent;
+              runtimeFact: RuntimeFact;
+            }
+        > = [
+          ...operationRecoveryFacts,
+          ...(response ? [{ state: 'outcome_committed' as const, event: response }] : []),
+        ];
+        tailJournalEvents.sort(
+          (a, b) =>
+            requireRuntimeEventSequence(eventSeqByEventId, a.event.id) -
+            requireRuntimeEventSequence(eventSeqByEventId, b.event.id),
+        );
         this.db
           .prepare(`
           INSERT INTO tool_operations (
@@ -577,32 +654,156 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
             call.id,
             event.id,
             response?.id ?? null,
-            response ? 2 : 1,
+            1 + tailJournalEvents.length,
           );
-        if (response) {
+        for (const journalEvent of tailJournalEvents) {
+          const metadata =
+            journalEvent.state === 'outcome_committed'
+              ? null
+              : JSON.stringify(journalEvent.runtimeFact);
           this.db
             .prepare(`
             INSERT INTO tool_journal_events (
               journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
-              runtime_event_id, canonical_args_hash, recovery_mode, committed_at
-            ) VALUES (?, ?, ?, ?, ?, 'outcome_committed', ?, ?, ?, ?)
-          `)
+              runtime_event_id, canonical_args_hash, recovery_mode, metadata_json, committed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `)
             .run(
-              `${dispatch.operationId}_outcome`,
+              `${dispatch.operationId}_${journalEvent.state}`,
               dispatch.operationId,
-              response.invocationId,
-              response.runId,
-              response.turnId,
-              response.id,
+              journalEvent.event.invocationId,
+              journalEvent.event.runId,
+              journalEvent.event.turnId,
+              journalEvent.state,
+              journalEvent.event.id,
               dispatch.canonicalArgsHash,
               dispatch.recoveryMode,
-              response.ts,
+              metadata,
+              committedAtByEventId.get(journalEvent.event.id) ?? journalEvent.event.ts,
             );
           journalEvents += 1;
         }
       }
+      const projectedOperationIds = new Set(dispatches.map(({ dispatch }) => dispatch.operationId));
+      const orphanRecoveryOperationId = [...recoveryFacts.keys()].find(
+        (operationId) => !projectedOperationIds.has(operationId),
+      );
+      if (orphanRecoveryOperationId) {
+        throw new Error(`Orphan tool recovery facts for ${orphanRecoveryOperationId}`);
+      }
       return { operations: dispatches.length, journalEvents };
     });
+  }
+
+  private commitToolOutcomeSync(input: CommitToolOutcomeInput): ToolCommitResult {
+    const operation = this.readToolOperationSync(input.operationId);
+    if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
+    assertOutcomeIdentity(operation, input.runtimeEvent);
+    if (operation.resultEventId) {
+      if (operation.resultEventId !== input.runtimeEvent.id) {
+        throw new Error(`Tool operation outcome conflict for ${input.operationId}`);
+      }
+      assertStoredRuntimeEventEquals(
+        input.runtimeEvent,
+        this.readRuntimeEventJson(input.runtimeEvent.id),
+      );
+      return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
+    }
+    const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
+    this.options.failpoint?.('after_runtime_event_insert');
+    this.db
+      .prepare(`
+      INSERT INTO tool_journal_events (
+        journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
+        runtime_event_id, canonical_args_hash, recovery_mode, committed_at
+      ) VALUES (?, ?, ?, ?, ?, 'outcome_committed', ?, ?, ?, ?)
+    `)
+      .run(
+        input.journalEventId,
+        input.operationId,
+        operation.invocationId,
+        operation.runId,
+        operation.turnId,
+        input.runtimeEvent.id,
+        operation.canonicalArgsHash,
+        operation.recoveryMode,
+        input.committedAt,
+      );
+    this.options.failpoint?.('after_journal_event_insert');
+    const updated = this.db
+      .prepare(`
+      UPDATE tool_operations
+      SET current_state = 'outcome_committed', result_event_id = ?, version = version + 1
+      WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL
+    `)
+      .run(input.runtimeEvent.id, input.operationId);
+    if (updated.changes !== 1) {
+      throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
+    }
+    return { created: true, runtimeEventSeq };
+  }
+
+  private commitToolRecoveryFactSync(input: CommitToolRecoveryFactInput): ToolCommitResult {
+    const runtimeFact = assertToolRecoveryFactInput(input);
+    const operation = this.readToolOperationSync(input.operationId);
+    if (!operation) throw new Error(`Unknown tool operation ${input.operationId}`);
+    if (
+      input.state === 'reconcile_recorded' &&
+      (operation.currentState !== 'prepared' || operation.resultEventId)
+    ) {
+      throw new Error(`Tool operation ${input.operationId} is already settled`);
+    }
+    const existing = this.db
+      .prepare(`
+      SELECT runtime_event_id FROM tool_journal_events
+      WHERE operation_id = ? AND state = ?
+    `)
+      .get(input.operationId, input.state) as { runtime_event_id: string | null } | undefined;
+    if (existing) {
+      if (existing.runtime_event_id !== input.runtimeEvent.id) {
+        throw new Error(`Tool recovery fact conflict for ${input.operationId}`);
+      }
+      assertStoredRuntimeEventEquals(
+        input.runtimeEvent,
+        this.readRuntimeEventJson(input.runtimeEvent.id),
+      );
+      return { created: false, runtimeEventSeq: this.runtimeEventSeq(input.runtimeEvent.id) };
+    }
+    const runtimeEventSeq = this.insertRuntimeEvent(input.runtimeEvent, input.committedAt, false);
+    this.options.failpoint?.('after_runtime_event_insert');
+    this.db
+      .prepare(`
+      INSERT INTO tool_journal_events (
+        journal_event_id, operation_id, invocation_id, run_id, turn_id, state,
+        runtime_event_id, canonical_args_hash, recovery_mode, metadata_json, committed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+      .run(
+        input.journalEventId,
+        input.operationId,
+        input.runtimeEvent.invocationId,
+        input.runtimeEvent.runId,
+        input.runtimeEvent.turnId,
+        input.state,
+        input.runtimeEvent.id,
+        operation.canonicalArgsHash,
+        operation.recoveryMode,
+        JSON.stringify(runtimeFact),
+        input.committedAt,
+      );
+    this.options.failpoint?.('after_journal_event_insert');
+    const updated = this.db
+      .prepare(
+        input.state === 'reconcile_recorded'
+          ? `UPDATE tool_operations SET version = version + 1
+             WHERE operation_id = ? AND current_state = 'prepared' AND result_event_id IS NULL`
+          : 'UPDATE tool_operations SET version = version + 1 WHERE operation_id = ?',
+      )
+      .run(input.operationId);
+    if (updated.changes !== 1) {
+      throw new Error(`Tool operation compare-and-set failed for ${input.operationId}`);
+    }
+    return { created: true, runtimeEventSeq };
   }
 
   private transaction<T>(operation: () => T): T {
@@ -777,6 +978,25 @@ export class SqliteRuntimeStore implements RuntimeEventStore {
   }
 }
 
+function readRuntimeFactWriteCapability(db: DatabaseSync): typeof RUNTIME_FACT_WRITE_CAPABILITY_V1 {
+  let row: { version?: unknown } | undefined;
+  try {
+    row = db
+      .prepare(
+        "SELECT version FROM runtime_capabilities WHERE capability = 'runtime_fact_envelope'",
+      )
+      .get() as { version?: unknown } | undefined;
+  } catch (error) {
+    throw new Error('SQLite runtime fact envelope capability declaration is unavailable', {
+      cause: error,
+    });
+  }
+  if (row?.version !== 1) {
+    throw new Error('SQLite runtime fact envelope capability declaration is invalid');
+  }
+  return RUNTIME_FACT_WRITE_CAPABILITY_V1;
+}
+
 interface ToolOperationRow {
   operation_id: string;
   invocation_id: string;
@@ -864,6 +1084,18 @@ function assertPreparedInput(input: CommitToolPreparedInput): void {
     throw new Error('T1 requires a matching tool-dispatch RuntimeEvent');
   }
   assertSameRuntimeIdentity(input.runtimeEvent, input.dispatchRuntimeEvent, 'T1');
+  for (const event of input.preparationRuntimeEvents ?? []) {
+    if (
+      event.partial ||
+      event.content !== undefined ||
+      event.actions?.runtimeFact === undefined ||
+      event.actions.runtimeFact.legacyProjection !== 'invisible' ||
+      event.refs?.operationId !== input.operationId
+    ) {
+      throw new Error('T1 preparation requires a matching invisible RuntimeEvent fact');
+    }
+    assertSameRuntimeIdentity(input.runtimeEvent, event, 'T1 preparation');
+  }
 }
 
 function assertOutcomeInput(input: CommitToolOutcomeInput): void {
@@ -879,6 +1111,62 @@ function assertOutcomeInput(input: CommitToolOutcomeInput): void {
       'T2 requires operation and tool-call refs on the function_response RuntimeEvent',
     );
   }
+}
+
+type RuntimeFact = NonNullable<NonNullable<RuntimeEvent['actions']>['runtimeFact']>;
+
+function assertToolRecoveryFactInput(input: CommitToolRecoveryFactInput): RuntimeFact {
+  const runtimeFact = input.runtimeEvent.actions?.runtimeFact;
+  const expectedState = recoveryJournalProjection(runtimeFact?.kind, runtimeFact?.version);
+  if (
+    !runtimeFact ||
+    expectedState !== input.state ||
+    runtimeFact.legacyProjection !== 'invisible' ||
+    recoveryFactOperationId(runtimeFact.payload) !== input.operationId ||
+    input.runtimeEvent.refs?.operationId !== input.operationId ||
+    input.runtimeEvent.partial ||
+    input.runtimeEvent.content !== undefined
+  ) {
+    throw new Error('Tool recovery commit requires a matching canonical RuntimeEvent fact');
+  }
+  return runtimeFact;
+}
+
+function recoveryJournalProjection(
+  kind: string | undefined,
+  version: number | undefined,
+):
+  | 'reconcile_recorded'
+  | 'recovery_decided'
+  | 'runtime_event_only'
+  | 'unsupported_durable_recovery_fact'
+  | undefined {
+  if (kind === 'maka.file.prepared_mutation' && version === 1) {
+    return 'runtime_event_only';
+  }
+  if (kind === 'maka.tool.reconcile_result' && version === 1) return 'reconcile_recorded';
+  if (kind === 'maka.tool.recovery_decision' && version === 1) return 'recovery_decided';
+  if (kind?.startsWith('maka.tool.') || kind?.startsWith('maka.file.')) {
+    return 'unsupported_durable_recovery_fact';
+  }
+  return undefined;
+}
+
+function requireRuntimeEventSequence(
+  eventSeqByEventId: ReadonlyMap<string, number>,
+  eventId: string,
+): number {
+  const eventSeq = eventSeqByEventId.get(eventId);
+  if (eventSeq === undefined) {
+    throw new Error(`RuntimeEvent sequence is unavailable during projection rebuild: ${eventId}`);
+  }
+  return eventSeq;
+}
+
+function recoveryFactOperationId(payload: unknown): string | undefined {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined;
+  const operationId = (payload as { operationId?: unknown }).operationId;
+  return typeof operationId === 'string' && operationId.length > 0 ? operationId : undefined;
 }
 
 function assertPreparedIdentity(

@@ -56,6 +56,10 @@ const ALLOW = new Map([
     'OAuth model sync logs provider-level failure reason only; no tokens or raw provider bodies.',
   ],
   [
+    'apps/desktop/src/main/tool-assembly.ts',
+    'prepared file mutation ownership warning reports only the platform and explicit isolation downgrade; no user data or file paths.',
+  ],
+  [
     'apps/desktop/src/main/onboarding-service.ts',
     'PR110b: credential lookup failure logs error class only (no message / secret bytes); never reaches renderer.',
   ],

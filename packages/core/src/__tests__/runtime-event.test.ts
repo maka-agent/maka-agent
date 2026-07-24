@@ -1,5 +1,5 @@
-import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { describe, test } from 'node:test';
 import { expect } from '../test-helpers.js';
 import {
   RUNTIME_EVENT_AUTHORS,
@@ -190,6 +190,49 @@ describe('RuntimeEvent actions', () => {
     };
     expect(actions.stateDelta?.retries).toBe(1);
     expect(actions.artifactDelta?.['out.md']).toBe(2048);
+  });
+
+  test('decodes an explicitly invisible versioned runtime fact envelope', () => {
+    const decoded = decodeRuntimeEvent({
+      ...baseEvent(),
+      actions: {
+        runtimeFact: {
+          kind: 'maka.test.future_fact',
+          version: 7,
+          legacyProjection: 'invisible',
+          payload: { checkpointId: 'checkpoint-1' },
+        },
+      },
+    });
+
+    expect((decoded.actions as Record<string, unknown>).runtimeFact).toEqual({
+      kind: 'maka.test.future_fact',
+      version: 7,
+      legacyProjection: 'invisible',
+      payload: { checkpointId: 'checkpoint-1' },
+    });
+  });
+
+  test('rejects malformed runtime facts and unknown ordinary actions', () => {
+    assert.throws(() =>
+      decodeRuntimeEvent({
+        ...baseEvent(),
+        actions: {
+          runtimeFact: {
+            kind: 'maka.test.future_fact',
+            version: 0,
+            legacyProjection: 'invisible',
+            payload: null,
+          },
+        },
+      }),
+    );
+    assert.throws(() =>
+      decodeRuntimeEvent({
+        ...baseEvent(),
+        actions: { futureAction: { value: true } },
+      }),
+    );
   });
 });
 

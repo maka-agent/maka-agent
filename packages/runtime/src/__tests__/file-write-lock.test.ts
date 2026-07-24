@@ -5,7 +5,7 @@
 
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { withFileWriteLock } from '../file-write-lock.js';
+import { acquireFileWriteLock, withFileWriteLock } from '../file-write-lock.js';
 
 const tick = () => new Promise<void>((r) => setImmediate(r));
 
@@ -76,5 +76,21 @@ describe('withFileWriteLock', () => {
       }),
       /nope/,
     );
+  });
+
+  test('an explicit lease holds the key across a durable boundary until release', async () => {
+    const first = await acquireFileWriteLock('lease');
+    let secondAcquired = false;
+    const second = acquireFileWriteLock('lease').then((lease) => {
+      secondAcquired = true;
+      return lease;
+    });
+    await tick();
+    assert.equal(secondAcquired, false);
+
+    first.release();
+    const secondLease = await second;
+    assert.equal(secondAcquired, true);
+    secondLease.release();
   });
 });

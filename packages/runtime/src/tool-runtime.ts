@@ -36,7 +36,7 @@ import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import type { EffectiveOrchestration } from '@maka/core/orchestration';
 import { redactSecrets } from '@maka/core/redaction';
-import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent } from '@maka/core';
+import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent, type RuntimeFactEnvelope } from '@maka/core';
 
 import type { PermissionEngine } from './permission-engine.js';
 import type { AsyncEventQueue } from './async-queue.js';
@@ -72,6 +72,7 @@ import { ChildAgentRunLimiter } from './child-agent-run-limiter.js';
 import type { AgentProfile } from './agent-catalog.js';
 import type { SubagentExecutionRef } from './subagent-execution.js';
 import { serializeSandboxError } from './sandbox/errors.js';
+import { DurableToolExecutionUnsettledError } from './durable-tool-execution.js';
 
 export interface ResolvedMakaToolCall {
   tool: MakaTool;
@@ -137,12 +138,39 @@ export interface MakaTool<P = any, R = unknown> {
   ) => Promise<SandboxEscalationPlanResult> | SandboxEscalationPlanResult;
   /** Real tool implementation. Called only after permission allows. */
   impl: (args: P, ctx: MakaToolContext) => Promise<R> | R;
+  /**
+   * Optional checkpoint-backed preparation performed after permission but
+   * before durable dispatch. The returned execution owns any mutation lock
+   * until release and is used instead of impl after T1 commits.
+   */
+  prepareDurableExecution?: (
+    args: P,
+    context: DurableToolPreparationContext,
+  ) => Promise<DurableToolPreparation<R> | undefined>;
   /** Optional provider-visible content mapping, used for screenshot image parts. */
   toModelOutput?: (options: {
     toolCallId: string;
     input: unknown;
     output: unknown;
   }) => ToolResultOutput | PromiseLike<ToolResultOutput>;
+}
+
+export interface DurableToolPreparationContext {
+  operationId: string;
+  sessionId: string;
+  runId: string;
+  turnId: string;
+  toolCallId: string;
+  cwd: string;
+  permissionMode: PermissionMode;
+  abortSignal: AbortSignal;
+  permissionContext?: ToolExecutionPermissionContext;
+}
+
+export interface DurableToolPreparation<R = unknown> {
+  runtimeFacts: RuntimeFactEnvelope[];
+  execute(): Promise<R> | R;
+  release(): Promise<void> | void;
 }
 
 export interface MakaToolContext {
@@ -453,6 +481,11 @@ export class ToolRuntime {
   private lastAmbiguousComputerSignature: string | undefined;
   private readonly recentSandboxDenials = new Set<string>();
   private readonly autoReviewEscalationAttempts = new Map<string, 'pending' | 'denied'>();
+  /**
+   * Same-process bridge from a committed T1 to its T2 error/success handler.
+   * It is intentionally not restart state: after process loss, RuntimeEvents
+   * and the recovery checkpoint protocol own reconciliation.
+   */
   private readonly durableToolAttempts = new Map<string, DurableToolAttempt>();
   private readonly stepAdmissions = new Map<
     string,
@@ -1328,13 +1361,44 @@ export class ToolRuntime {
         return this.errorReturn(reason);
       }
     }
-    const durableAttempt = await this.prepareDurableToolAttempt({
-      tool,
-      startEvent: startEv,
-      persistedArgs,
-      ...(invocationId ? { invocationId } : {}),
-      ...(runId ? { runId } : {}),
-    });
+    let durablePreparation: DurableToolPreparation | undefined;
+    let durableAttempt: DurableToolAttempt | undefined;
+    try {
+      if (this.input.runtimeCommitSink && tool.prepareDurableExecution) {
+        if (!operationId || !runId) {
+          throw new RuntimeCommitBoundaryError(
+            'T1',
+            new Error('Durable tool preparation requires operation and run identity'),
+          );
+        }
+        durablePreparation = await tool.prepareDurableExecution(
+          structuredClone(executionArgs) as never,
+          {
+            operationId,
+            sessionId: this.input.sessionId,
+            runId,
+            turnId,
+            toolCallId: toolUseId,
+            cwd: this.input.header.cwd,
+            permissionMode: this.input.header.permissionMode,
+            abortSignal: ctx.abortSignal,
+            ...(permissionContext ? { permissionContext } : {}),
+          },
+        );
+      }
+      durableAttempt = await this.prepareDurableToolAttempt({
+        tool,
+        startEvent: startEv,
+        persistedArgs,
+        ...(durablePreparation ? { preparationFacts: durablePreparation.runtimeFacts } : {}),
+        ...(invocationId ? { invocationId } : {}),
+        ...(runId ? { runId } : {}),
+      });
+    } catch (error) {
+      await Promise.resolve(durablePreparation?.release()).catch(() => undefined);
+      if (reservedSubagentSlot) this.releaseSubagentSlot(tool);
+      throw error;
+    }
     if (durableAttempt) {
       this.durableToolAttempts.set(durableAttemptKey(turnId, toolUseId), durableAttempt);
     }
@@ -1365,7 +1429,7 @@ export class ToolRuntime {
       pauseTarget?.pause();
       try {
         const runId = this.input.getCurrentRunId?.();
-        const result = await tool.impl(structuredClone(executionArgs) as never, {
+        const toolContext: MakaToolContext = {
           sessionId: this.input.sessionId,
           turnId,
           ...(runId ? { runId } : {}),
@@ -1408,7 +1472,10 @@ export class ToolRuntime {
             toolName: tool.name,
           }),
           askUserQuestion: (questions) => this.askUserQuestion(turnId, toolUseId, questions, queue),
-        });
+        };
+        const result = durablePreparation
+          ? await durablePreparation.execute()
+          : await tool.impl(structuredClone(executionArgs) as never, toolContext);
         output.flush();
         const durationMs = this.input.now() - startedAt;
 
@@ -1521,6 +1588,23 @@ export class ToolRuntime {
         pauseTarget?.resume();
       }
     } catch (err) {
+      if (err instanceof DurableToolExecutionUnsettledError) {
+        output.flush();
+        trace?.emit(
+          'tool',
+          'tool_unsettled',
+          'Tool execution stopped with an unsettled durable outcome',
+          {
+            toolUseId,
+            toolName: tool.name,
+            durationMs: Math.max(0, this.input.now() - startedAt),
+            status: 'error',
+            errorClass: err.name,
+            effectState: err.effectState,
+          },
+        );
+        throw err;
+      }
       if (err instanceof RuntimeCommitBoundaryError) throw err;
       output.flush();
       const sandboxError = serializeSandboxError(err);
@@ -1636,6 +1720,7 @@ export class ToolRuntime {
       return this.errorReturn(msg);
     } finally {
       this.recordLoopGateOutcome(callSignature, attemptFailed);
+      await Promise.resolve(durablePreparation?.release()).catch(() => undefined);
       if (reservedSubagentSlot) this.releaseSubagentSlot(tool);
     }
   }
@@ -1644,6 +1729,7 @@ export class ToolRuntime {
     tool: MakaTool;
     startEvent: ToolStartEvent;
     persistedArgs: unknown;
+    preparationFacts?: RuntimeFactEnvelope[];
     invocationId?: string;
     runId?: string;
   }): Promise<DurableToolAttempt | undefined> {
@@ -1719,11 +1805,27 @@ export class ToolRuntime {
       },
       refs: { operationId, toolCallId: input.startEvent.toolUseId },
     };
+    const preparationRuntimeEvents: RuntimeEvent[] = (input.preparationFacts ?? []).map(
+      (fact, index) => ({
+        id: `${operationId}_preparation_${index + 1}`,
+        invocationId,
+        runId,
+        sessionId: this.input.sessionId,
+        turnId: input.startEvent.turnId,
+        ts: input.startEvent.ts,
+        partial: false,
+        role: 'system',
+        author: 'system',
+        actions: { runtimeFact: structuredClone(fact) },
+        refs: { operationId, toolCallId: input.startEvent.toolUseId },
+      }),
+    );
     try {
       const prepared = await sink.commitToolPrepared({
         operationId,
         journalEventId: `${operationId}_prepared`,
         runtimeEvent: callEvent,
+        ...(preparationRuntimeEvents.length > 0 ? { preparationRuntimeEvents } : {}),
         dispatchRuntimeEvent: dispatchEvent,
         providerToolCallId: input.startEvent.toolUseId,
         toolName: input.tool.name,

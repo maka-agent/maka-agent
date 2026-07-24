@@ -103,6 +103,7 @@ export type {
   RuntimeEventPermissionDecision,
   RuntimeEventProtocolMarker,
   RuntimeEventToolDispatch,
+  RuntimeFactEnvelope,
   RuntimeEventActions,
   RuntimeEventRefs,
   ToolBoundaryProtocol,
@@ -154,8 +155,11 @@ export {
 } from './execution-evidence.js';
 
 // runtime-event-store.ts
-export type { RuntimeEventStore } from './runtime-event-store.js';
-export { DurableStoreWriteError } from './runtime-event-store.js';
+export type { RuntimeEventStore, RuntimeFactWriteCapability } from './runtime-event-store.js';
+export {
+  DurableStoreWriteError,
+  RUNTIME_FACT_WRITE_CAPABILITY_V1,
+} from './runtime-event-store.js';
 
 // session.ts
 export type {
@@ -227,6 +231,10 @@ export type {
   AgentRunInputSummary,
   AgentRunStatus,
   AgentRunStore,
+  AdmitContinuationInput,
+  AdmitContinuationResult,
+  ContinuationAdmission,
+  ContinuationAdmissionStore,
 } from './agent-run.js';
 export {
   AGENT_RUN_STATUSES,

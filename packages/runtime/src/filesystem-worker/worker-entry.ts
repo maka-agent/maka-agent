@@ -2,13 +2,12 @@ import { stdin, stdout } from 'node:process';
 
 import { executeFilesystemWorkerRequest } from './operations.js';
 import {
+  FILESYSTEM_WORKER_MAX_REQUEST_BYTES,
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   FilesystemWorkerRequestSchema,
   FilesystemWorkerResponseSchema,
   type FilesystemWorkerResponse,
 } from './protocol.js';
-
-const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 
 async function main(): Promise<void> {
   let raw: string;
@@ -59,7 +58,7 @@ async function readBoundedStdin(): Promise<string> {
   for await (const chunk of stdin) {
     const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
     bytes += buffer.length;
-    if (bytes > MAX_REQUEST_BYTES) throw new RequestTooLargeError();
+    if (bytes > FILESYSTEM_WORKER_MAX_REQUEST_BYTES) throw new RequestTooLargeError();
     chunks.push(buffer);
   }
   return Buffer.concat(chunks).toString('utf8');

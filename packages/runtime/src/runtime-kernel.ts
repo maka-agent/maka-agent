@@ -1,6 +1,7 @@
 import type {
   AgentRunHeader,
   AgentRunStore,
+  ContinuationAdmissionStore,
   RuntimeEvent,
   RuntimeEventStore,
   ToolBoundaryProtocol,
@@ -68,12 +69,15 @@ import {
   type HistoryCompactCheckpoint,
 } from './history-compact-checkpoint.js';
 import { shouldAppendContextCompactionFailedOpenNote } from './context-budget.js';
+import { resolveContinuationAdmissionStore } from './continuation-admission.js';
 import {
+  buildContinuationReplayRuntimeEvents,
   buildResumePlanFromRuntimeEvents,
   RuntimeContinuationRevalidationError,
   type RuntimeContinuation,
   type RuntimeContinuationSafetyObservation,
 } from './runtime-resume.js';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
 import {
   matchingTerminalRuntimeEvents,
   terminalRunStatusFromRuntimeEvent,
@@ -168,7 +172,10 @@ interface SessionSteeringState {
 export interface RuntimeKernelDeps {
   store: SessionStore;
   runStore?: AgentRunStore;
+  continuationAdmissionStore?: ContinuationAdmissionStore;
   runtimeEventStore?: RuntimeEventStore;
+  /** Shared with continuation planning so recovery decisions revalidate identically. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   /** Host capability; each run still gates it by the selected backend. */
   toolBoundaryProtocol?: ToolBoundaryProtocol;
   backends: BackendRegistry;
@@ -358,7 +365,12 @@ export class RuntimeKernel implements RuntimeKernelLike {
       continuation.sessionId,
       continuation.sourceRunId,
     );
-    assertContinuationSourceUnchanged(continuation, sourceRun, sourceEvents);
+    assertContinuationSourceUnchanged(
+      continuation,
+      sourceRun,
+      sourceEvents,
+      this.deps.recoveryContracts,
+    );
     if (!this.deps.inspectContinuationSafety) {
       throw new Error('Runtime continuation requires an authoritative safety inspector');
     }
@@ -383,6 +395,41 @@ export class RuntimeKernel implements RuntimeKernelLike {
       throw new RuntimeContinuationRevalidationError(
         'target_run_conflict',
         'Runtime continuation target run already exists',
+      );
+    }
+    const admissionStore = resolveContinuationAdmissionStore(
+      this.deps.runStore,
+      this.deps.continuationAdmissionStore,
+    );
+    if (!admissionStore) {
+      throw new RuntimeContinuationRevalidationError(
+        'continuation_claim_conflict',
+        'Runtime continuation requires an atomic continuation admission store',
+      );
+    }
+    const admissionResult = await admissionStore.admitContinuation({
+      sessionId: continuation.sessionId,
+      sourceInvocationId: continuation.sourceInvocationId,
+      sourceRunId: continuation.sourceRunId,
+      sourceTurnId: continuation.sourceTurnId,
+      sourceRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
+      proposedInvocationId: continuation.invocationId,
+      proposedRunId: continuation.runId,
+      proposedTurnId: continuation.turnId,
+      admittedAt: this.deps.now(),
+    });
+    const admission = admissionResult.admission;
+    if (
+      admissionResult.kind === 'conflict' ||
+      admission.sourceInvocationId !== continuation.sourceInvocationId ||
+      admission.sourceTurnId !== continuation.sourceTurnId ||
+      admission.invocationId !== continuation.invocationId ||
+      admission.runId !== continuation.runId ||
+      admission.turnId !== continuation.turnId
+    ) {
+      throw new RuntimeContinuationRevalidationError(
+        'continuation_claim_conflict',
+        `Runtime continuation source boundary is reserved for target run ${admission.runId}`,
       );
     }
 
@@ -1779,6 +1826,7 @@ function assertContinuationSourceUnchanged(
   continuation: RuntimeContinuation,
   sourceRun: AgentRunHeader,
   sourceEvents: readonly RuntimeEvent[],
+  recoveryContracts?: ToolRecoveryContractRegistry,
 ): void {
   if (
     sourceRun.runId !== continuation.sourceRunId ||
@@ -1820,11 +1868,13 @@ function assertContinuationSourceUnchanged(
   }
   const replayPlan = buildResumePlanFromRuntimeEvents(sourceEvents, {
     expectedRuntimeEventHighWater: continuation.sourceRuntimeEventHighWater,
+    ...(recoveryContracts ? { recoveryContracts } : {}),
   });
-  const sourceRuntimeContext = continuation.sourceRuntimeContext ?? continuation.runtimeContext;
+  const continuationReplay = buildContinuationReplayRuntimeEvents(replayPlan.replayRuntimeEvents);
+  const sourceRuntimeContext = continuation.sourceRuntimeContext;
   if (
     replayPlan.disposition !== 'safe_replay' ||
-    !isDeepStrictEqual(replayPlan.replayRuntimeEvents, sourceRuntimeContext)
+    !isDeepStrictEqual(continuationReplay.runtimeEvents, sourceRuntimeContext)
   ) {
     throw new RuntimeContinuationRevalidationError(
       'source_replay_changed',

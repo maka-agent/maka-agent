@@ -8,6 +8,15 @@ import { readMainProcessCombinedSource } from './main-process-contract-source-he
 const REPO_ROOT = resolve(import.meta.dirname, '../../../../..');
 
 describe('runtime resume desktop routing contract', () => {
+  it('holds the interactive writer owner and wires atomic continuation admission', async () => {
+    const main = await readMainProcessCombinedSource();
+
+    assert.match(main, /tryAcquireInteractiveRootOwner\(storageRootCapability\)/);
+    assert.match(main, /already open by another writer/);
+    assert.match(main, /continuationAdmissionStore: runStore/);
+    assert.match(main, /closeStorageRootOwner/);
+  });
+
   it('renderer routes interrupted-banner resume and reports parked diagnostics', async () => {
     const shell = await readRendererShellSource('app-shell.tsx');
     // R2: the resume cluster (state + resumeInterruptedSession handler) moved out of

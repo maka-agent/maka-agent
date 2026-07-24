@@ -14,6 +14,10 @@ import type {
   AgentRunEvent,
   AgentRunHeader,
   AgentRunStore,
+  AdmitContinuationInput,
+  AdmitContinuationResult,
+  ContinuationAdmission,
+  ContinuationAdmissionStore,
   RuntimeEvent,
   RuntimeEventStore,
   SessionEvent,
@@ -70,6 +74,8 @@ import {
   materializeExpertAgentDefinition,
 } from '../expert-catalog.js';
 import { AGENT_TEAM_CHILD_TOOL_NAMES } from '../agent-team-tool-names.js';
+import { createSqliteRuntimeStore } from '@maka/storage';
+import { ToolRecoveryContractRegistry } from '../tool-recovery-contract.js';
 
 describe('SessionManager child-session read model', () => {
   test('lists typed child sessions without treating branches as children', async () => {
@@ -2261,6 +2267,421 @@ describe('SessionManager permission mode updates', () => {
     });
   });
 
+  test('reconciles an interrupted Write before authoritative planning and replans from durable facts', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeStore = createSqliteRuntimeStore(':memory:');
+    const lifecycleEvents: string[] = [];
+    let observations = 0;
+    let activeObservations = 0;
+    let maxActiveObservations = 0;
+    let markFirstObservation!: () => void;
+    let releaseFirstObservation!: () => void;
+    const firstObservation = new Promise<void>((resolve) => {
+      markFirstObservation = resolve;
+    });
+    const firstObservationRelease = new Promise<void>((resolve) => {
+      releaseFirstObservation = resolve;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runtimeStore,
+      toolRecoveryStore: runtimeStore,
+      recoveryContracts: new ToolRecoveryContractRegistry([
+        {
+          toolName: 'Write',
+          contract: {
+            id: 'maka.tool.write.reconcile',
+            version: 1,
+            mode: 'reconcile_then_decide',
+            observe: async () => {
+              observations += 1;
+              activeObservations += 1;
+              maxActiveObservations = Math.max(maxActiveObservations, activeObservations);
+              if (observations === 1) {
+                markFirstObservation();
+                await firstObservationRelease;
+              }
+              activeObservations -= 1;
+              return { status: 'text', content: 'expected contents' };
+            },
+            decide: () => ({
+              result: 'applied',
+              reasonCode: 'write_postcondition_matches',
+              nextAction: 'synthesize_response',
+              synthesizedResult: { ok: true, path: 'notes.txt', recovered: true },
+            }),
+          },
+        },
+      ]),
+      backends: new BackendRegistry(),
+      safeBoundaryResumeEnabled: true,
+      inspectContinuationSafety: async () => ({
+        workspaceIdentity: 'workspace-authoritative',
+        backgroundOperationsSettled: true,
+        availableToolNames: ['Write'],
+      }),
+      onContinuationLifecycleEvent: (event) => {
+        lifecycleEvents.push(event.type);
+      },
+      newId: nextId(),
+      now: nextNow(6_533),
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    const sourceRunId = 'source-run-write-reconcile';
+    const sourceTurnId = 'source-turn-write-reconcile';
+    const sourceInvocationId = 'source-invocation-write-reconcile';
+    await runStore.createRun(
+      makeRunHeader({
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        status: 'failed',
+        cwd: header.cwd,
+        workspaceIdentity: 'workspace-authoritative',
+        createdAt: 1,
+        updatedAt: 4,
+        completedAt: 4,
+        failureClass: 'app_restarted',
+      }),
+    );
+    const initial = runtimeEvent({
+      id: 'source-user-write-reconcile',
+      invocationId: sourceInvocationId,
+      runId: sourceRunId,
+      sessionId: session.id,
+      turnId: sourceTurnId,
+      ts: 1,
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'write notes.txt' },
+      actions: { runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' } },
+    });
+    const call = runtimeEvent({
+      id: 'source-call-write-reconcile',
+      invocationId: sourceInvocationId,
+      runId: sourceRunId,
+      sessionId: session.id,
+      turnId: sourceTurnId,
+      ts: 2,
+      role: 'model',
+      author: 'agent',
+      content: {
+        kind: 'function_call',
+        id: 'provider-call-write-reconcile',
+        name: 'Write',
+        args: { path: 'notes.txt', content: 'expected contents' },
+      },
+    });
+    const dispatch = runtimeEvent({
+      id: 'source-dispatch-write-reconcile',
+      invocationId: sourceInvocationId,
+      runId: sourceRunId,
+      sessionId: session.id,
+      turnId: sourceTurnId,
+      ts: 3,
+      actions: {
+        toolDispatch: {
+          protocol: 't1_after_preflight_v1',
+          operationId: 'operation-write-reconcile',
+          providerToolCallId: 'provider-call-write-reconcile',
+          toolName: 'Write',
+          canonicalArgsHash: 'sha256:write-reconcile',
+          recoveryMode: 'reconcile',
+        },
+      },
+      refs: {
+        operationId: 'operation-write-reconcile',
+        toolCallId: 'provider-call-write-reconcile',
+      },
+    });
+    await runtimeStore.appendRuntimeEvent(session.id, sourceRunId, initial);
+    await runtimeStore.commitToolPrepared({
+      operationId: 'operation-write-reconcile',
+      journalEventId: 'journal-write-reconcile-prepared',
+      runtimeEvent: call,
+      dispatchRuntimeEvent: dispatch,
+      providerToolCallId: 'provider-call-write-reconcile',
+      toolName: 'Write',
+      canonicalArgsHash: 'sha256:write-reconcile',
+      recoveryMode: 'reconcile',
+      committedAt: 3,
+    });
+    await runtimeStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-terminal-write-reconcile',
+        invocationId: sourceInvocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 4,
+        status: 'failed',
+        actions: { endInvocation: true, stateDelta: { failureClass: 'app_restarted' } },
+      }),
+    );
+
+    try {
+      const firstPlanPromise = manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId,
+      });
+      await firstObservation;
+      const secondPlanPromise = manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId,
+      });
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      releaseFirstObservation();
+      const [plan, secondPlan] = await Promise.all([firstPlanPromise, secondPlanPromise]);
+
+      expect(plan.disposition).toBe('continue');
+      expect(secondPlan.disposition).toBe('continue');
+      expect(observations).toBe(1);
+      expect(maxActiveObservations).toBe(1);
+      expect(
+        (await runtimeStore.readRuntimeEvents(session.id, sourceRunId)).some(
+          (event) => event.actions?.stateDelta?.toolOutcomeOrigin === 'runtime_recovery',
+        ),
+      ).toBe(true);
+      expect(
+        (await runtimeStore.readToolJournal('operation-write-reconcile')).map(
+          (event) => event.state,
+        ),
+      ).toEqual(['prepared', 'reconcile_recorded', 'outcome_committed', 'recovery_decided']);
+      expect(lifecycleEvents).toEqual(['plan_approved', 'plan_approved']);
+    } finally {
+      runtimeStore.close();
+    }
+  });
+
+  test('does not redo an unsettled file mutation from a cancelled source run', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeStore = createSqliteRuntimeStore(':memory:');
+    let observations = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runtimeStore,
+      toolRecoveryStore: runtimeStore,
+      recoveryContracts: new ToolRecoveryContractRegistry([
+        {
+          toolName: 'Write',
+          contract: {
+            id: 'maka.tool.write.reconcile',
+            version: 1,
+            mode: 'reconcile_then_decide',
+            observe: async () => {
+              observations += 1;
+              return { status: 'missing' };
+            },
+            decide: () => ({
+              result: 'not_applied',
+              reasonCode: 'write_target_missing',
+              nextAction: 'retry_allowed',
+            }),
+          },
+        },
+      ]),
+      backends: new BackendRegistry(),
+      safeBoundaryResumeEnabled: true,
+      inspectContinuationSafety: async () => ({
+        workspaceIdentity: 'workspace-authoritative',
+        backgroundOperationsSettled: true,
+        availableToolNames: ['Write'],
+      }),
+      newId: nextId(),
+      now: nextNow(6_533),
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    const sourceRunId = 'source-run-cancelled-write';
+    const sourceTurnId = 'source-turn-cancelled-write';
+    const invocationId = 'source-invocation-cancelled-write';
+    await runStore.createRun(
+      makeRunHeader({
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        status: 'cancelled',
+        cwd: header.cwd,
+        workspaceIdentity: 'workspace-authoritative',
+        createdAt: 1,
+        updatedAt: 4,
+        completedAt: 4,
+        abortSource: 'renderer.stop_button',
+      }),
+    );
+    await runtimeStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-user-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 1,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'write notes.txt' },
+        actions: { runtimeProtocol: { toolBoundary: 't1_after_preflight_v1' } },
+      }),
+    );
+    await runtimeStore.commitToolPrepared({
+      operationId: 'operation-cancelled-write',
+      journalEventId: 'journal-cancelled-write-prepared',
+      runtimeEvent: runtimeEvent({
+        id: 'source-call-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 2,
+        role: 'model',
+        author: 'agent',
+        content: {
+          kind: 'function_call',
+          id: 'provider-call-cancelled-write',
+          name: 'Write',
+          args: { path: 'notes.txt', content: 'expected contents' },
+        },
+      }),
+      dispatchRuntimeEvent: runtimeEvent({
+        id: 'source-dispatch-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 3,
+        actions: {
+          toolDispatch: {
+            protocol: 't1_after_preflight_v1',
+            operationId: 'operation-cancelled-write',
+            providerToolCallId: 'provider-call-cancelled-write',
+            toolName: 'Write',
+            canonicalArgsHash: 'sha256:cancelled-write',
+            recoveryMode: 'reconcile',
+          },
+        },
+        refs: {
+          operationId: 'operation-cancelled-write',
+          toolCallId: 'provider-call-cancelled-write',
+        },
+      }),
+      providerToolCallId: 'provider-call-cancelled-write',
+      toolName: 'Write',
+      canonicalArgsHash: 'sha256:cancelled-write',
+      recoveryMode: 'reconcile',
+      committedAt: 3,
+    });
+    await runtimeStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-terminal-cancelled-write',
+        invocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 4,
+        status: 'aborted',
+        actions: {
+          endInvocation: true,
+          stateDelta: { abortSource: 'renderer.stop_button' },
+        },
+      }),
+    );
+
+    try {
+      const plan = await manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId,
+      });
+
+      expect(plan.disposition).toBe('park');
+      expect(plan.rejectionReasons).toContain('dangling_tool_state');
+      expect(observations).toBe(0);
+      expect(
+        (await runtimeStore.readToolJournal('operation-cancelled-write')).map(
+          (event) => event.state,
+        ),
+      ).toEqual(['prepared']);
+    } finally {
+      runtimeStore.close();
+    }
+  });
+
+  test('does not observe tool state when the authoritative workspace identity gate fails', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const runtimeStore = createSqliteRuntimeStore(':memory:');
+    let observations = 0;
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runtimeStore,
+      toolRecoveryStore: runtimeStore,
+      recoveryContracts: new ToolRecoveryContractRegistry([
+        {
+          toolName: 'Write',
+          contract: {
+            id: 'maka.tool.write.reconcile',
+            version: 1,
+            mode: 'reconcile_then_decide',
+            observe: async () => {
+              observations += 1;
+              return { status: 'missing' };
+            },
+            decide: () => ({
+              result: 'not_applied',
+              reasonCode: 'write_target_missing',
+              nextAction: 'retry_allowed',
+            }),
+          },
+        },
+      ]),
+      backends: new BackendRegistry(),
+      safeBoundaryResumeEnabled: true,
+      inspectContinuationSafety: async () => ({
+        workspaceIdentity: 'workspace-current',
+        backgroundOperationsSettled: true,
+        availableToolNames: ['Write'],
+      }),
+      newId: nextId(),
+      now: nextNow(6_534),
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    await runStore.createRun(
+      makeRunHeader({
+        runId: 'source-run-workspace-drift',
+        sessionId: session.id,
+        turnId: 'source-turn-workspace-drift',
+        status: 'failed',
+        cwd: header.cwd,
+        workspaceIdentity: 'workspace-source',
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2,
+        failureClass: 'app_restarted',
+      }),
+    );
+
+    try {
+      const plan = await manager.planAuthoritativeSafeBoundaryContinuation(session.id, {
+        sourceRunId: 'source-run-workspace-drift',
+      });
+
+      expect(plan.disposition).toBe('park');
+      expect(plan.rejectionReasons).toContain('workspace_identity_mismatch');
+      expect(observations).toBe(0);
+    } finally {
+      runtimeStore.close();
+    }
+  });
+
   test('keeps the authoritative continuation entry disabled unless the host enables it', async () => {
     const store = new MemorySessionStore();
     const backends = new BackendRegistry();
@@ -2420,7 +2841,7 @@ describe('SessionManager permission mode updates', () => {
     expect(runtimeEvents[2]?.status).toBe('completed');
   });
 
-  test('executes an approved continuation after a path move without another user message', async () => {
+  test('executes an approved continuation after a path move while omitting an interrupted model suffix', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const backends = new BackendRegistry();
@@ -2481,12 +2902,25 @@ describe('SessionManager permission mode updates', () => {
         content: { kind: 'text', text: 'continue safely' },
       },
       {
-        id: 'source-terminal',
+        id: 'source-interrupted-model-text',
         sessionId: session.id,
         invocationId: sourceInvocationId,
         runId: sourceRunId,
         turnId: sourceTurnId,
         ts: 2,
+        partial: false,
+        author: 'agent',
+        role: 'model',
+        content: { kind: 'text', text: 'I was about to continue.' },
+        refs: { providerEventId: 'interrupted-step' },
+      },
+      {
+        id: 'source-terminal',
+        sessionId: session.id,
+        invocationId: sourceInvocationId,
+        runId: sourceRunId,
+        turnId: sourceTurnId,
+        ts: 3,
         partial: false,
         author: 'system',
         role: 'system',
@@ -2516,6 +2950,11 @@ describe('SessionManager permission mode updates', () => {
     );
 
     expect(sessionEvents.map((event) => event.type)).toEqual(['text_complete', 'complete']);
+    expect(
+      backend?.sendInputs[0]?.runtimeContext?.some(
+        (event) => event.id === 'source-interrupted-model-text',
+      ),
+    ).toBe(false);
     const continuationRun = await runStore.readRun(session.id, plan.continuation.runId);
     expect(continuationRun.invocationId).toBe(plan.continuation.invocationId);
     expect(continuationRun.turnId).toBe(plan.continuation.turnId);
@@ -3309,6 +3748,110 @@ describe('SessionManager permission mode updates', () => {
     await expectRejects(
       collectSessionEvents(manager.resumeSafeBoundaryContinuation(plan.continuation)),
       /terminal/i,
+    );
+    expect(backendCalls).toBe(0);
+  });
+
+  test('rejects execution when a runtime fact is appended after continuation planning', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backendCalls = 0;
+    backends.register(
+      'fake',
+      (ctx) =>
+        new CountingFinalTextBackend(ctx, () => {
+          backendCalls += 1;
+        }),
+    );
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      inspectContinuationSafety: inspectStableContinuationSafety,
+      newId: nextId(),
+      now: nextNow(6_592),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    const header = await store.readHeader(session.id);
+    const sourceRunId = 'source-run-fact-race';
+    const sourceTurnId = 'source-turn-fact-race';
+    const sourceInvocationId = 'source-invocation-fact-race';
+    await seedRuntimeRun(
+      runStore,
+      makeRunHeader({
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        status: 'failed',
+        cwd: header.cwd,
+        createdAt: 1,
+        updatedAt: 2,
+        completedAt: 2,
+        failureClass: 'app_restarted',
+      }),
+      [
+        runtimeEvent({
+          id: 'source-user-fact-race',
+          invocationId: sourceInvocationId,
+          runId: sourceRunId,
+          sessionId: session.id,
+          turnId: sourceTurnId,
+          ts: 1,
+          role: 'user',
+          author: 'user',
+          content: { kind: 'text', text: 'continue safely' },
+        }),
+        runtimeEvent({
+          id: 'source-terminal-fact-race',
+          invocationId: sourceInvocationId,
+          runId: sourceRunId,
+          sessionId: session.id,
+          turnId: sourceTurnId,
+          ts: 2,
+          status: 'failed',
+          actions: { endInvocation: true, stateDelta: { failureClass: 'app_restarted' } },
+        }),
+      ],
+    );
+    const plan = await manager.planSafeBoundaryContinuation(session.id, {
+      sourceRunId,
+      currentCwd: header.cwd,
+      sourceWorkspaceIdentity: 'workspace-1',
+      currentWorkspaceIdentity: 'workspace-1',
+      backgroundOperationsSettled: true,
+      availableToolNames: [],
+    });
+    if (!plan.continuation) throw new Error('expected continuation');
+
+    await runStore.appendRuntimeEvent(
+      session.id,
+      sourceRunId,
+      runtimeEvent({
+        id: 'source-future-fact-race',
+        invocationId: sourceInvocationId,
+        runId: sourceRunId,
+        sessionId: session.id,
+        turnId: sourceTurnId,
+        ts: 3,
+        role: 'system',
+        author: 'system',
+        actions: {
+          runtimeFact: {
+            kind: 'maka.test.future_fact',
+            version: 1,
+            legacyProjection: 'invisible',
+            payload: {},
+          },
+        },
+      }),
+    );
+
+    await expectRejects(
+      collectSessionEvents(manager.resumeSafeBoundaryContinuation(plan.continuation)),
+      /high-water/i,
     );
     expect(backendCalls).toBe(0);
   });
@@ -5860,7 +6403,7 @@ describe('SessionManager permission mode updates', () => {
     ).toBe(false);
   });
 
-  test('getMessages includes continuation output without inlining child agent output', async () => {
+  test('getMessages includes continuation output and tolerates its unknown invisible facts', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
     const manager = makeManagerForReadCutover(store, runStore);
@@ -5946,6 +6489,24 @@ describe('SessionManager permission mode updates', () => {
           },
         }),
         runtimeEvent({
+          id: 'continuation-future-fact',
+          invocationId: 'continuation-invocation',
+          sessionId: session.id,
+          runId: 'continuation-run',
+          turnId: 'continuation-turn',
+          ts: 104,
+          role: 'system',
+          author: 'system',
+          actions: {
+            runtimeFact: {
+              kind: 'maka.test.future_fact',
+              version: 7,
+              legacyProjection: 'invisible',
+              payload: { checkpointId: 'checkpoint-1' },
+            },
+          },
+        }),
+        runtimeEvent({
           id: 'continuation-article',
           invocationId: 'continuation-invocation',
           sessionId: session.id,
@@ -6015,6 +6576,19 @@ describe('SessionManager permission mode updates', () => {
     expect(assistantTexts).toContain('the resumed article');
     expect(assistantTexts).not.toContain('private child output');
     expect(messages.some((message) => message.id === 'continuation-start')).toBe(false);
+    expect(messages.some((message) => message.id === 'continuation-future-fact')).toBe(false);
+
+    const view = await new RuntimeReadModel({
+      runStore,
+      runtimeEventStore: runStore,
+    }).getSessionView(session.id);
+    expect(
+      view.diagnostics.some(
+        (diagnostic) =>
+          diagnostic.code === 'unknown_runtime_fact' &&
+          diagnostic.eventId === 'continuation-future-fact',
+      ),
+    ).toBe(true);
   });
 
   test('getMessages includes in-flight projection cache rows for an active RuntimeEvent run', async () => {
@@ -14550,12 +15124,13 @@ class MemorySessionStore implements SessionStore {
   }
 }
 
-class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
+class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore, ContinuationAdmissionStore {
   listSessionRunsCalls = 0;
   readEventsCalls = 0;
   private headers = new Map<string, AgentRunHeader>();
   private events = new Map<string, AgentRunEvent[]>();
   private runtimeEvents = new Map<string, RuntimeEvent[]>();
+  private continuationAdmissions = new Map<string, ContinuationAdmission>();
   private runtimeEventAppendCount = 0;
 
   constructor(
@@ -14577,10 +15152,46 @@ class MemoryAgentRunStore implements AgentRunStore, RuntimeEventStore {
     } = {},
   ) {}
 
-  async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
-    if (this.options.failContinuationCreate && header.continuationSource) {
+  async admitContinuation(input: AdmitContinuationInput): Promise<AdmitContinuationResult> {
+    if (this.options.failContinuationCreate) {
       throw new Error('continuation claim create failed');
     }
+    const admissionKey = `${input.sessionId}:${input.sourceRunId}:${input.sourceRuntimeEventHighWater}`;
+    const existing = this.continuationAdmissions.get(admissionKey);
+    if (existing) {
+      return existing.sourceInvocationId === input.sourceInvocationId &&
+        existing.sourceTurnId === input.sourceTurnId
+        ? { kind: 'existing', admission: { ...existing } }
+        : { kind: 'conflict', admission: { ...existing } };
+    }
+    const admission: ContinuationAdmission = {
+      schemaVersion: 1,
+      sessionId: input.sessionId,
+      sourceInvocationId: input.sourceInvocationId,
+      sourceRunId: input.sourceRunId,
+      sourceTurnId: input.sourceTurnId,
+      sourceRuntimeEventHighWater: input.sourceRuntimeEventHighWater,
+      invocationId: input.proposedInvocationId,
+      runId: input.proposedRunId,
+      turnId: input.proposedTurnId,
+      admittedAt: input.admittedAt,
+    };
+    this.continuationAdmissions.set(admissionKey, admission);
+    return { kind: 'admitted', admission: { ...admission } };
+  }
+
+  async readContinuationAdmission(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined> {
+    const admission = this.continuationAdmissions.get(
+      `${sessionId}:${sourceRunId}:${sourceRuntimeEventHighWater}`,
+    );
+    return admission ? { ...admission } : undefined;
+  }
+
+  async createRun(header: AgentRunHeader): Promise<AgentRunHeader> {
     this.headers.set(key(header.sessionId, header.runId), { ...header });
     return { ...header };
   }

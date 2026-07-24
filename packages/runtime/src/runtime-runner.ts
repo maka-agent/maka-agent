@@ -420,7 +420,7 @@ function invocationContinuationMetadata(
 function assertRuntimeContinuationEnvelope(
   continuation: Omit<RuntimeContinuation, 'safetySnapshot'>,
 ): void {
-  const sourceRuntimeContext = continuation.sourceRuntimeContext ?? continuation.runtimeContext;
+  const sourceRuntimeContext = continuation.sourceRuntimeContext;
   if (continuation.sourceRuntimeEventHighWater < sourceRuntimeContext.length) {
     throw new Error('Runtime continuation high-water is behind its replay context');
   }

@@ -258,6 +258,19 @@ export interface RuntimeEventProtocolMarker {
 }
 
 /**
+ * Versioned, runtime-owned fact that intentionally has no legacy chat row.
+ *
+ * Readers may keep an unknown fact invisible so sessions remain readable, but
+ * recovery must not cross an unknown kind/version until it has a handler.
+ */
+export interface RuntimeFactEnvelope {
+  kind: string;
+  version: number;
+  legacyProjection: 'invisible';
+  payload: unknown;
+}
+
+/**
  * Control and side-effect intent carried alongside content. An event may
  * carry content, actions, both, or (rarely) neither — but a terminal
  * event without `actions.endInvocation` MUST assert a terminal `status`.
@@ -283,6 +296,8 @@ export interface RuntimeEventActions {
   toolDispatch?: RuntimeEventToolDispatch;
   /** Protocols that were actually active from the first event of this run. */
   runtimeProtocol?: RuntimeEventProtocolMarker;
+  /** Forward-compatible runtime fact with an explicitly invisible chat projection. */
+  runtimeFact?: RuntimeFactEnvelope;
 }
 
 // ============================================================================
@@ -409,7 +424,12 @@ const RUNTIME_ACTIONS_SHAPE = defineObjectShape<RuntimeEventActions>()(
     'tokenUsage',
     'toolDispatch',
     'runtimeProtocol',
+    'runtimeFact',
   ],
+);
+const RUNTIME_FACT_SHAPE = defineObjectShape<RuntimeFactEnvelope>()(
+  ['kind', 'version', 'legacyProjection', 'payload'],
+  [],
 );
 const RUNTIME_TOOL_DISPATCH_SHAPE = defineObjectShape<RuntimeEventToolDispatch>()(
   [
@@ -555,7 +575,22 @@ function isRuntimeEventActions(value: unknown): value is RuntimeEventActions {
     (value.endInvocation === undefined || typeof value.endInvocation === 'boolean') &&
     (value.tokenUsage === undefined || isRuntimeTokenUsage(value.tokenUsage)) &&
     (value.toolDispatch === undefined || isRuntimeToolDispatch(value.toolDispatch)) &&
-    (value.runtimeProtocol === undefined || isRuntimeProtocolMarker(value.runtimeProtocol))
+    (value.runtimeProtocol === undefined || isRuntimeProtocolMarker(value.runtimeProtocol)) &&
+    (value.runtimeFact === undefined || isRuntimeFactEnvelope(value.runtimeFact))
+  );
+}
+
+function isRuntimeFactEnvelope(value: unknown): value is RuntimeFactEnvelope {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, RUNTIME_FACT_SHAPE) &&
+    typeof value.kind === 'string' &&
+    value.kind.length > 0 &&
+    typeof value.version === 'number' &&
+    Number.isSafeInteger(value.version) &&
+    value.version >= 1 &&
+    value.legacyProjection === 'invisible' &&
+    Object.hasOwn(value, 'payload')
   );
 }
 

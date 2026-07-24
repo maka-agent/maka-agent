@@ -6,12 +6,20 @@ import {
   type RuntimeEventFunctionCallContent,
   type RuntimeEventFunctionResponseContent,
 } from '@maka/core/runtime-event';
-import { resolveRuntimeRecovery, type RuntimeRecoveryResolution } from './recovery-resolver.js';
+import type { ContinuationAdmission } from '@maka/core/agent-run';
+import {
+  resolveRuntimeRecovery,
+  type RecoveryReasonCode,
+  type RuntimeRecoveryResolution,
+} from './recovery-resolver.js';
+import type { ToolRecoveryContractRegistry } from './tool-recovery-contract.js';
+import type { PreparedFileMutationFact } from './tool-recovery-facts.js';
 
 export type ToolOperationStatus =
   | 'succeeded'
   | 'failed'
-  | 'indeterminate'
+  | 'reconcile_required'
+  | 'parked'
   | 'not_dispatched'
   | 'corruption';
 
@@ -19,10 +27,16 @@ export interface ToolOperation {
   toolCallId: string;
   toolName: string;
   args: unknown;
+  operationId?: string;
+  recoveryMode?: NonNullable<NonNullable<RuntimeEvent['actions']>['toolDispatch']>['recoveryMode'];
+  automaticActionAllowed: boolean;
   status: ToolOperationStatus;
   callRuntimeEventId: string;
   responseRuntimeEventId?: string;
   responseIsError?: boolean;
+  preparedFileMutation?: PreparedFileMutationFact;
+  recoveryReason: RecoveryReasonCode;
+  evidenceEventIds: readonly string[];
 }
 
 export type ResumePlanDisposition = 'safe_replay' | 'blocked';
@@ -39,7 +53,8 @@ export type RuntimeContinuationRevalidationCode =
   | 'workspace_identity_changed'
   | 'background_operation_started'
   | 'tool_catalog_changed'
-  | 'workspace_checkpoint_changed';
+  | 'workspace_checkpoint_changed'
+  | 'tool_recovery_decision_changed';
 
 export class RuntimeContinuationRevalidationError extends Error {
   readonly code: RuntimeContinuationRevalidationCode;
@@ -69,6 +84,7 @@ export type ResumePlanDiagnosticCode =
   | 'continuation_identity_reused'
   | 'provider_resume_head_unsupported'
   | 'provider_resume_boundary_unsupported'
+  | 'interrupted_model_suffix_omitted'
   | 'workspace_ref_missing'
   | 'checkpoint_restore_failed'
   | 'source_run_unreadable'
@@ -78,8 +94,15 @@ export type ResumePlanDiagnosticCode =
   | 'resume_feature_disabled'
   | 'resume_candidate_missing'
   | 'tool_not_dispatched'
-  | 'tool_recovery_corruption'
-  | 'protocol_marker_invalid';
+  | 'tool_recovery_required'
+  | 'tool_recovery_contract_missing'
+  | 'tool_recovery_observation_failed'
+  | 'tool_recovery_conflict'
+  | 'tool_outcome_indeterminate'
+  | 'tool_fact_corruption'
+  | 'restricted_verification_violation'
+  | 'protocol_marker_invalid'
+  | 'runtime_fact_unsupported';
 
 export type ResumeRejectionReason =
   | 'runtime_offset_mismatch'
@@ -103,7 +126,8 @@ export type ResumeRejectionReason =
   | 'workspace_identity_missing'
   | 'safety_observation_unavailable'
   | 'resume_feature_disabled'
-  | 'resume_candidate_missing';
+  | 'resume_candidate_missing'
+  | 'runtime_fact_unsupported';
 
 export interface ResumePlanDiagnostic {
   code: ResumePlanDiagnosticCode;
@@ -128,6 +152,7 @@ export interface ResumePlan {
 
 export interface BuildResumePlanOptions {
   expectedRuntimeEventHighWater?: number;
+  recoveryContracts?: ToolRecoveryContractRegistry;
 }
 
 export type RuntimeResumeFailpointId =
@@ -220,6 +245,8 @@ export interface SafeBoundaryContinuationFacts {
   currentWorkspaceIdentity: string;
   backgroundOperationsSettled: boolean;
   availableToolNames: readonly string[];
+  /** Shared capability registry used by planning and execution revalidation. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   continuationIdentity: ContinuationIdentity;
   /** User-anchored replay prefix inherited from continuation ancestors. */
   priorRuntimeContext?: readonly RuntimeEvent[];
@@ -240,8 +267,8 @@ export interface RuntimeContinuation {
   sourceRunId: string;
   sourceTurnId: string;
   sourceRuntimeEventHighWater: number;
-  /** Replay events owned by the immediate source run. */
-  sourceRuntimeContext?: RuntimeEvent[];
+  /** Replay events owned by the immediate source run; always present. */
+  sourceRuntimeContext: RuntimeEvent[];
   /** Full user-anchored provider history, including continuation ancestors. */
   runtimeContext: RuntimeEvent[];
   safetySnapshot: RuntimeContinuationSafetySnapshot;
@@ -274,7 +301,18 @@ export interface SafeBoundaryContinuationPlan {
   disposition: 'continue' | 'park';
   rejectionReasons: ResumeRejectionReason[];
   diagnostics: ResumePlanDiagnostic[];
+  /** Initial pure recovery projection, reusable by the authoritative recovery coordinator. */
+  recoveryProjection?: ResumePlan;
+  /** Compact host-facing summary; canonical evidence remains in RuntimeEvent facts. */
+  recoveredOperations?: RecoveredOperationSummary[];
   continuation?: RuntimeContinuation;
+}
+
+export interface RecoveredOperationSummary {
+  operationId: string;
+  toolCallId: string;
+  toolName: string;
+  nextAction: 'synthesize_response' | 'retry_allowed' | 'reattach' | 'park';
 }
 
 export interface RuntimeContinuationPlannerInput {
@@ -290,6 +328,8 @@ export interface RuntimeContinuationPlannerInput {
 }
 
 export interface RuntimeContinuationPlannerDeps {
+  /** Must be the same registry supplied to execution revalidation. */
+  recoveryContracts?: ToolRecoveryContractRegistry;
   readSourceRun(
     sessionId: string,
     runId: string,
@@ -309,6 +349,11 @@ export interface RuntimeContinuationPlannerDeps {
     sourceRunId: string,
     sourceRuntimeEventHighWater: number,
   ): Promise<{ runId: string } | undefined>;
+  readContinuationAdmission?(
+    sessionId: string,
+    sourceRunId: string,
+    sourceRuntimeEventHighWater: number,
+  ): Promise<ContinuationAdmission | undefined>;
   newId(): string;
 }
 
@@ -366,6 +411,24 @@ export class RuntimeContinuationPlanner {
         { continuationRunId: existingContinuation.runId },
       );
     }
+    const existingAdmission = await this.deps.readContinuationAdmission?.(
+      input.sessionId,
+      input.sourceRunId,
+      events.length,
+    );
+    const sourceIdentity = events[0];
+    if (
+      existingAdmission &&
+      (!sourceIdentity ||
+        existingAdmission.sourceInvocationId !== sourceIdentity.invocationId ||
+        existingAdmission.sourceTurnId !== sourceIdentity.turnId)
+    ) {
+      return parkedPlan(
+        'runtime_identity_mismatch',
+        'continuation admission does not match the committed source identity',
+        { continuationRunId: existingAdmission.runId },
+      );
+    }
 
     return buildSafeBoundaryContinuationPlan(events, {
       ledgerReadable: true,
@@ -376,10 +439,11 @@ export class RuntimeContinuationPlanner {
       currentWorkspaceIdentity: input.currentWorkspaceIdentity,
       backgroundOperationsSettled: input.backgroundOperationsSettled,
       availableToolNames: input.availableToolNames,
+      ...(this.deps.recoveryContracts ? { recoveryContracts: this.deps.recoveryContracts } : {}),
       continuationIdentity: {
-        invocationId: this.deps.newId(),
-        runId: this.deps.newId(),
-        turnId: this.deps.newId(),
+        invocationId: existingAdmission?.invocationId ?? this.deps.newId(),
+        runId: existingAdmission?.runId ?? this.deps.newId(),
+        turnId: existingAdmission?.turnId ?? this.deps.newId(),
       },
       ...(priorRuntimeContext.length > 0 ? { priorRuntimeContext } : {}),
       ...(input.expectedRuntimeEventHighWater !== undefined
@@ -423,7 +487,7 @@ export class RuntimeContinuationPlanner {
       ) {
         throw new Error('continuation ancestor identity mismatch');
       }
-      segments.unshift(buildResumeReplayRuntimeEvents(prefix));
+      segments.unshift(buildContinuationReplaySegment(prefix).runtimeEvents);
       source = run.continuationSource;
     }
     return segments.flat();
@@ -450,12 +514,15 @@ function hasConsistentTerminalBoundary(
   return eventStatus === runStatus;
 }
 
-export const INDETERMINATE_TOOL_RESULT_DIRECTIVE = [
+export const UNSETTLED_TOOL_RESULT_DIRECTIVE = [
   'Tool execution was interrupted before a matching committed tool result was found.',
   'The side effects may or may not have occurred.',
   'Do not retry the tool call immediately.',
   'Use read-only inspection tools to verify the current state before deciding the next step.',
 ].join(' ');
+
+/** @deprecated Use UNSETTLED_TOOL_RESULT_DIRECTIVE. */
+export const INDETERMINATE_TOOL_RESULT_DIRECTIVE = UNSETTLED_TOOL_RESULT_DIRECTIVE;
 
 export function projectToolOperationsFromRuntimeEvents(
   events: readonly RuntimeEvent[],
@@ -472,30 +539,46 @@ function projectToolOperations(
       event.content?.kind === 'function_call' ? [[event.id, event.content] as const] : [],
     ),
   );
+  const dispatchesByEventId = new Map(
+    events.flatMap((event) =>
+      event.actions?.toolDispatch ? [[event.id, event.actions.toolDispatch] as const] : [],
+    ),
+  );
   return recovery.decisions.flatMap((decision) => {
     if (!decision.callRuntimeEventId) return [];
     const call = callsByEventId.get(decision.callRuntimeEventId);
     if (!call) return [];
+    const dispatch = decision.dispatchRuntimeEventId
+      ? dispatchesByEventId.get(decision.dispatchRuntimeEventId)
+      : undefined;
     const status: ToolOperationStatus =
-      decision.status === 'completed'
+      decision.disposition === 'completed'
         ? decision.responseIsError
           ? 'failed'
           : 'succeeded'
-        : decision.status === 'definitely_not_dispatched'
+        : decision.disposition === 'definitely_not_dispatched'
           ? 'not_dispatched'
-          : decision.status;
+          : decision.disposition;
     return [
       {
         toolCallId: decision.toolCallId,
         toolName: call.name,
         args: call.args,
+        ...(decision.operationId ? { operationId: decision.operationId } : {}),
+        ...(dispatch ? { recoveryMode: dispatch.recoveryMode } : {}),
+        automaticActionAllowed: decision.automaticActionAllowed,
         status,
+        recoveryReason: decision.reasonCode,
+        evidenceEventIds: decision.evidenceEventIds,
         callRuntimeEventId: decision.callRuntimeEventId,
         ...(decision.responseRuntimeEventId
           ? { responseRuntimeEventId: decision.responseRuntimeEventId }
           : {}),
         ...(decision.responseIsError !== undefined
           ? { responseIsError: decision.responseIsError }
+          : {}),
+        ...(decision.preparedFileMutation
+          ? { preparedFileMutation: decision.preparedFileMutation }
           : {}),
       },
     ];
@@ -506,12 +589,14 @@ export function buildResumePlanFromRuntimeEvents(
   events: readonly RuntimeEvent[],
   options: BuildResumePlanOptions = {},
 ): ResumePlan {
-  const recovery = resolveRuntimeRecovery(events);
+  const recovery = resolveRuntimeRecovery(events, { contracts: options.recoveryContracts });
   const operations = projectToolOperations(events, recovery);
   const sourceRuntimeEventHighWater = events.length;
   const diagnostics = collectResumeDiagnostics(events, operations, options, recovery);
   const rejectionReasons = deriveRejectionReasons(diagnostics);
-  const requiresVerification = operations.some((operation) => operation.status === 'indeterminate');
+  const requiresVerification = operations.some(
+    (operation) => operation.status === 'parked' || operation.status === 'reconcile_required',
+  );
   const disposition: ResumePlanDisposition =
     rejectionReasons.length === 0 && !requiresVerification ? 'safe_replay' : 'blocked';
 
@@ -522,7 +607,7 @@ export function buildResumePlanFromRuntimeEvents(
     rejectionReasons,
     requiresVerification,
     sourceRuntimeEventHighWater,
-    ...(requiresVerification ? { directive: INDETERMINATE_TOOL_RESULT_DIRECTIVE } : {}),
+    ...(requiresVerification ? { directive: UNSETTLED_TOOL_RESULT_DIRECTIVE } : {}),
     runtimeEvents: [...events],
     replayRuntimeEvents: buildResumeReplayRuntimeEvents(events),
   };
@@ -561,6 +646,7 @@ export function buildSafeBoundaryContinuationPlan(
     facts.workspaceCheckpoint?.runtimeEventHighWater ?? facts.expectedRuntimeEventHighWater;
   const replayPlan = buildResumePlanFromRuntimeEvents(events, {
     ...(expectedRuntimeEventHighWater !== undefined ? { expectedRuntimeEventHighWater } : {}),
+    ...(facts.recoveryContracts ? { recoveryContracts: facts.recoveryContracts } : {}),
   });
   const phaseOneDiagnostics = collectPendingPermissionDiagnostics(events);
   const phaseOneRejectionReasons: ResumeRejectionReason[] = [];
@@ -655,10 +741,18 @@ export function buildSafeBoundaryContinuationPlan(
       phaseOneRejectionReasons.push('checkpoint_restore_failed');
     }
   }
-  const modelRuntimeContext = [
-    ...(facts.priorRuntimeContext ?? []),
-    ...replayPlan.replayRuntimeEvents,
-  ];
+  const interruptedSuffix = buildContinuationReplaySegment(events);
+  const sourceReplayRuntimeEvents = interruptedSuffix.runtimeEvents;
+  const modelRuntimeContext = [...(facts.priorRuntimeContext ?? []), ...sourceReplayRuntimeEvents];
+  if (interruptedSuffix.omittedEventIds.length > 0) {
+    phaseOneDiagnostics.push({
+      code: 'interrupted_model_suffix_omitted',
+      message:
+        'interrupted model output after the last stable user/tool boundary was omitted from continuation replay',
+      eventId: interruptedSuffix.omittedEventIds[0],
+      detail: { eventIds: interruptedSuffix.omittedEventIds },
+    });
+  }
   const availableToolNames = new Set(facts.availableToolNames);
   const unavailableToolNames = [
     ...new Set(
@@ -709,6 +803,7 @@ export function buildSafeBoundaryContinuationPlan(
       disposition: 'park',
       rejectionReasons: [...replayPlan.rejectionReasons, ...phaseOneRejectionReasons],
       diagnostics: [...replayPlan.diagnostics, ...phaseOneDiagnostics],
+      recoveryProjection: replayPlan,
     };
   }
 
@@ -716,6 +811,7 @@ export function buildSafeBoundaryContinuationPlan(
     disposition: 'continue',
     rejectionReasons: [],
     diagnostics: phaseOneDiagnostics,
+    recoveryProjection: replayPlan,
     continuation: {
       sessionId: source.sessionId,
       ...facts.continuationIdentity,
@@ -723,9 +819,7 @@ export function buildSafeBoundaryContinuationPlan(
       sourceRunId: source.runId,
       sourceTurnId: source.turnId,
       sourceRuntimeEventHighWater: replayPlan.sourceRuntimeEventHighWater,
-      ...(facts.priorRuntimeContext?.length
-        ? { sourceRuntimeContext: replayPlan.replayRuntimeEvents }
-        : {}),
+      sourceRuntimeContext: sourceReplayRuntimeEvents,
       runtimeContext: modelRuntimeContext,
       safetySnapshot: {
         workspaceIdentity: facts.currentWorkspaceIdentity,
@@ -742,6 +836,56 @@ export function buildSafeBoundaryContinuationPlan(
       },
     },
   };
+}
+
+/**
+ * Rolls only the provider replay view back to the latest durable user/tool boundary.
+ * RuntimeEvents and their high-water remain untouched. This deliberately does not
+ * reproduce provider step grouping: every model-visible suffix event is omitted as
+ * one unit, leaving the existing backend materializer as the sole step authority.
+ */
+export function buildContinuationReplayRuntimeEvents(events: readonly RuntimeEvent[]): {
+  runtimeEvents: RuntimeEvent[];
+  omittedEventIds: string[];
+} {
+  let stableBoundaryIndex = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]!;
+    if (!runtimeEventHasModelVisibleContent(event)) continue;
+    if (event.role === 'user' || event.role === 'tool') {
+      stableBoundaryIndex = index;
+      break;
+    }
+    if (event.role !== 'model') {
+      return { runtimeEvents: [...events], omittedEventIds: [] };
+    }
+  }
+  if (stableBoundaryIndex < 0) {
+    return { runtimeEvents: [...events], omittedEventIds: [] };
+  }
+
+  const omittedEventIds: string[] = [];
+  const runtimeEvents = events.filter((event, index) => {
+    const omitted =
+      index > stableBoundaryIndex &&
+      event.role === 'model' &&
+      runtimeEventHasModelVisibleContent(event);
+    if (omitted) omittedEventIds.push(event.id);
+    return !omitted;
+  });
+  return { runtimeEvents, omittedEventIds };
+}
+
+/**
+ * Applies the complete provider continuation policy to one immutable Run
+ * segment. Immediate sources and every ancestor must use this same
+ * materializer so a suffix omitted by one generation cannot reappear later.
+ */
+function buildContinuationReplaySegment(events: readonly RuntimeEvent[]): {
+  runtimeEvents: RuntimeEvent[];
+  omittedEventIds: string[];
+} {
+  return buildContinuationReplayRuntimeEvents(buildResumeReplayRuntimeEvents(events));
 }
 
 function collectPendingPermissionDiagnostics(
@@ -788,6 +932,27 @@ function parkedPlan(
   };
 }
 
+function recoveryDiagnosticCode(
+  reasonCode: RecoveryReasonCode,
+): Extract<
+  ResumePlanDiagnosticCode,
+  | 'tool_recovery_required'
+  | 'tool_recovery_contract_missing'
+  | 'tool_recovery_conflict'
+  | 'tool_outcome_indeterminate'
+> {
+  switch (reasonCode) {
+    case 'recovery_contract_unavailable':
+      return 'tool_recovery_contract_missing';
+    case 'recovery_contract_mismatch':
+      return 'tool_recovery_conflict';
+    case 'legacy_dispatch_unknown':
+      return 'tool_outcome_indeterminate';
+    default:
+      return 'tool_recovery_required';
+  }
+}
+
 function collectResumeDiagnostics(
   events: readonly RuntimeEvent[],
   operations: readonly ToolOperation[],
@@ -811,13 +976,23 @@ function collectResumeDiagnostics(
   }
 
   for (const operation of operations) {
-    if (operation.status === 'indeterminate') {
+    if (operation.status === 'parked' || operation.status === 'reconcile_required') {
       diagnostics.push({
-        code: 'pending_tool_result',
-        message: 'function_call has no matching committed function_response',
+        code:
+          operation.status === 'parked'
+            ? recoveryDiagnosticCode(operation.recoveryReason)
+            : 'tool_recovery_required',
+        message:
+          operation.status === 'parked'
+            ? `tool recovery parked: ${operation.recoveryReason}`
+            : 'tool recovery requires reconciliation before continuation',
         eventId: operation.callRuntimeEventId,
         toolCallId: operation.toolCallId,
         toolName: operation.toolName,
+        detail: {
+          reasonCode: operation.recoveryReason,
+          evidenceEventIds: operation.evidenceEventIds,
+        },
       });
     } else if (operation.status === 'not_dispatched') {
       diagnostics.push({
@@ -829,7 +1004,7 @@ function collectResumeDiagnostics(
       });
     } else if (operation.status === 'corruption') {
       diagnostics.push({
-        code: 'tool_recovery_corruption',
+        code: 'tool_fact_corruption',
         message: 'tool recovery facts conflict',
         eventId: operation.callRuntimeEventId,
         toolCallId: operation.toolCallId,
@@ -839,23 +1014,45 @@ function collectResumeDiagnostics(
   }
 
   for (const issue of recovery.issues) {
-    diagnostics.push({
-      code: 'protocol_marker_invalid',
-      message: 'runtime protocol marker is only valid on the first canonical event',
-      eventId: issue.eventId,
-    });
+    switch (issue.code) {
+      case 'runtime_fact_unsupported':
+        diagnostics.push({
+          code: 'runtime_fact_unsupported',
+          message: `runtime fact ${issue.kind}@${issue.version} is not supported by this recovery runtime`,
+          eventId: issue.eventId,
+          detail: { kind: issue.kind, version: issue.version },
+        });
+        break;
+      case 'protocol_marker_invalid':
+        diagnostics.push({
+          code: 'protocol_marker_invalid',
+          message: 'runtime protocol marker is only valid on the first canonical event',
+          eventId: issue.eventId,
+        });
+        break;
+      case 'recovery_fact_corruption':
+        diagnostics.push({
+          code: 'tool_fact_corruption',
+          message: `canonical tool recovery fact is corrupt: ${issue.reason}`,
+          eventId: issue.eventId,
+          detail: { reason: issue.reason },
+        });
+        break;
+      default:
+        assertNever(issue);
+    }
   }
 
   for (const decision of recovery.decisions) {
     if (
-      decision.status !== 'corruption' ||
+      decision.disposition !== 'corruption' ||
       decision.callRuntimeEventId ||
-      decision.reason === 'orphan_response'
+      decision.reasonCode === 'orphan_response'
     )
       continue;
     diagnostics.push({
-      code: 'tool_recovery_corruption',
-      message: `tool recovery fact is corrupt: ${decision.reason}`,
+      code: 'tool_fact_corruption',
+      message: `tool recovery fact is corrupt: ${decision.reasonCode}`,
       eventId: decision.dispatchRuntimeEventId ?? decision.responseRuntimeEventId,
       toolCallId: decision.toolCallId,
       ...(decision.toolName ? { toolName: decision.toolName } : {}),
@@ -895,6 +1092,10 @@ function collectResumeDiagnostics(
   return diagnostics;
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled recovery issue: ${JSON.stringify(value)}`);
+}
+
 function deriveRejectionReasons(
   diagnostics: readonly ResumePlanDiagnostic[],
 ): ResumeRejectionReason[] {
@@ -904,9 +1105,18 @@ function deriveRejectionReasons(
       case 'runtime_offset_mismatch':
         reasons.add('runtime_offset_mismatch');
         break;
+      case 'runtime_fact_unsupported':
+        reasons.add('runtime_fact_unsupported');
+        break;
       case 'pending_tool_result':
+      case 'tool_recovery_required':
+      case 'tool_recovery_contract_missing':
+      case 'tool_recovery_observation_failed':
+      case 'tool_recovery_conflict':
+      case 'tool_outcome_indeterminate':
+      case 'tool_fact_corruption':
+      case 'restricted_verification_violation':
       case 'tool_not_dispatched':
-      case 'tool_recovery_corruption':
       case 'protocol_marker_invalid':
       case 'unmatched_tool_result':
       case 'tool_name_mismatch':

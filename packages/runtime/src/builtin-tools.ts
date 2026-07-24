@@ -15,8 +15,14 @@ import {
   compilePermissionProfile,
   type StorageRef,
   type PermissionProfile,
+  type RuntimeFactEnvelope,
 } from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
+import {
+  EDIT_FILE_TRANSFORM,
+  WRITE_FILE_TRANSFORM,
+  fileMutationArgsHash,
+} from './file-mutation-transform.js';
 import {
   buildManagedBashTool,
   buildStopBackgroundTaskTool,
@@ -43,7 +49,12 @@ import {
 // builtin-tools directly.
 import type { MakaTool, MakaToolContext } from './tool-runtime.js';
 export type { MakaTool, MakaToolContext };
-import { withFileWriteLock } from './file-write-lock.js';
+import { acquireFileWriteLock, withFileWriteLock } from './file-write-lock.js';
+import type { PreparedFileMutationCarrier } from './local-file-checkpoint-carrier.js';
+import {
+  PREPARED_FILE_MUTATION_FACT_KIND,
+  type PreparedFileMutationFact,
+} from './tool-recovery-facts.js';
 import type { SandboxManager } from './sandbox/sandbox-manager.js';
 import { SandboxCommandError } from './sandbox/errors.js';
 import { linuxExecutableRoots } from './sandbox/linux-sandbox.js';
@@ -57,6 +68,7 @@ import {
   type AdditionalPermissionPlanResult,
 } from './additional-permissions.js';
 import type { FilesystemWorkerClient } from './filesystem-worker/client.js';
+import { applyPreparedFileThroughWorker } from './worker-backed-file-checkpoint-carrier.js';
 import {
   assertSandboxEscalationGrantForExecution,
   planDeclaredBashSandboxEscalation,
@@ -83,6 +95,8 @@ export interface BuildBuiltinToolsOptions {
   enableBashAdditionalPermissions?: boolean;
   /** Sandboxed worker used for all local filesystem tools. */
   filesystemWorker?: Pick<FilesystemWorkerClient, 'execute'>;
+  /** Enables checkpoint-backed Write/Edit execution on durable SQLite hosts. */
+  fileMutationCheckpointCarrier?: PreparedFileMutationCarrier;
   /** Enable inferred one-call path expansion for filesystem tools. */
   enableFileToolAdditionalPermissions?: boolean;
   /** Test/embedding override. Production callers use the current process platform. */
@@ -352,6 +366,73 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
             planAdditionalPermissions: filePermissionPlanner('Write', (args) => args.path),
           }
         : {}),
+      ...(options.fileMutationCheckpointCarrier
+        ? {
+            recoveryMode: 'reconcile' as const,
+            prepareDurableExecution: async ({ path, content }, context) => {
+              const canonicalCwd = options.filesystemWorker
+                ? canonicalExistingPath(context.cwd)
+                : context.cwd;
+              if (
+                options.fileMutationCheckpointCarrier!.supports &&
+                !(await options.fileMutationCheckpointCarrier!.supports(canonicalCwd, path))
+              ) {
+                return undefined;
+              }
+              const key = options.filesystemWorker
+                ? await fileToolWriteLockKey(canonicalCwd, path)
+                : (await executor.writeLockKey({ cwd: canonicalCwd, path })).key;
+              const lease = await acquireFileWriteLock(key);
+              try {
+                const expectedContent = Buffer.from(content, 'utf8');
+                const fact = await options.fileMutationCheckpointCarrier!.prepare({
+                  operationId: context.operationId,
+                  workspaceRoot: canonicalCwd,
+                  targetPath: path,
+                  expectedContent,
+                  transform: {
+                    ...WRITE_FILE_TRANSFORM,
+                    argsHash: fileMutationArgsHash({ path, content }),
+                  },
+                });
+                return {
+                  runtimeFacts: [preparedFileMutationEnvelope(fact)],
+                  execute: async () => {
+                    if (options.filesystemWorker) {
+                      await applyPreparedFileThroughWorker(
+                        options.filesystemWorker,
+                        fact,
+                        expectedContent,
+                        {
+                          cwd: canonicalCwd,
+                          mode: context.permissionMode ?? 'ask',
+                          ...(options.permissionProfile
+                            ? { permissionProfile: options.permissionProfile }
+                            : {}),
+                          ...(context.permissionContext?.additionalGrant
+                            ? { additionalGrant: context.permissionContext.additionalGrant }
+                            : {}),
+                          ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+                        },
+                      );
+                    } else {
+                      await options.fileMutationCheckpointCarrier!.apply(fact, expectedContent);
+                    }
+                    return {
+                      ok: true as const,
+                      path: fact.canonicalPath,
+                      bytes: fact.expectedAfter.byteLength,
+                    };
+                  },
+                  release: () => lease.release(),
+                };
+              } catch (error) {
+                lease.release();
+                throw error;
+              }
+            },
+          }
+        : {}),
       impl: async ({ path, content }, ctx) => {
         const { cwd } = ctx;
         const canonicalCwd = options.filesystemWorker ? canonicalExistingPath(cwd) : cwd;
@@ -404,6 +485,92 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       ...(filePermissionPlanner
         ? {
             planAdditionalPermissions: filePermissionPlanner('Edit', (args) => args.path),
+          }
+        : {}),
+      ...(options.fileMutationCheckpointCarrier
+        ? {
+            recoveryMode: 'reconcile' as const,
+            prepareDurableExecution: async ({ path, old_string, new_string }, context) => {
+              const canonicalCwd = options.filesystemWorker
+                ? canonicalExistingPath(context.cwd)
+                : context.cwd;
+              if (
+                options.fileMutationCheckpointCarrier!.supports &&
+                !(await options.fileMutationCheckpointCarrier!.supports(canonicalCwd, path))
+              ) {
+                return undefined;
+              }
+              const key = options.filesystemWorker
+                ? await fileToolWriteLockKey(canonicalCwd, path)
+                : (await executor.writeLockKey({ cwd: canonicalCwd, path })).key;
+              const lease = await acquireFileWriteLock(key);
+              let editResult: ReturnType<typeof computeEditedSource> | undefined;
+              let expectedContent: Buffer | undefined;
+              try {
+                const fact = await options.fileMutationCheckpointCarrier!.prepare({
+                  operationId: context.operationId,
+                  workspaceRoot: canonicalCwd,
+                  targetPath: path,
+                  deriveExpectedContent: (beforeContent) => {
+                    if (!beforeContent) throw new Error(`Edit target does not exist: ${path}`);
+                    editResult = computeEditedSource(
+                      Buffer.from(beforeContent).toString('utf8'),
+                      old_string,
+                      new_string,
+                      path,
+                    );
+                    expectedContent = Buffer.from(editResult.content, 'utf8');
+                    return expectedContent;
+                  },
+                  transform: {
+                    ...EDIT_FILE_TRANSFORM,
+                    argsHash: fileMutationArgsHash({ path, old_string, new_string }),
+                  },
+                });
+                if (!editResult || !expectedContent) {
+                  throw new Error('Edit checkpoint did not derive an after image');
+                }
+                const result = editResult;
+                const preparedContent = expectedContent;
+                return {
+                  runtimeFacts: [preparedFileMutationEnvelope(fact)],
+                  execute: async () => {
+                    if (options.filesystemWorker) {
+                      await applyPreparedFileThroughWorker(
+                        options.filesystemWorker,
+                        fact,
+                        preparedContent,
+                        {
+                          cwd: canonicalCwd,
+                          mode: context.permissionMode ?? 'ask',
+                          ...(options.permissionProfile
+                            ? { permissionProfile: options.permissionProfile }
+                            : {}),
+                          ...(context.permissionContext?.additionalGrant
+                            ? { additionalGrant: context.permissionContext.additionalGrant }
+                            : {}),
+                          ...(context.abortSignal ? { abortSignal: context.abortSignal } : {}),
+                        },
+                      );
+                    } else {
+                      await options.fileMutationCheckpointCarrier!.apply(fact, preparedContent);
+                    }
+                    return {
+                      ok: true as const,
+                      path: fact.canonicalPath,
+                      replacements: 1 as const,
+                      matchedVia: result.matchedVia,
+                      startLine: result.startLine,
+                      endLine: result.endLine,
+                    };
+                  },
+                  release: () => lease.release(),
+                };
+              } catch (error) {
+                lease.release();
+                throw error;
+              }
+            },
           }
         : {}),
       impl: async ({ path, old_string, new_string }, ctx) => {
@@ -1130,4 +1297,13 @@ function sortKeysDeep(value: unknown): unknown {
     );
   }
   return value;
+}
+
+function preparedFileMutationEnvelope(fact: PreparedFileMutationFact): RuntimeFactEnvelope {
+  return {
+    kind: PREPARED_FILE_MUTATION_FACT_KIND,
+    version: 1,
+    legacyProjection: 'invisible',
+    payload: fact,
+  };
 }

@@ -41,6 +41,7 @@ export type RunTraceEventType =
   | 'tool_started'
   | 'tool_completed'
   | 'tool_failed'
+  | 'tool_unsettled'
   | 'skill_catalog_built'
   | 'skill_searched'
   | 'skill_loaded'

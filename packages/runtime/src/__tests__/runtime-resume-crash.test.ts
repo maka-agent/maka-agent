@@ -241,7 +241,7 @@ function assertResumePlanForPrefix(
 ): void {
   if (prefix === 'after_function_call') {
     assert.equal(plan.disposition, 'blocked');
-    assert.equal(plan.operations[0]?.status, 'indeterminate');
+    assert.equal(plan.operations[0]?.status, 'parked');
     assert.deepEqual(plan.rejectionReasons, ['dangling_tool_state']);
     assert.deepEqual(
       plan.replayRuntimeEvents.map((event) => event.id),

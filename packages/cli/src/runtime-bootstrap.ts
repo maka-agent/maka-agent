@@ -22,6 +22,9 @@ import {
   createProviderRequestCaptureRecorder,
   createFilesystemWorkerLaunchSpecProvider,
   createLocalContinuationSafetyInspector,
+  createPreparedWriteEditRecoveryContractRegistry,
+  LocalFileCheckpointCarrier,
+  selectPreparedFileMutationCarrier,
   FilesystemWorkerClient,
   buildDefaultContextBudgetPolicy,
   buildSkillAgentTool,
@@ -70,7 +73,11 @@ import {
   type ForeignSessionStore,
   persistProviderRequestCaptureArtifact,
 } from '@maka/storage';
-import { resolveStorageRoot } from '@maka/storage/root-authority';
+import {
+  resolveStorageRoot,
+  tryAcquireInteractiveRootOwner,
+  type InteractiveRootOwner,
+} from '@maka/storage/root-authority';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import type { ToolPermissionRule } from '@maka/core/permission';
 import { fetchProviderModels } from '@maka/runtime';
@@ -174,7 +181,28 @@ export function isMakaClaudeSubscriptionCloakEnabled(
 export async function createMakaCliRuntimeContext(
   input: CreateMakaCliRuntimeContextInput,
 ): Promise<MakaCliRuntimeContext> {
-  await resolveStorageRoot({ path: input.workspaceRoot, kind: 'interactive' });
+  const storageRootCapability = await resolveStorageRoot({
+    path: input.workspaceRoot,
+    kind: 'interactive',
+  });
+  const storageRootOwner = await tryAcquireInteractiveRootOwner(storageRootCapability);
+  if (!storageRootOwner) {
+    throw new Error(
+      `Maka workspace is already open by another writer: ${storageRootCapability.canonicalPath}`,
+    );
+  }
+  try {
+    return await createMakaCliRuntimeContextWithOwner(input, storageRootOwner);
+  } catch (error) {
+    await storageRootOwner.close();
+    throw error;
+  }
+}
+
+async function createMakaCliRuntimeContextWithOwner(
+  input: CreateMakaCliRuntimeContextInput,
+  storageRootOwner: InteractiveRootOwner,
+): Promise<MakaCliRuntimeContext> {
   const store = createSessionStore(input.workspaceRoot);
   const runStore = createAgentRunStore(input.workspaceRoot);
   const runtimePersistence = await openRuntimeEventPersistence({
@@ -182,6 +210,9 @@ export async function createMakaCliRuntimeContext(
     sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
   });
   const runtimeEventStore = runtimePersistence.runtimeEventStore;
+  const localFileMutationCheckpointCarrier = runtimePersistence.runtimeCommitStore
+    ? new LocalFileCheckpointCarrier()
+    : undefined;
   const shellRunStore = createShellRunStore(input.workspaceRoot);
   const artifactStore = createArtifactStore(input.workspaceRoot);
   const connectionStore = createConnectionStore(input.workspaceRoot);
@@ -240,6 +271,19 @@ export async function createMakaCliRuntimeContext(
           getLaunchSpec: filesystemWorkerLaunchSpecProvider,
         })
       : undefined;
+  const fileMutationSelection = selectPreparedFileMutationCarrier(
+    localFileMutationCheckpointCarrier,
+    filesystemWorker,
+  );
+  const fileMutationCheckpointCarrier = fileMutationSelection.carrier;
+  if (fileMutationSelection.executionOwner === 'host_local') {
+    console.warn(
+      `[runtime-resume] prepared_file_mutation_execution_owner=host_local platform=${process.platform}; filesystem worker isolation is unavailable`,
+    );
+  }
+  const recoveryContracts = fileMutationCheckpointCarrier
+    ? createPreparedWriteEditRecoveryContractRegistry(fileMutationCheckpointCarrier)
+    : undefined;
   const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorkerLaunchSpecProvider
@@ -252,6 +296,7 @@ export async function createMakaCliRuntimeContext(
     backgroundTasks: shellRuns,
     ptyControls: shellRuns,
     snapshotImage: createReadImageSnapshotter(artifactStore),
+    ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorker
       ? {
@@ -269,6 +314,7 @@ export async function createMakaCliRuntimeContext(
       ? buildChildAgentTools(
           buildBuiltinTools({
             snapshotImage: createReadImageSnapshotter(artifactStore),
+            ...(fileMutationCheckpointCarrier ? { fileMutationCheckpointCarrier } : {}),
             ...(sandboxManager ? { sandboxManager } : {}),
             ...(filesystemWorker
               ? {
@@ -731,9 +777,14 @@ export async function createMakaCliRuntimeContext(
   runtime = new SessionManager({
     store,
     runStore,
+    continuationAdmissionStore: runStore,
     runtimeEventStore,
-    ...(runtimePersistence.runtimeCommitStore
-      ? { toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol }
+    ...(runtimePersistence.runtimeCommitStore && recoveryContracts
+      ? {
+          toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol,
+          toolRecoveryStore: runtimePersistence.runtimeCommitStore,
+          recoveryContracts,
+        }
       : {}),
     shellRuns,
     backends,
@@ -906,10 +957,14 @@ export async function createMakaCliRuntimeContext(
       automationScheduler.dispose();
       goalContinuation.dispose();
       goalManager.dispose();
-      await shellRuns.terminateAll();
-      shellRunListeners.clear();
-      await store.close?.();
-      runtimePersistence.close();
+      try {
+        await shellRuns.terminateAll();
+        shellRunListeners.clear();
+        await store.close?.();
+        runtimePersistence.close();
+      } finally {
+        await storageRootOwner.close();
+      }
     },
   };
 }

@@ -114,6 +114,136 @@ describe('ToolRuntime durable boundary', () => {
     assert.equal(outcomes[0]?.runtimeEvent.refs?.operationId, prepared[0]?.operationId);
   });
 
+  it('treats a durable preflight validation failure as not dispatched', async () => {
+    let preparedCommits = 0;
+    let implementationCalls = 0;
+    const harness = makeHarness({
+      commitToolPrepared: async () => {
+        preparedCommits += 1;
+        return { created: true, runtimeEventSeq: 1 };
+      },
+      commitToolOutcome: async () => {
+        throw new Error('must not reach T2');
+      },
+    });
+    const target: MakaTool = {
+      ...tool(() => {
+        implementationCalls += 1;
+        return { ok: true };
+      }),
+      prepareDurableExecution: async () => {
+        throw new Error('old_string not found during preflight');
+      },
+    };
+
+    await assert.rejects(harness.execute(target), /old_string not found during preflight/);
+
+    assert.equal(preparedCommits, 0);
+    assert.equal(implementationCalls, 0);
+    assert.deepEqual(
+      harness.events.map((event) => event.type),
+      ['tool_start'],
+    );
+    assert.deepEqual(
+      harness.messages.map((message) => message.type),
+      ['tool_call'],
+    );
+  });
+
+  it('releases a prepared mutation lease when T1 fails', async () => {
+    const order: string[] = [];
+    const harness = makeHarness({
+      commitToolPrepared: async () => {
+        order.push('t1');
+        throw new Error('T1 unavailable');
+      },
+      commitToolOutcome: async () => {
+        throw new Error('must not reach T2');
+      },
+    });
+    const target: MakaTool = {
+      ...tool(() => {
+        order.push('legacy-impl');
+        return { ok: true };
+      }),
+      prepareDurableExecution: async () => {
+        order.push('prepare-checkpoint');
+        return {
+          runtimeFacts: [],
+          execute: () => {
+            order.push('prepared-execute');
+            return { ok: true };
+          },
+          release: () => {
+            order.push('release-lock');
+          },
+        };
+      },
+    };
+
+    await assert.rejects(harness.execute(target), /T1 unavailable/);
+    assert.deepEqual(order, ['prepare-checkpoint', 't1', 'release-lock']);
+  });
+
+  it('commits checkpoint preparation facts before dispatch and executes the prepared mutation', async () => {
+    const order: string[] = [];
+    const prepared: ToolPreparedCommit[] = [];
+    const harness = makeHarness(
+      {
+        commitToolPrepared: async (input) => {
+          prepared.push(input);
+          order.push('t1');
+          return { created: true, runtimeEventSeq: 3 };
+        },
+        commitToolOutcome: async () => {
+          order.push('t2');
+          return { created: true, runtimeEventSeq: 4 };
+        },
+      },
+      order,
+    );
+    const target: MakaTool = {
+      ...tool(() => {
+        order.push('legacy-impl');
+        return { source: 'legacy' };
+      }),
+      prepareDurableExecution: async () => {
+        order.push('prepare-checkpoint');
+        return {
+          runtimeFacts: [
+            {
+              kind: 'maka.file.prepared_mutation',
+              version: 1,
+              legacyProjection: 'invisible',
+              payload: { operationId: 'prepared' },
+            },
+          ],
+          execute: async () => {
+            order.push('prepared-execute');
+            return { source: 'prepared' };
+          },
+          release: () => {
+            order.push('release-lock');
+          },
+        };
+      },
+    };
+
+    assert.deepEqual(await harness.execute(target), { source: 'prepared' });
+    assert.deepEqual(order, [
+      'prepare-checkpoint',
+      't1',
+      'prepared-execute',
+      't2',
+      'published-result',
+      'release-lock',
+    ]);
+    assert.equal(
+      prepared[0]?.preparationRuntimeEvents?.[0]?.actions?.runtimeFact?.kind,
+      'maka.file.prepared_mutation',
+    );
+  });
+
   it('wraps business-domain kind values as canonical JSON tool results', async () => {
     const outcomes: ToolOutcomeCommit[] = [];
     const harness = makeHarness({

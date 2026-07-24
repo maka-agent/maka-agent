@@ -258,6 +258,7 @@ test('RuntimeContinuationPlanner reads the durable source boundary and allocates
     sourceRunId: 'run-1',
     sourceTurnId: 'turn-1',
     sourceRuntimeEventHighWater: 2,
+    sourceRuntimeContext: sourceEvents,
     runtimeContext: sourceEvents,
     safetySnapshot: {
       workspaceIdentity: 'workspace-1',
@@ -265,6 +266,67 @@ test('RuntimeContinuationPlanner reads the durable source boundary and allocates
       availableToolNames: [],
     },
   });
+});
+
+test('RuntimeContinuationPlanner reuses an admitted target after a crash before run creation', async () => {
+  const sourceEvents = [
+    event({
+      id: 'source-user-admitted',
+      role: 'user',
+      author: 'user',
+      content: { kind: 'text', text: 'continue admitted target' },
+    }),
+    event({
+      id: 'source-terminal-admitted',
+      role: 'system',
+      author: 'system',
+      status: 'failed',
+      actions: { endInvocation: true },
+    }),
+  ];
+  const planner = new RuntimeContinuationPlanner({
+    readSourceRun: async () => ({ cwd: '/workspace/repo', status: 'failed' }),
+    readRuntimeEvents: async () => sourceEvents,
+    readContinuationAdmission: async () => ({
+      schemaVersion: 1,
+      sessionId: 'session-1',
+      sourceInvocationId: 'invocation-1',
+      sourceRunId: 'run-1',
+      sourceTurnId: 'turn-1',
+      sourceRuntimeEventHighWater: 2,
+      invocationId: 'admitted-invocation',
+      runId: 'admitted-run',
+      turnId: 'admitted-turn',
+      admittedAt: 10,
+    }),
+    newId: () => {
+      throw new Error('an admitted boundary must not allocate replacement identities');
+    },
+  });
+
+  const plan = await planner.plan({
+    sessionId: 'session-1',
+    sourceRunId: 'run-1',
+    currentCwd: '/workspace/repo',
+    sourceWorkspaceIdentity: 'workspace-1',
+    currentWorkspaceIdentity: 'workspace-1',
+    backgroundOperationsSettled: true,
+    availableToolNames: [],
+  });
+
+  assert.equal(plan.disposition, 'continue');
+  assert.deepEqual(
+    {
+      invocationId: plan.continuation?.invocationId,
+      runId: plan.continuation?.runId,
+      turnId: plan.continuation?.turnId,
+    },
+    {
+      invocationId: 'admitted-invocation',
+      runId: 'admitted-run',
+      turnId: 'admitted-turn',
+    },
+  );
 });
 
 test('RuntimeRunner rejects a continuation envelope whose high-water is behind its replay context', async () => {
@@ -287,6 +349,14 @@ test('RuntimeRunner rejects a continuation envelope whose high-water is behind i
         sourceRunId: 'run-1',
         sourceTurnId: 'turn-1',
         sourceRuntimeEventHighWater: 0,
+        sourceRuntimeContext: [
+          event({
+            id: 'source-user',
+            role: 'user',
+            author: 'user',
+            content: { kind: 'text', text: 'continue' },
+          }),
+        ],
         runtimeContext: [
           event({
             id: 'source-user',

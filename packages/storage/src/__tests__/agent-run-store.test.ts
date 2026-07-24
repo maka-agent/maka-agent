@@ -7,6 +7,57 @@ import { createAgentRunStore, createRuntimeEventStore } from '../agent-run-store
 import type { AgentRunEvent, AgentRunHeader, RuntimeEvent } from '@maka/core';
 
 describe('AgentRunStore', () => {
+  it('atomically admits only one continuation for a source boundary across store instances', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-agent-run-store-'));
+    try {
+      const firstStore = createAgentRunStore(root);
+      const secondStore = createAgentRunStore(root);
+      const common = {
+        sessionId: 'session-1',
+        sourceInvocationId: 'source-invocation-1',
+        sourceRunId: 'source-run-1',
+        sourceTurnId: 'source-turn-1',
+        sourceRuntimeEventHighWater: 7,
+        admittedAt: 10,
+      };
+
+      const [first, second] = await Promise.all([
+        firstStore.admitContinuation({
+          ...common,
+          proposedInvocationId: 'target-invocation-a',
+          proposedRunId: 'target-run-a',
+          proposedTurnId: 'target-turn-a',
+        }),
+        secondStore.admitContinuation({
+          ...common,
+          proposedInvocationId: 'target-invocation-b',
+          proposedRunId: 'target-run-b',
+          proposedTurnId: 'target-turn-b',
+        }),
+      ]);
+
+      assert.deepEqual([first.kind, second.kind].sort(), ['admitted', 'existing']);
+      assert.deepEqual(first.admission, second.admission);
+      assert.equal(
+        [first.admission.runId, second.admission.runId].every(
+          (runId) => runId === 'target-run-a' || runId === 'target-run-b',
+        ),
+        true,
+      );
+      const conflict = await firstStore.admitContinuation({
+        ...common,
+        sourceTurnId: 'different-source-turn',
+        proposedInvocationId: 'target-invocation-c',
+        proposedRunId: 'target-run-c',
+        proposedTurnId: 'target-turn-c',
+      });
+      assert.equal(conflict.kind, 'conflict');
+      assert.deepEqual(conflict.admission, first.admission);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it('creates, reads, updates, and lists runs under a session', async () => {
     await withStore(async (store, root) => {
       const first = makeHeader({
@@ -591,6 +642,36 @@ describe('AgentRunStore', () => {
       );
       assert.match(await readFile(runtimeEventsPath, 'utf8'), /"id":"runtime-1"/);
       assert.match(await readFile(operationalEventsPath, 'utf8'), /"id":"operational-event"/);
+    });
+  });
+
+  it('rejects runtime facts in the legacy JSONL writer', async () => {
+    await withStores(async (runStore, runtimeEventStore) => {
+      await runStore.createRun(makeHeader({ invocationId: 'turn-1' }));
+      assert.equal(runtimeEventStore.runtimeFactWriteCapability, undefined);
+
+      await assert.rejects(
+        runtimeEventStore.appendRuntimeEvent(
+          'session-1',
+          'run-1',
+          makeRuntimeEvent({
+            id: 'future-runtime-fact',
+            role: 'system',
+            author: 'system',
+            content: undefined,
+            actions: {
+              runtimeFact: {
+                kind: 'maka.test.future_fact',
+                version: 1,
+                legacyProjection: 'invisible',
+                payload: {},
+              },
+            },
+          }),
+        ),
+        /runtime fact writer capability/i,
+      );
+      assert.deepEqual(await runtimeEventStore.readRuntimeEvents('session-1', 'run-1'), []);
     });
   });
 

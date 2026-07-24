@@ -13,6 +13,8 @@ owners:
 
 > **Phase 2.5 决策更新（2026-07-17）**：恢复事实已收敛为 RuntimeEvent 单一事实源；`tool_journal_events` 与 `tool_operations` 都是可重建查询投影。T1 由独立、非模型可见的 `actions.toolDispatch` RuntimeEvent 表达，RecoveryResolver 是唯一判定权威。完整契约见 [RecoveryResolver ADR](./architecture/runtime-recovery-resolver-adr.zh-CN.md)。本文后续出现“Journal 事实源”的旧表述均以该 ADR 为准。
 
+> **Phase 3–4 设计入口**：受控工具恢复、RuntimeEvent boundary 与 workspace checkpoint 的绑定、Git snapshot carrier、隔离 worktree 恢复及外部 durable integrations 的详细设计，见 [Runtime Resume Phase 3–4：受控恢复与 Workspace Checkpoint 设计](./architecture/runtime-resume-phase3-phase4-workspace-checkpoint-design.zh-CN.md)。Phase 3A 是接受 workspace checkpoint 前的硬性副作用收敛门槛。
+
 > 本文提出 Maka Runtime 的 crash-resume 设计：Runtime Event Log 继续保存模型与工具交互的 canonical semantics；Tool Journal 在真实副作用边界提供 write-ahead 事实；SQLite 为两类事实提供短事务与幂等约束；恢复器从最后一个可信 high water 创建新的 Run / Invocation 继续，而不是复活旧调用栈。对于无法确认的副作用，Runtime 强制进入受限验证或停车，不允许模型盲目重试。对于 Harbor / Headless 的 timeout checkpoint resume，Runtime 只提供 committed information-flow 与 replay gate；workspace 连续性必须由 Git-backed checkpoint 或等价 carrier 证明。
 
 本文同时记录 Target 设计与分阶段落地状态。文中未明确标注为“已实现”的 Target、后续 Phase 和 Proposed 类型仍属于提案。
@@ -988,7 +990,7 @@ compaction_ref_missing
 
 边界声明：Phase 2 不声称已经交付 journal 六态恢复器。当前 unmatched function call 由 Phase 0 replay gate 拒绝盲目续跑；消费 `listUnsettledToolOperations`、提交 `indeterminate/reconciled/parked` 与 restricted verification 属于 Phase 3。
 
-### Phase 3：受控恢复
+### Phase 3A：受控工具恢复
 
 交付：
 
@@ -1001,13 +1003,36 @@ compaction_ref_missing
 
 通用 Bash 仍默认 park。
 
-### Phase 4：专属 durable integrations
+### Phase 3B：Workspace checkpoint contract 与 validation-only
+
+- workspace epoch 与 cwd move transition；
+- branch-local checkpoint 与 typed ledger import；
+- RuntimeEvent boundary + workspace snapshot binding；
+- planner/runner 双重校验；
+- validation-only，当前 workspace 不执行 destructive restore。
+
+### Phase 4A：Git snapshot carrier
+
+- temporary index + Git object/tree/commit；
+- hidden retention ref；
+- T2 + checkpoint ordered commit；
+- retention、GC 与 orphan cleanup。
+
+### Phase 4B：隔离恢复与显式 rebaseline
+
+- locked linked recovery worktree；
+- drift 后隔离 continuation；
+- 用户选择“采用当前 workspace”为新基线；
+- execution revalidation。
+
+### Phase 4C：专属 durable integrations
 
 - ShellRun durable handle；
 - child Agent resume；
 - remote job status；
 - 外部 API idempotency key；
-- workspace snapshot/carrier。
+
+上述 Phase 3A–4C 的权威契约、实现顺序和测试矩阵见 [Runtime Resume Phase 3–4：受控恢复与 Workspace Checkpoint 设计](./architecture/runtime-resume-phase3-phase4-workspace-checkpoint-design.zh-CN.md)。
 
 ### Future：Multi-worker
 

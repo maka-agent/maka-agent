@@ -134,6 +134,10 @@ export type {
   ProviderRequestUsage,
 } from './provider-request-telemetry.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export {
+  DurableToolExecutionUnsettledError,
+  type DurableToolEffectState,
+} from './durable-tool-execution.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type { McpToolProvider, BuildMcpToolsOptions } from './mcp-tools.js';
 export { buildAskUserQuestionTool } from './ask-user-question-tool.js';
@@ -1053,6 +1057,7 @@ export type {
 // runtime-resume.ts - Phase 0 replay projection + Phase 1 safe continuation gates.
 export {
   INDETERMINATE_TOOL_RESULT_DIRECTIVE,
+  UNSETTLED_TOOL_RESULT_DIRECTIVE,
   RUNTIME_RESUME_FAILPOINTS,
   RuntimeContinuationRevalidationError,
   RuntimeContinuationPlanner,
@@ -1068,6 +1073,7 @@ export type {
   ResumePlanDiagnostic,
   ResumePlanDiagnosticCode,
   ResumePlanDisposition,
+  RecoveredOperationSummary,
   ResumeRejectionReason,
   RuntimeResumeCommittedPrefix,
   RuntimeResumeFailpointId,
@@ -1086,11 +1092,109 @@ export type {
 
 export { resolveRuntimeRecovery } from './recovery-resolver.js';
 export type {
+  ResolveRuntimeRecoveryOptions,
+  RecoveryDecision,
+  RecoveryDisposition,
+  RecoveryReasonCode,
   RuntimeRecoveryResolution,
-  ToolRecoveryDecision,
-  ToolRecoveryDecisionReason,
-  ToolRecoveryDecisionStatus,
 } from './recovery-resolver.js';
+
+export {
+  TOOL_RECOVERY_CONTRACT_MODES,
+  ToolRecoveryContractRegistry,
+  durableRecoveryModeForContract,
+} from './tool-recovery-contract.js';
+export type {
+  ToolRecoveryContract,
+  ToolRecoveryContractMode,
+  ToolRecoveryContractRegistration,
+  ToolRecoveryContractResolution,
+  ToolReconcileDecision,
+  UnsettledToolOperation,
+} from './tool-recovery-contract.js';
+
+export {
+  PREPARED_FILE_MUTATION_FACT_KIND,
+  TOOL_RECOVERY_DECISION_FACT_KIND,
+  TOOL_RECOVERY_FACT_VERSION,
+  TOOL_RECONCILE_RESULT_FACT_KIND,
+  parseToolRecoveryFact,
+} from './tool-recovery-facts.js';
+export type {
+  ParsedToolRecoveryFact,
+  PreparedFileBlobRef,
+  PreparedFileBeforeState,
+  PreparedFileMutationFact,
+  ToolReconcileResultFact,
+  ToolRecoveryDecisionFact,
+} from './tool-recovery-facts.js';
+
+export {
+  decidePreparedFileMutation,
+  type CurrentFileCheckpointState,
+  type PreparedFileMutationDisposition,
+} from './prepared-file-mutation.js';
+export {
+  DEFAULT_PREPARED_FILE_MAX_BYTES,
+  LocalFileCheckpointCarrier,
+  LocalFileMutationConflictError,
+  PreparedFileCheckpointLimitError,
+  type LocalFileCheckpointCarrierOptions,
+  type LocalFileCheckpointFailpoint,
+  type PrepareFileMutationInput,
+  type PreparedFileMutationCarrier,
+  type PreparedFileMutationExecutionContext,
+} from './local-file-checkpoint-carrier.js';
+export {
+  WorkerBackedFileCheckpointCarrier,
+  applyPreparedFileThroughWorker,
+  finalizePreparedFileThroughWorker,
+  selectPreparedFileMutationCarrier,
+  type PreparedFileMutationCarrierSelection,
+  type PreparedFileMutationExecutionOwner,
+} from './worker-backed-file-checkpoint-carrier.js';
+
+export {
+  GitFileCheckpointCarrier,
+  PreparedFileMutationConflictError,
+  type GitFileCheckpointCarrierOptions,
+  type GitFileCheckpointFailpoint,
+  type PrepareGitFileMutationInput,
+} from './git-file-checkpoint-carrier.js';
+
+export {
+  commitToolReconcileResultFact,
+  commitToolRecoveryDecisionFact,
+  type CommitToolReconcileResultFactInput,
+  type CommitToolRecoveryDecisionFactInput,
+  type ToolRecoveryFactCommitInput,
+  type ToolRecoveryFactCommitStore,
+} from './tool-recovery-fact-writer.js';
+
+export { executeRestrictedVerification } from './restricted-verification.js';
+export type {
+  RestrictedVerificationBoundary,
+  RestrictedVerificationDiagnostic,
+  RestrictedVerificationRequest,
+  RestrictedVerificationResult,
+  RestrictedVerificationWorkspaceEffect,
+} from './restricted-verification.js';
+
+export {
+  createPreparedWriteEditRecoveryContractRegistry,
+  createPreparedWriteEditRecoveryContracts,
+} from './file-tool-recovery.js';
+export type {
+  PreparedFileRecoveryCarrier,
+  PreparedWriteEditRecoveryContracts,
+} from './file-tool-recovery.js';
+
+export { reconcileUnsettledToolOperation } from './tool-recovery-coordinator.js';
+export type {
+  ReconcileUnsettledToolOperationInput,
+  ReconcileUnsettledToolOperationResult,
+  ToolRecoveryExecutionStore,
+} from './tool-recovery-coordinator.js';
 
 export { createLocalContinuationSafetyInspector } from './continuation-safety.js';
 export type {

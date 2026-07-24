@@ -13,6 +13,8 @@ import {
   createSandboxDiagnosticsProvider,
   createFilesystemWorkerLaunchSpecProvider,
   FilesystemWorkerClient,
+  selectPreparedFileMutationCarrier,
+  type PreparedFileMutationCarrier,
   resolveSkillDiscoveryPaths,
   ShellRunProcessManager,
   SKILL_SEARCH_TOOL_NAME,
@@ -68,6 +70,7 @@ export interface DesktopToolAssemblyDeps {
   snapshotReadImage: ToolArtifactPersistence['snapshotReadImage'];
   getWorkspacePrivacyContext: () => Promise<WorkspacePrivacyContext>;
   resolveDesktopSkillHost: HostCapabilitiesResolver;
+  fileMutationCheckpointCarrier?: PreparedFileMutationCarrier;
 }
 
 /**
@@ -93,6 +96,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     settingsStore,
     shellRuns,
     snapshotReadImage,
+    fileMutationCheckpointCarrier,
     getWorkspacePrivacyContext,
     resolveDesktopSkillHost,
   } = deps;
@@ -114,6 +118,16 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
         getLaunchSpec: filesystemWorkerLaunchSpecProvider,
       })
     : undefined;
+  const fileMutationSelection = selectPreparedFileMutationCarrier(
+    fileMutationCheckpointCarrier,
+    filesystemWorker,
+  );
+  const effectiveFileMutationCheckpointCarrier = fileMutationSelection.carrier;
+  if (fileMutationSelection.executionOwner === 'host_local') {
+    console.warn(
+      `[runtime-resume] prepared_file_mutation_execution_owner=host_local platform=${process.platform}; filesystem worker isolation is unavailable`,
+    );
+  }
   const sandboxDiagnosticsProvider = createSandboxDiagnosticsProvider({
     ...(sandboxManager ? { sandboxManager } : {}),
     ...(filesystemWorkerLaunchSpecProvider
@@ -208,6 +222,9 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
       backgroundTasks: shellRuns,
       ptyControls: shellRuns,
       snapshotImage: snapshotReadImage,
+      ...(effectiveFileMutationCheckpointCarrier
+        ? { fileMutationCheckpointCarrier: effectiveFileMutationCheckpointCarrier }
+        : {}),
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(filesystemWorker ? {
         filesystemWorker,
@@ -279,6 +296,9 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   const childAgentTools = buildChildAgentTools([
     ...buildBuiltinTools({
       snapshotImage: snapshotReadImage,
+      ...(effectiveFileMutationCheckpointCarrier
+        ? { fileMutationCheckpointCarrier: effectiveFileMutationCheckpointCarrier }
+        : {}),
       ...(sandboxManager ? { sandboxManager } : {}),
       ...(filesystemWorker ? {
         filesystemWorker,
@@ -303,5 +323,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     toolAvailability,
     childAgentTools,
     sandboxDiagnosticsProvider,
+    fileMutationCheckpointCarrier: effectiveFileMutationCheckpointCarrier,
+    fileMutationCheckpointExecutionOwner: fileMutationSelection.executionOwner,
   };
 }

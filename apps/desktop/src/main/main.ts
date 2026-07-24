@@ -35,6 +35,8 @@ import {
   SessionManager,
   createLocalContinuationSafetyInspector,
   buildDeepResearchTools,
+  createPreparedWriteEditRecoveryContractRegistry,
+  LocalFileCheckpointCarrier,
   getAIModel,
   generateSessionTitle as generateRuntimeSessionTitle,
   buildProviderOptions,
@@ -70,7 +72,10 @@ import {
   createShellRunStore,
   createTelemetryRepo,
 } from '@maka/storage';
-import { resolveStorageRoot } from '@maka/storage/root-authority';
+import {
+  resolveStorageRoot,
+  tryAcquireInteractiveRootOwner,
+} from '@maka/storage/root-authority';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import { McpClientManager } from '@maka/mcp';
 import { registerMcpIpcMain } from './mcp-ipc-main.js';
@@ -198,11 +203,19 @@ try {
 }
 const workspaceRoot = join(app.getPath('userData'), 'workspaces', e2eFixture?.workspaceName ?? 'default');
 const credentialStore = createFileCredentialStore(workspaceRoot);
+const storageRootCapability = await resolveStorageRoot({
+  path: workspaceRoot,
+  kind: 'interactive',
+});
+const storageRootOwner = await tryAcquireInteractiveRootOwner(storageRootCapability);
+if (!storageRootOwner) {
+  throw new Error(
+    `Maka workspace is already open by another writer: ${storageRootCapability.canonicalPath}`,
+  );
+}
 if (e2eFixture) {
   console.log(`[e2e-fixture] scenario=${e2eFixture.scenario} workspace=${workspaceRoot}`);
   await seedE2eFixture({ workspaceRoot, fixture: e2eFixture, credentialStore });
-} else {
-  await resolveStorageRoot({ path: workspaceRoot, kind: 'interactive' });
 }
 // 保持系统唤醒 (settings.system.keepSystemAwake): holds an Electron
 // `powerSaveBlocker` so in-process scheduled tasks keep firing while the
@@ -218,6 +231,9 @@ const runtimePersistence = await openRuntimeEventPersistence({
   sqliteCanonical: process.env.MAKA_RUNTIME_SQLITE_CANONICAL === '1',
 });
 const runtimeEventStore = runtimePersistence.runtimeEventStore;
+const localFileMutationCheckpointCarrier = runtimePersistence.runtimeCommitStore
+  ? new LocalFileCheckpointCarrier()
+  : undefined;
 const shellRunStore = createShellRunStore(workspaceRoot);
 const connectionStore = createConnectionStore(workspaceRoot);
 const settingsStore = createSettingsStore(workspaceRoot);
@@ -594,6 +610,7 @@ const {
   toolAvailability,
   childAgentTools,
   sandboxDiagnosticsProvider,
+  fileMutationCheckpointCarrier,
 } = assembleDesktopTools({
   isComputerUseRealModelE2e,
   workspaceRoot,
@@ -607,7 +624,13 @@ const {
   snapshotReadImage,
   getWorkspacePrivacyContext,
   resolveDesktopSkillHost,
+  ...(localFileMutationCheckpointCarrier
+    ? { fileMutationCheckpointCarrier: localFileMutationCheckpointCarrier }
+    : {}),
 });
+const recoveryContracts = fileMutationCheckpointCarrier
+  ? createPreparedWriteEditRecoveryContractRegistry(fileMutationCheckpointCarrier)
+  : undefined;
 // Cursor-overlay teardown assigns a module-scoped `let`, so it stays in main.ts.
 onMainWindowClose = () => computerUseOverlay.destroyAll();
 const systemPromptService = createSystemPromptMainService({
@@ -744,9 +767,14 @@ const runtime = new SessionManager({
   store,
   planStore,
   runStore,
+  continuationAdmissionStore: runStore,
   runtimeEventStore,
-  ...(runtimePersistence.runtimeCommitStore
-    ? { toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol }
+  ...(runtimePersistence.runtimeCommitStore && recoveryContracts
+    ? {
+        toolBoundaryProtocol: runtimePersistence.runtimeCommitStore.toolBoundaryProtocol,
+        toolRecoveryStore: runtimePersistence.runtimeCommitStore,
+        recoveryContracts,
+      }
     : {}),
   shellRuns,
   backends,
@@ -1240,6 +1268,7 @@ wireAppLifecycle({
   shellRuns,
   mcpManager,
   runtimePersistence,
+  closeStorageRootOwner: () => storageRootOwner.close(),
   mainWindowController,
   runtime,
   streamEvents,

@@ -10,6 +10,7 @@ import {
   SessionMetadataConflictError,
   type SqliteSessionMetadataStoreFailpoint,
 } from '../sqlite-session-metadata-store.js';
+import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 import { createSqliteRuntimeStore } from '../sqlite-runtime-store.js';
 
 describe('SqliteSessionMetadataStore', () => {
@@ -50,7 +51,7 @@ describe('SqliteSessionMetadataStore', () => {
     const runtime = createSqliteRuntimeStore(path);
     const metadata = createSqliteSessionMetadataStore(path);
     try {
-      assert.equal(runtime.schemaVersion(), 4);
+      assert.equal(runtime.schemaVersion(), SQLITE_RUNTIME_SCHEMA_VERSION);
       assert.equal(metadata.schemaVersion(), 5);
       await metadata.create(fullHeader());
       await runtime.appendRuntimeEvent('session-1', 'run-1', {

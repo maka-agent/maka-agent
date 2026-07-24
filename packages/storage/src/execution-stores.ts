@@ -12,6 +12,8 @@ import type {
 import {
   createAgentRunStore,
   createRuntimeEventStore,
+  type AdmitContinuationInput,
+  type AdmitContinuationResult,
   type AdmitRootTurnInput,
   type AdmitRootTurnResult,
   type DurableAgentRunStore,
@@ -181,6 +183,16 @@ async function openExecutionStoresForWrite<K extends StorageRootKind>(
         run(() => agentRunStore.repairEventProjection(sessionId, type, event, options)),
       admitRootTurn: (input: AdmitRootTurnInput): Promise<AdmitRootTurnResult> =>
         run(() => agentRunStore.admitRootTurn(input)),
+      admitContinuation: (input: AdmitContinuationInput): Promise<AdmitContinuationResult> =>
+        run(() => agentRunStore.admitContinuation(input)),
+      readContinuationAdmission: (sessionId, sourceRunId, sourceRuntimeEventHighWater) =>
+        run(() =>
+          agentRunStore.readContinuationAdmission(
+            sessionId,
+            sourceRunId,
+            sourceRuntimeEventHighWater,
+          ),
+        ),
       readRootTurnAdmission: (sessionId, turnId) =>
         run(() => agentRunStore.readRootTurnAdmission(sessionId, turnId)),
       listRootTurnAdmissionsForRecovery: (sessionId) =>

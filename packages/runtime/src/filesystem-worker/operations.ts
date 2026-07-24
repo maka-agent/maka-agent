@@ -8,6 +8,9 @@ import { additionalPermissionAllowsPath } from '@maka/core/additional-permission
 import { hashAdditionalPermissionProfile } from '../additional-permission-hash.js';
 import { computeEditedSource } from '../edit-replace.js';
 import { isSupportedImagePath, readWorkspaceImage } from '../image-file.js';
+import { LocalFileCheckpointCarrier } from '../local-file-checkpoint-carrier.js';
+import { parsePreparedFileMutationFact } from '../tool-recovery-facts.js';
+import { DurableToolExecutionUnsettledError } from '../durable-tool-execution.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   type FilesystemWorkerErrorCode,
@@ -158,6 +161,32 @@ export async function executeFilesystemOperation(
         endLine: edited.endLine,
       };
     }
+    case 'prepared_file_apply': {
+      const fact = parsePreparedFileMutationFact(operation.fact);
+      if (!fact || fact.canonicalPath !== operation.path) {
+        throw operationError(
+          'invalid_request',
+          'Prepared file mutation fact did not match its approved target.',
+        );
+      }
+      const expectedContent = Buffer.from(operation.expectedContentBase64, 'base64');
+      if (expectedContent.toString('base64') !== operation.expectedContentBase64) {
+        throw operationError('invalid_request', 'Prepared file mutation content was invalid.');
+      }
+      await new LocalFileCheckpointCarrier().apply(fact, expectedContent);
+      return { kind: 'prepared_file_apply', ok: true };
+    }
+    case 'prepared_file_finalize': {
+      const fact = parsePreparedFileMutationFact(operation.fact);
+      if (!fact || fact.canonicalPath !== operation.path) {
+        throw operationError(
+          'invalid_request',
+          'Prepared file mutation fact did not match its approved target.',
+        );
+      }
+      await new LocalFileCheckpointCarrier().finalize(fact);
+      return { kind: 'prepared_file_finalize', ok: true };
+    }
     case 'format_json': {
       const path = await resolveExistingAllowed(
         operation.cwd,
@@ -284,6 +313,9 @@ function sortKeysDeep(value: unknown): unknown {
 
 function normalizeOperationError(error: unknown): FilesystemOperationError {
   if (error instanceof FilesystemOperationError) return error;
+  if (error instanceof DurableToolExecutionUnsettledError) {
+    return operationError('effect_unsettled', error.message);
+  }
   const code = nodeErrorCode(error);
   if (code === 'ENOENT' || code === 'ENOTDIR')
     return operationError('not_found', 'The requested path was not found.');
