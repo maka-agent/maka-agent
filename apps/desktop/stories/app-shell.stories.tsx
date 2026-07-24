@@ -5,7 +5,6 @@ import type { SessionSummary, StoredMessage } from '@maka/core';
 import { ChatView, Composer, SessionListPanel } from '@maka/ui';
 import type { ChatModelChoice } from '@maka/ui';
 import { AppShellTopbarActions, AppShellWorkspaceTopActions } from '../src/renderer/app-shell-chrome-actions';
-import { OnboardingHero } from '../src/renderer/OnboardingHero';
 
 const NOW = Date.UTC(2026, 6, 1, 9, 30, 0);
 
@@ -275,21 +274,12 @@ export const WaitingForPermission: Story = {
   ),
 };
 
+// The DAILY empty home: a returning user (sessions exist, sidebar expanded)
+// with no messages in the active chat. ChatView falls back to its built-in
+// EmptyChatHero (greeting + composer). Do NOT render OnboardingHero here —
+// app-shell only shows it when sessions.length === 0 (first run), and those
+// states are covered by Product/Onboarding. Presenting the first-run hero as
+// the daily home makes every visual comparison against this story wrong.
 export const EmptyHome: Story = {
-  render: () => (
-    <ComposedShell
-      sidebarCollapsed
-      detailChildren={
-        <div style={{ margin: '0 auto', maxWidth: 720, padding: '48px 32px', width: '100%' }}>
-          <OnboardingHero
-            state={{ kind: 'ready_empty', defaultConnectionSlug: 'anthropic-main', defaultModel: 'claude-sonnet-4-5' }}
-            onOpenSettings={noop}
-            onAddProvider={noop}
-            onBrowseProviders={noop}
-            onQuickChatSubmit={async () => true}
-          />
-        </div>
-      }
-    />
-  ),
+  render: () => <ComposedShell chat={{ messages: [] }} />,
 };
