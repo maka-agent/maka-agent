@@ -8872,13 +8872,32 @@ describe('AiSdkBackend RunTrace', () => {
     const model = new MockLanguageModelV4({
       doStream: async () => {
         calls += 1;
-        throw new APICallError({
-          message: 'retry me',
-          url: 'https://provider.invalid/v1/messages',
-          requestBodyValues: {},
-          statusCode: 503,
-          responseHeaders: { 'retry-after-ms': '0' },
-        });
+        if (calls === 1) {
+          throw new APICallError({
+            message: 'retry me',
+            url: 'https://provider.invalid/v1/messages',
+            requestBodyValues: {},
+            statusCode: 503,
+            responseHeaders: { 'retry-after-ms': '1' },
+          });
+        }
+        return {
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              {
+                type: 'finish',
+                finishReason: { unified: 'stop', raw: 'stop' },
+                usage: {
+                  inputTokens: { total: 4, noCache: 4, cacheRead: 0, cacheWrite: undefined },
+                  outputTokens: { total: 2, text: 2, reasoning: 0 },
+                },
+              },
+            ],
+            initialDelayInMs: null,
+            chunkDelayInMs: null,
+          }),
+        };
       },
     });
     const backend = new AiSdkBackend({
@@ -8900,6 +8919,7 @@ describe('AiSdkBackend RunTrace', () => {
       recordProviderRequestAttempt: (attempt) => {
         attempts.push(attempt);
       },
+      providerRetrySleep: async () => {},
     });
 
     await drain(backend.send({ turnId: 'turn-1', text: 'hi', context: [] }));
@@ -8910,7 +8930,7 @@ describe('AiSdkBackend RunTrace', () => {
       attempts.map(({ attempt, status }) => ({ attempt, status })),
       [
         { attempt: 1, status: 'failed' },
-        { attempt: 2, status: 'failed' },
+        { attempt: 2, status: 'completed' },
       ],
     );
   });
