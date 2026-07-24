@@ -22,6 +22,25 @@ test('session grouping menu applies and retains the selected mode', async ({ win
   await expect(page.getByRole('menuitemradio', { name: '按状态' })).toHaveAttribute('aria-checked', 'false');
 });
 
+test('session heading stays singular and uses the shared sidebar type tier', async ({
+  sidebarLongSessionsWindow: page,
+}) => {
+  const sidebar = await expandedSidebar(page);
+  const panelHeading = sidebar.locator('.maka-session-list-heading');
+  const activeGroupHeading = sidebar.getByText('可继续', { exact: true });
+  const navLabel = sidebar.locator('.maka-nav-row span:nth-child(2)').first();
+
+  await expect(sidebar.getByText('会话', { exact: true })).toHaveCount(1);
+  await expect(activeGroupHeading).toBeVisible();
+
+  const fontSizes = await Promise.all(
+    [navLabel, panelHeading, activeGroupHeading].map((locator) =>
+      locator.evaluate((element) => getComputedStyle(element).fontSize),
+    ),
+  );
+  expect(fontSizes).toEqual(['13px', '13px', '13px']);
+});
+
 test('scheduled-task hub restores the last selected child module', async ({ window: page }) => {
   const sidebar = await expandedSidebar(page);
   const scheduledTasks = sidebar.getByRole('button', { name: '定时任务', exact: true });
