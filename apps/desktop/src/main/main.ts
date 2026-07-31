@@ -97,6 +97,8 @@ import { createAttachmentApprovalRegistry } from './attachment-approval.js';
 import { cleanupLegacyHistoryCompactArtifacts } from '@maka/runtime';
 import { computerUseServiceHealth } from './computer-use-host.js';
 import { createMainWindowController } from './main-window.js';
+import { createSkinRuntime } from './skin-runtime.js';
+import { registerSkinIpc } from './skin-ipc-main.js';
 import { createDailyReviewMainService } from './daily-review-main.js';
 import { createPlanReminderMainService } from './plan-reminders-main.js';
 import { createBotIncomingMainService } from './bot-incoming-main.js';
@@ -590,12 +592,19 @@ const resolveDesktopSkillHost: HostCapabilitiesResolver = ({ sessionId }) =>
 // that opts into a visible window also opts back into Dock and Cmd+Tab.
 const startHidden = (Boolean(e2eFixture) || isIsolatedE2e)
   && process.env.MAKA_E2E_SHOW_WINDOW !== '1';
+const skinRuntime = createSkinRuntime({
+  rootDir: join(workspaceRoot, 'skins'),
+  safeMode:
+    process.env.MAKA_DISABLE_SKINS === '1' ||
+    process.argv.includes('--disable-skins'),
+});
 let onMainWindowClose = (): void => {};
 const mainWindowController = createMainWindowController({
   workspaceRoot,
   e2eFixture,
   settingsStore,
   startHidden,
+  skinRuntime,
   onClose: () => onMainWindowClose(),
 });
 // Shared by 'second-instance' and 'activate': focus the existing window, or
@@ -1056,6 +1065,11 @@ function registerIpc(): void {
     buildInfo,
     e2eFixture,
     projectManagement,
+  });
+  registerSkinIpc({
+    runtime: skinRuntime,
+    mainWindowController,
+    sendToRenderer: safeSendToRenderer,
   });
   registerMemoryIpc({ localMemory });
   registerConfigIpc({ connectionStore, settingsStore, credentialStore, workspaceRoot });
