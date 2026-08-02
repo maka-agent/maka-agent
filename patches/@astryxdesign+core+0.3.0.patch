@@ -1,3 +1,257 @@
+diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.d.ts b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.d.ts
+index 90022b3..f9c7b8d 100644
+--- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.d.ts
++++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.d.ts
+@@ -154,6 +154,28 @@ export interface ChatComposerInputProps extends Omit<BaseProps<HTMLDivElement>,
+      * never submits while a composition is in progress.
+      */
+     onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
++    /**
++     * Text offered as a continuation of the current value, rendered dim after
++     * the caret and committed with Tab.
++     *
++     * The consumer decides *what* to offer; this component decides whether it
++     * can be shown, because only it knows the selection, the composition
++     * state, whether a trigger menu already owns Tab, and how the text wraps
++     * and scrolls. The offer is drawn inside the editable and excluded from
++     * the value, so what the user sees and what Tab commits are the same text
++     * by construction — never a clipped preview of a longer insertion.
++     *
++     * Shown only while the editable is focused with the caret collapsed at the
++     * end of the content and no trigger menu open. Escape dismisses the
++     * current offer until a different one arrives.
++     */
++    inlineCompletion?: string;
++    /**
++     * Instruction appended after the completion in its accessible
++     * announcement, e.g. "press Tab to accept". Product copy, so it has no
++     * default; without it the completion text is announced on its own.
++     */
++    inlineCompletionLabel?: string;
+ }
+ export declare function ChatComposerInput(props: ChatComposerInputProps): import("react").JSX.Element;
+ export declare namespace ChatComposerInput {
+diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
+index edd9080..d22185a 100644
+--- a/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
++++ b/node_modules/@astryxdesign/core/dist/Chat/ChatComposerInput.js
+@@ -22,7 +22,7 @@
+  * - /apps/storybook/stories/ChatComposer.stories.tsx
+  * - /packages/cli/assets/templates/blocks/components/ChatComposerInput/ (block examples)
+  */
+-import { useRef, useState, useCallback, useEffect, useImperativeHandle } from 'react';
++import { useRef, useState, useCallback, useEffect, useLayoutEffect, useImperativeHandle } from 'react';
+ import { createPortal } from 'react-dom';
+ import * as stylex from '@stylexjs/stylex';
+ import "../theme/tokens.stylex.js";
+@@ -93,12 +93,38 @@ function selectAll(el) {
+   selection.removeAllRanges();
+   selection.addRange(range);
+ }
++/**
++ * True when the selection is collapsed with nothing after it but the editor's
++ * own trailing filler. An inline completion is only ever offered here, because
++ * that is the only caret position at which appending it is what Tab does.
++ */
++function caretAtContentEnd(editable) {
++  const selection = window.getSelection();
++  if (!selection || selection.rangeCount === 0 || !selection.isCollapsed) {
++    return false;
++  }
++  const range = selection.getRangeAt(0);
++  if (!editable.contains(range.startContainer)) {
++    return false;
++  }
++  const after = document.createRange();
++  after.selectNodeContents(editable);
++  after.setEnd(editable, editable.childNodes.length);
++  after.setStart(range.endContainer, range.endOffset);
++  return after.toString().replace(/\n+$/, '').length === 0;
++}
+ function serialize(node) {
+   let result = '';
+   for (const child of Array.from(node.childNodes)) {
+     if (child.nodeType === Node.TEXT_NODE) {
+       result += child.textContent ?? '';
+     } else if (child instanceof HTMLElement) {
++      if (child.hasAttribute('data-astryx-inline-completion')) {
++        // Ephemeral: offered text the user has not accepted. It lives in the
++        // editable so it participates in real layout (wrapping, growth,
++        // scrolling), but it is not part of the value until Tab commits it.
++        continue;
++      }
+       if (child.hasAttribute('data-astryx-token')) {
+         result += child.getAttribute('data-astryx-token-value') ?? '';
+       } else if (child.tagName === 'BR') {
+@@ -136,6 +162,8 @@ export function ChatComposerInput(props) {
+     onFiles,
+     onSubmit = composerCtx?.onSubmit,
+     onKeyDown: onKeyDownProp,
++    inlineCompletion,
++    inlineCompletionLabel,
+     xstyle,
+     className,
+     style,
+@@ -171,6 +199,16 @@ export function ChatComposerInput(props) {
+   // incorrectly skipped.
+   const pendingEchoValueRef = useRef(undefined);
+ 
++  // --- Inline completion (ephemeral offered text) ---
++  // The candidate the consumer supplies is only *offered*; this component owns
++  // whether it can be shown at all, because only it knows the selection, the
++  // composition state, whether a trigger menu already owns Tab, and how the
++  // text will wrap and scroll. Showing it inside the editable is what makes
++  // the preview and the committed value the same thing by construction.
++  const inlineCompletionShownRef = useRef('');
++  const inlineCompletionDismissedRef = useRef(undefined);
++  const [inlineCompletionAnnouncement, setInlineCompletionAnnouncement] = useState('');
++
+   // Stable refs for imperative handle callbacks (avoid re-creating handle on every render)
+   const insertTokenRef = useRef(() => undefined);
+   const insertTextRef = useRef(() => {});
+@@ -302,12 +340,110 @@ export function ChatComposerInput(props) {
+     emitChange();
+     triggerMenu.handleInput();
+   }, [emitChange, triggerMenu]);
++  const triggerMenuOpen = triggerMenu.ariaProps['aria-expanded'] === true;
++
++  /**
++   * Paint (or clear) the offered completion inside the editable.
++   *
++   * A layout effect, so the span is in place before the browser paints and the
++   * user never sees a frame of the editor at the wrong height.
++   *
++   * The span is `contenteditable=false` and skipped by `serialize`, so it can
++   * neither be typed into nor reach the value; it is removed and re-added
++   * wholesale rather than diffed, because the only state it carries is the
++   * string it shows.
++   */
++  useLayoutEffect(() => {
++    const editable = editableRef.current;
++    if (!editable) {
++      return;
++    }
++    for (const stale of Array.from(editable.querySelectorAll('[data-astryx-inline-completion]'))) {
++      stale.remove();
++    }
++    inlineCompletionShownRef.current = '';
++    const offered = inlineCompletion ?? '';
++    if (offered.length === 0) {
++      inlineCompletionDismissedRef.current = undefined;
++      setInlineCompletionAnnouncement('');
++      return;
++    }
++    if (
++      isDisabled
++      || triggerMenuOpen
++      || inlineCompletionDismissedRef.current === offered
++      || document.activeElement !== editable
++      || !caretAtContentEnd(editable)
++    ) {
++      setInlineCompletionAnnouncement('');
++      return;
++    }
++    const span = document.createElement('span');
++    span.setAttribute('data-astryx-inline-completion', '');
++    span.setAttribute('aria-hidden', 'true');
++    span.contentEditable = 'false';
++    span.style.opacity = '0.45';
++    span.style.pointerEvents = 'none';
++    span.style.userSelect = 'none';
++    span.textContent = offered;
++    // Appended after the caret's text node, so a collapsed selection sitting
++    // at the end of the content stays exactly where it was.
++    editable.appendChild(span);
++    inlineCompletionShownRef.current = offered;
++    setInlineCompletionAnnouncement(
++      inlineCompletionLabel ? `${offered} ${inlineCompletionLabel}` : offered,
++    );
++  });
++
++  /**
++   * Commit the shown completion. Goes through `insertTextAtCursor` +
++   * `emitChange` — the same path a paste takes — so the value, the controlled
++   * echo and the undo stack all see one ordinary insertion.
++   */
++  const acceptInlineCompletion = useCallback(() => {
++    const editable = editableRef.current;
++    const offered = inlineCompletionShownRef.current;
++    if (!editable || offered.length === 0) {
++      return false;
++    }
++    for (const span of Array.from(editable.querySelectorAll('[data-astryx-inline-completion]'))) {
++      span.remove();
++    }
++    inlineCompletionShownRef.current = '';
++    setInlineCompletionAnnouncement('');
++    insertTextAtCursor(editable, offered);
++    emitChange();
++    return true;
++  }, [emitChange]);
+   const handleKeyDown = useCallback(e => {
+     // Let trigger menu consume the event first
+     if (triggerMenu.handleKeyDown(e)) {
+       return;
+     }
+ 
++    // Inline completion, after the menu has had its turn and before the
++    // consumer's: Tab commits what is shown, Escape dismisses it. Both only
++    // when something is actually on screen, so an editor with no completion
++    // keeps Tab's ordinary focus move and Escape's ordinary meaning for the
++    // consumer.
++    if (inlineCompletionShownRef.current.length > 0) {
++      if (e.key === 'Tab' && !e.shiftKey && !e.altKey && !e.ctrlKey && !e.metaKey) {
++        e.preventDefault();
++        acceptInlineCompletion();
++        return;
++      }
++      if (e.key === 'Escape') {
++        e.preventDefault();
++        inlineCompletionDismissedRef.current = inlineCompletionShownRef.current;
++        setInlineCompletionAnnouncement('');
++        for (const span of Array.from(editableRef.current?.querySelectorAll('[data-astryx-inline-completion]') ?? [])) {
++          span.remove();
++        }
++        inlineCompletionShownRef.current = '';
++        return;
++      }
++    }
++
+     // Consumer passthrough — runs before built-in Enter/history handling.
+     // A consumer can preventDefault() to fully own the keystroke.
+     onKeyDownProp?.(e);
+@@ -411,7 +547,7 @@ export function ChatComposerInput(props) {
+         e.preventDefault();
+       }
+     }
+-  }, [hasHistory, onSubmit, onChange, emitChange, triggerMenu, onKeyDownProp]);
++  }, [hasHistory, onSubmit, onChange, emitChange, triggerMenu, onKeyDownProp, acceptInlineCompletion]);
+   const handlePaste = useCallback(e => {
+     const editable = editableRef.current;
+     if (!editable) {
+@@ -479,6 +615,22 @@ export function ChatComposerInput(props) {
+           maxHeight: `${maxHeight}px`
+         }
+       })
++    }), inlineCompletionAnnouncement.length > 0 && /*#__PURE__*/_jsx("div", {
++      role: "status",
++      "aria-live": "polite",
++      style: {
++        position: 'absolute',
++        width: '1px',
++        height: '1px',
++        margin: '-1px',
++        padding: 0,
++        border: 0,
++        overflow: 'hidden',
++        clip: 'rect(0 0 0 0)',
++        clipPath: 'inset(50%)',
++        whiteSpace: 'nowrap'
++      },
++      children: inlineCompletionAnnouncement
+     }), triggerMenu.renderMenu(), tokens.tokenPortals.filter(({
+       span
+     }) => span.isConnected).map(({
 diff --git a/node_modules/@astryxdesign/core/dist/Chat/ChatLayout.d.ts b/node_modules/@astryxdesign/core/dist/Chat/ChatLayout.d.ts
 index ff34874..06c600a 100644
 --- a/node_modules/@astryxdesign/core/dist/Chat/ChatLayout.d.ts
