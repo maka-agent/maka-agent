@@ -77,10 +77,6 @@ export function SessionWorkbar(props: {
   const taskCount = deriveTaskLedgerPanelModel(sessionTasks.tasks).activeCount;
   const [artifactCount, setArtifactCount] = useState(0);
 
-  useEffect(() => {
-    if (props.activeTab === 'browser' && !props.browserLive) props.onActiveTabChange('tasks');
-  }, [props.activeTab, props.browserLive, props.onActiveTabChange]);
-
   // The quote tab only exists while an excerpt is active; fall back when cleared.
   useEffect(() => {
     if (props.activeTab === 'quote' && !props.quote) props.onActiveTabChange('tasks');
@@ -113,7 +109,7 @@ export function SessionWorkbar(props: {
             aria-label={copy.sectionsAriaLabel}
           >
             <Tab value="tasks" label={copy.tasks} endContent={<TabCount count={taskCount} />} />
-            {props.browserLive && <Tab value="browser" label={copy.browser} />}
+            <Tab value="browser" label={copy.browser} />
             <Tab value="files" label={copy.files} endContent={<TabCount count={artifactCount} />} />
             <Tab value="inspector" label={copy.inspector} />
             {props.quote && <Tab value="quote" label={copy.quoteTab} />}
@@ -129,12 +125,10 @@ export function SessionWorkbar(props: {
         />
       </WorkbarPanel>
       <WorkbarPanel active={props.activeTab === 'browser'}>
-        {props.browserLive && (
-          <BrowserPanel
-            sessionId={props.sessionId}
-            hidden={props.hidden || props.activeTab !== 'browser'}
-          />
-        )}
+        <BrowserPanel
+          sessionId={props.sessionId}
+          hidden={props.hidden || props.activeTab !== 'browser'}
+        />
       </WorkbarPanel>
       <WorkbarPanel active={props.activeTab === 'files'}>
         <ArtifactPane

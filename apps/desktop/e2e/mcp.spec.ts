@@ -179,7 +179,7 @@ test('MCP module completes stdio add, discovery, disable, JSON import, and delet
 
   // Each hub restores its last module when the user returns from another
   // sidebar destination.
-  await sidebar.getByRole('button', { name: '定时任务', exact: true }).click();
+  await sidebar.getByRole('button', { name: '自动任务', exact: true }).click();
   await extensions.click();
   await expect(page.getByRole('main', { name: '扩展' })).toBeVisible();
   await expect(extensionSelector).toHaveAccessibleName('扩展内容：MCP');

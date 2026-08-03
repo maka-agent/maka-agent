@@ -177,7 +177,7 @@ async function withE2eWindow(
     invocableSkills?: boolean;
     extraConnectionCount?: number;
   },
-  use: (page: Page) => Promise<void>,
+  use: (page: Page, app: ElectronApplication, userDataDir: string) => Promise<void>,
 ): Promise<void> {
   const userDataDir = await mkdtemp(path.join(tmpdir(), 'maka-e2e-'));
   // Lives inside the throwaway userData dir so the existing teardown removes
@@ -238,7 +238,7 @@ async function withE2eWindow(
       const rendererDetail = rendererLogs.length > 0 ? `\nRenderer console:\n${rendererLogs.join('\n')}` : '';
       throw new Error(`${detail}${mainDetail}${rendererDetail}`, { cause: error });
     }
-    await use(page);
+    await use(page, app, userDataDir);
   } finally {
     try {
       if (app) await closeElectronApplication(app, 5_000);
@@ -266,6 +266,7 @@ export const test = base.extend<{
   invocableSkillsWindow: Page;
   planRemindersWindow: Page;
   oauthReloginWindow: Page;
+  browserWorkflowWindow: { page: Page; app: ElectronApplication; userDataDir: string };
 }>({
   // Seeded: a pre-staged connection clears onboarding so the composer is ready.
   // Used by chat / session / settings / attachment specs.
@@ -484,6 +485,17 @@ export const test = base.extend<{
         locale: 'zh',
       },
       use,
+    );
+  },
+  browserWorkflowWindow: async ({}, use) => {
+    await withE2eWindow(
+      {
+        seed: false,
+        readinessSelector: '[data-maka-contract="session-workbar"]',
+        e2eFixtureScenario: 'task-ledger',
+        locale: 'zh',
+      },
+      (page, app, userDataDir) => use({ page, app, userDataDir }),
     );
   },
 });

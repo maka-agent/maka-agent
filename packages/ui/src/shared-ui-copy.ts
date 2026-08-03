@@ -57,6 +57,7 @@ export interface SharedUiCopy {
       selectorLabel: (module: string) => string;
       planReminders: string;
       dailyReview: string;
+      browserWorkflows: string;
     };
   };
   modules: {
@@ -157,18 +158,19 @@ const SHARED_UI_COPY = {
         mcp: 'MCP',
       },
       automations: {
-        title: '定时任务',
-        description: '安排计划提醒，并回顾本机对话中的工作进展。',
-        selectorLabel: (module) => `定时任务内容：${module}`,
+        title: '自动任务',
+        description: '管理计划提醒、每日回顾和可复用的浏览器操作流程。',
+        selectorLabel: (module) => `自动任务内容：${module}`,
         planReminders: '计划提醒',
         dailyReview: '每日回顾',
+        browserWorkflows: '操作流程',
       },
     },
     modules: {
       skills: '技能',
       loadingSkills: '正在加载技能…',
-      automations: '定时任务',
-      loadingAutomations: '正在加载定时任务…',
+      automations: '自动任务',
+      loadingAutomations: '正在加载自动任务…',
       dailyReview: '每日回顾',
       loadingDailyReview: '正在加载每日回顾…',
       dailyReviewDescription: '自动汇总本机对话，生成摘要、遗漏提醒与深度分析；可在设置中开启定时执行。',
@@ -245,18 +247,19 @@ const SHARED_UI_COPY = {
         mcp: 'MCP',
       },
       automations: {
-        title: 'Scheduled tasks',
-        description: 'Schedule reminders and review progress from local conversations.',
-        selectorLabel: (module) => `Scheduled task content: ${module}`,
+        title: 'Automations',
+        description: 'Manage reminders, daily reviews, and reusable browser workflows.',
+        selectorLabel: (module) => `Automation content: ${module}`,
         planReminders: 'Plan reminders',
         dailyReview: 'Daily review',
+        browserWorkflows: 'Browser workflows',
       },
     },
     modules: {
       skills: 'Skills',
       loadingSkills: 'Loading skills…',
-      automations: 'Scheduled tasks',
-      loadingAutomations: 'Loading scheduled tasks…',
+      automations: 'Automations',
+      loadingAutomations: 'Loading automations…',
       dailyReview: 'Daily review',
       loadingDailyReview: 'Loading daily review…',
       dailyReviewDescription: 'Summarize local conversations into highlights, missed items, and deeper analysis. Scheduled runs can be enabled in Settings.',

@@ -7,7 +7,7 @@ test('session tools share one user-controlled workbar', async ({ sessionWorkbarW
   const tabs = workbar.getByRole('navigation', { name: '会话工作栏栏目' });
 
   await expect(tabs.getByRole('button', { name: /任务/ })).toHaveAttribute('aria-current', 'page');
-  await expect(tabs.getByRole('button', { name: /浏览器/ })).toHaveCount(0);
+  await expect(tabs.getByRole('button', { name: /浏览器/ })).toBeEnabled();
   await expect(tabs.getByRole('button', { name: /文件/ })).toBeEnabled();
   await expect(
     workbar.getByRole('tree', { name: '活跃会话任务' }).getByText('完成会话任务台账升级'),

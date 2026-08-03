@@ -25,7 +25,7 @@ describe('sidebar subtraction', () => {
 
     assert.match(markup, />新任务</);
     assert.match(markup, />扩展</);
-    assert.match(markup, />定时任务</);
+    assert.match(markup, />自动任务</);
     assert.doesNotMatch(markup, />技能</);
     assert.doesNotMatch(markup, />MCP</);
     assert.doesNotMatch(markup, />每日回顾</);
@@ -139,9 +139,10 @@ describe('sidebar subtraction', () => {
     assert.match(extensions, />MCP</);
     assert.doesNotMatch(extensions, /aria-haspopup="menu"/);
     assert.match(automations, /astryx-tab-list/);
-    assert.match(automations, /aria-label="定时任务内容：计划提醒"/);
+    assert.match(automations, /aria-label="自动任务内容：计划提醒"/);
     assert.match(automations, />计划提醒</);
     assert.match(automations, />每日回顾</);
+    assert.match(automations, />操作流程</);
   });
 
   it('moves session grouping from a permanent segmented control into the list heading', () => {

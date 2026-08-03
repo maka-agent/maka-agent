@@ -90,6 +90,7 @@ export {
   Pencil,
   Pin,
   PinOff,
+  Play,
   Plug,
   Plus,
   RefreshCcw,
