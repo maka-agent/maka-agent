@@ -4556,6 +4556,21 @@ export class SessionManager {
         wakeId: input.execution.wakeId,
         attemptId: input.execution.attemptId,
       };
+    } else if (input.execution.kind === 'memory_extraction_child') {
+      if (
+        session.internalOwner?.kind !== 'memory_extraction' ||
+        session.internalOwner.operationId !== input.execution.operationId
+      ) {
+        throw new Error(
+          `Admitted Turn ${input.turnId} does not match its memory extraction Session identity`,
+        );
+      }
+      recoveryReason = 'memory_extraction_internal_admission_without_run';
+      diagnostic = {
+        executionKind: input.execution.kind,
+        operationId: input.execution.operationId,
+        attemptId: input.execution.attemptId,
+      };
     } else {
       if (
         session.subagentParent?.kind !== 'subagent' ||

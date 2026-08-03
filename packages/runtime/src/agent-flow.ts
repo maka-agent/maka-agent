@@ -38,6 +38,7 @@ import type { RuntimeContinuationMetadata } from '@maka/core/backend-types';
 import type { EffectiveOrchestration } from '@maka/core/orchestration';
 import type { InvocationContext } from './invocation-context.js';
 import type { EphemeralVoiceAudio } from '@maka/core/voice';
+import type { RootExecutionDescriptor } from '@maka/core/agent-run';
 
 export type { InvocationContext } from './invocation-context.js';
 
@@ -58,6 +59,8 @@ export type { InvocationContext } from './invocation-context.js';
 export interface FlowInput {
   /** Parent AgentRun id when this flow is running a child agent turn. */
   parentRunId?: string;
+  /** Trusted Root execution identity for this exact invocation. */
+  execution?: RootExecutionDescriptor;
   /** Trusted effective orchestration snapshot for this invocation. */
   orchestration?: EffectiveOrchestration;
   /** User turn text. */

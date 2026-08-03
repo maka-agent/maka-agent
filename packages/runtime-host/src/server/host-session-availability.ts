@@ -37,9 +37,21 @@ export function runtimeHostSafeBoundaryContinuationUnavailableReason(
 }
 
 export function runtimeHostExecutionUnavailableReason(
-  header: Pick<SessionHeader, 'collaborationMode' | 'labels' | 'subagentWorkspace'>,
+  header: Pick<
+    SessionHeader,
+    'collaborationMode' | 'labels' | 'subagentWorkspace' | 'internalOwner'
+  >,
   execution: RootExecutionDescriptor,
 ): string | undefined {
+  if (header.internalOwner?.kind === 'memory_extraction') {
+    return execution.kind === 'memory_extraction_child' &&
+      execution.operationId === header.internalOwner.operationId
+      ? undefined
+      : 'Memory extraction Sessions only accept their owning internal execution.';
+  }
+  if (execution.kind === 'memory_extraction_child') {
+    return 'Memory extraction execution requires its owning internal Session.';
+  }
   return (
     runtimeHostSessionUnavailableReason(header) ??
     (header.subagentWorkspace && !isManagedWorktreeChildExecution(execution)

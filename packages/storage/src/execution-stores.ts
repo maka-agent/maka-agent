@@ -67,6 +67,7 @@ const executionStoresWritersOpeningByLease = new WeakMap<object, Promise<void>>(
 export { normalizeRootTurnAdmissionPayload } from './agent-run-store.js';
 export {
   isSessionNotFoundError,
+  SessionNotFoundError,
   SessionReadMarkerMessageNotFoundError,
 } from './session-store.js';
 export {

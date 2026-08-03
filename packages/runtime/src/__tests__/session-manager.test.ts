@@ -11899,6 +11899,64 @@ describe('SessionManager permission mode updates', () => {
     expect(childInput.runtimeContext).toBe(undefined);
   });
 
+  test('memory extraction retries never replay prior Attempt history', async () => {
+    const store = new MemorySessionStore();
+    const runStore = new MemoryAgentRunStore();
+    const backends = new BackendRegistry();
+    let backend: TestBackend | undefined;
+    backends.register('fake', (ctx) => {
+      backend = new TestBackend(ctx);
+      return backend;
+    });
+    const manager = new SessionManager({
+      store,
+      runStore,
+      runtimeEventStore: runStore,
+      backends,
+      newId: nextId(),
+      now: nextNow(6_837),
+      runtimeSource: 'test',
+    });
+    const session = await manager.createSession(makeInput());
+    store.setInternalOwnerForTest(session.id, {
+      kind: 'memory_extraction',
+      operationId: 'operation-1',
+      parentSessionId: 'parent-session',
+    });
+
+    await drain(
+      manager.sendMessage(
+        session.id,
+        { turnId: 'attempt-turn-1', text: 'attempt one' },
+        {
+          rootExecution: {
+            kind: 'memory_extraction_child',
+            operationId: 'operation-1',
+            attemptId: 'attempt-1',
+          },
+        },
+      ),
+    );
+    await drain(
+      manager.sendMessage(
+        session.id,
+        { turnId: 'attempt-turn-2', text: 'attempt two' },
+        {
+          rootExecution: {
+            kind: 'memory_extraction_child',
+            operationId: 'operation-1',
+            attemptId: 'attempt-2',
+          },
+        },
+      ),
+    );
+
+    const retryInput = backend?.sendInputs[1];
+    if (!retryInput) throw new Error('memory retry backend input was not recorded');
+    expect(retryInput.context).toEqual([]);
+    expect(retryInput.runtimeContext).toBe(undefined);
+  });
+
   test('startChildTurn uses a separate explore backend with the catalog child definition', async () => {
     const store = new MemorySessionStore();
     const runStore = new MemoryAgentRunStore();
@@ -21185,6 +21243,15 @@ class MemorySessionStore implements SessionStore {
         : createGenesisExecutionBoundary(header.permissionMode),
     );
     return header;
+  }
+
+  setInternalOwnerForTest(
+    sessionId: string,
+    internalOwner: NonNullable<SessionHeader['internalOwner']>,
+  ): void {
+    const header = this.headers.get(sessionId);
+    if (!header) throw new Error('Session not found');
+    this.headers.set(sessionId, { ...header, internalOwner });
   }
 
   async setExecutionBoundaryKind(

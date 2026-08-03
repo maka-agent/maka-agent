@@ -24,6 +24,7 @@ import type { UserQuestionResponse } from './user-question.js';
 import type { ContextBudgetDiagnostic } from './usage-stats/types.js';
 import type { EffectiveOrchestration } from './orchestration.js';
 import type { EphemeralVoiceAudio } from './voice.js';
+import type { RootExecutionDescriptor } from './agent-run.js';
 
 export interface RuntimeContinuationMetadata {
   sourceInvocationId: string;
@@ -37,6 +38,8 @@ export interface BackendSendInput {
   invocationId?: string;
   /** AgentRun id for this invocation, when the caller has a run ledger. */
   runId?: string;
+  /** Trusted Root execution identity for this exact Run. */
+  execution?: RootExecutionDescriptor;
   /** Caller-generated turn id shared by the persisted UserMessage and every emitted event. */
   turnId: string;
   /** Trusted effective orchestration snapshot for this run. */

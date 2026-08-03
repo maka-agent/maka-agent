@@ -6,6 +6,7 @@ import type {
   RuntimeEvent,
   RuntimeContinuationAuthorityStore,
   RuntimeEventStore,
+  RootExecutionDescriptor,
   ToolBoundaryProtocol,
 } from '@maka/core';
 import { isSessionInlineRun } from '@maka/core';
@@ -206,6 +207,8 @@ export interface TurnStartOptions {
   admitTurn?: () => Promise<'admitted' | 'cancelled'>;
   onRunStarted?: (runId: string, initialHeader: SessionHeader) => void | Promise<void>;
   execution?: RuntimeExecutionClaim;
+  /** Trusted execution purpose for this admitted Root Run. */
+  rootExecution?: RootExecutionDescriptor;
 }
 
 export interface ResumeContinuationOptions {
@@ -723,6 +726,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         true,
         options.onRunStarted,
         header,
+        options.rootExecution,
       );
     } finally {
       this.releaseExecutionClaim(execution);
@@ -1486,6 +1490,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
     steering = false,
     onRunStarted?: (runId: string, initialHeader: SessionHeader) => void | Promise<void>,
     initialHeader?: SessionHeader,
+    rootExecution?: RootExecutionDescriptor,
   ): AsyncIterable<SessionEvent> {
     const sessionEvents = new DeliveryAckQueue<SessionEvent>();
     const { abortController, release: releaseExecutionAbort } =
@@ -1651,6 +1656,7 @@ export class RuntimeKernel implements RuntimeKernelLike {
         invocationId: begin.initialRuntimeEvent.invocationId,
         runId: run.runId,
         turnId: run.turnId,
+        ...(rootExecution ? { execution: rootExecution } : {}),
         ...(begin.backendInput.orchestration
           ? { orchestration: begin.backendInput.orchestration }
           : {}),

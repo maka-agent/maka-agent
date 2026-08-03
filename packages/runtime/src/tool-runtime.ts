@@ -43,7 +43,11 @@ import { computerUseModelCallArgs } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
 import type { ToolInvocationRecord } from '@maka/core/usage-stats/types';
 import { redactSecrets } from '@maka/core/redaction';
-import { TOOL_BOUNDARY_PROTOCOL_V1, type RuntimeEvent } from '@maka/core';
+import {
+  TOOL_BOUNDARY_PROTOCOL_V1,
+  type RootExecutionDescriptor,
+  type RuntimeEvent,
+} from '@maka/core';
 
 import { recordToolArtifactsSafely, type ToolArtifactRecorder } from './tool-artifacts.js';
 import { createToolOutputDeltaEmitter } from './tool-output-delta.js';
@@ -258,6 +262,31 @@ export const MAX_ACTIVE_SUBAGENT_TOOLS_PER_TURN = 5;
 export const MAX_ACTIVE_CHILD_AGENT_RUNS_PER_TURN = 32;
 export const DEFAULT_PERMISSION_TIMEOUT_MS = 300_000;
 
+const MEMORY_EXTRACTION_INTERNAL_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'memory_evidence_search',
+  'memory_evidence_read',
+  'memory_submit',
+]);
+
+export type MemoryToolProtocolViolationReason =
+  | 'internal_tool_outside_memory_extraction'
+  | 'memory_extraction_identity_mismatch'
+  | 'tool_not_allowed_in_memory_extraction';
+
+/** Fail-closed Runtime ACL rejection raised before any tool side effect. */
+export class MemoryToolProtocolViolationError extends Error {
+  readonly code = 'protocol_violation' as const;
+  readonly boundary = 'memory_tool_acl' as const;
+
+  constructor(
+    readonly toolName: string,
+    readonly reason: MemoryToolProtocolViolationReason,
+  ) {
+    super(`Tool ${toolName} violates the memory extraction execution protocol`);
+    this.name = 'MemoryToolProtocolViolationError';
+  }
+}
+
 /**
  * Loop-gate: block a tool call once this many byte-identical calls (same tool +
  * same args) have FAILED back-to-back with nothing different in between. Mirrors
@@ -285,6 +314,8 @@ function composeChildAbortSignal(
 export interface ToolRuntimeInput {
   sessionId: string;
   header: SessionHeader;
+  /** Trusted Root execution identity for the currently active Run. */
+  getCurrentExecution?: () => RootExecutionDescriptor | undefined;
   connection: RuntimeExecutionConnection;
   modelId: string;
   appendMessage: AppendMessageFn;
@@ -767,6 +798,7 @@ export class ToolRuntime {
     },
     stepId?: string,
   ): Promise<unknown> {
+    this.assertMemoryToolAccess(tool.name);
     const executionArgs = snapshotToolArgs(args);
     const toolUseId = ctx.toolCallId;
     // Registration is synchronous and happens before the first await, so
@@ -1374,6 +1406,38 @@ export class ToolRuntime {
     } finally {
       this.recordLoopGateOutcome(callSignature, attemptFailed);
       if (reservedSubagentSlot) this.releaseSubagentSlot(tool);
+    }
+  }
+
+  private assertMemoryToolAccess(toolName: string): void {
+    const owner = this.input.header.internalOwner;
+    const execution = this.input.getCurrentExecution?.();
+    const internalTool = MEMORY_EXTRACTION_INTERNAL_TOOL_NAMES.has(toolName);
+
+    if (owner !== undefined) {
+      if (
+        execution?.kind !== 'memory_extraction_child' ||
+        execution.operationId !== owner.operationId
+      ) {
+        throw new MemoryToolProtocolViolationError(toolName, 'memory_extraction_identity_mismatch');
+      }
+      if (!internalTool) {
+        throw new MemoryToolProtocolViolationError(
+          toolName,
+          'tool_not_allowed_in_memory_extraction',
+        );
+      }
+      return;
+    }
+
+    if (execution?.kind === 'memory_extraction_child') {
+      throw new MemoryToolProtocolViolationError(toolName, 'memory_extraction_identity_mismatch');
+    }
+    if (internalTool) {
+      throw new MemoryToolProtocolViolationError(
+        toolName,
+        'internal_tool_outside_memory_extraction',
+      );
     }
   }
 

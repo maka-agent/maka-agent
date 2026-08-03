@@ -12,6 +12,7 @@
     "./canonical-runtime-event": "./dist/canonical-runtime-event.js",
     "./runtime-boundary": "./dist/runtime-boundary.js",
     "./runtime-event": "./dist/runtime-event.js",
+    "./runtime-event-store": "./dist/runtime-event-store.js",
     "./tool-args-identity": "./dist/tool-args-identity.js",
     "./tool-ledger-scanner": "./dist/tool-ledger-scanner.js",
     "./tool-recovery-fact": "./dist/tool-recovery-fact.js",

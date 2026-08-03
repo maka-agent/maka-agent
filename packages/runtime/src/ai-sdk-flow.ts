@@ -665,6 +665,7 @@ export class AiSdkFlow implements AgentFlow, AgentFlowControl {
         invocationId: ctx.invocationId,
         runId: ctx.runId,
         turnId: ctx.turnId,
+        ...(input.execution !== undefined ? { execution: input.execution } : {}),
         ...(input.orchestration !== undefined ? { orchestration: input.orchestration } : {}),
         // The persisted head anchor: mid-turn capacity compaction keeps this
         // event verbatim and needs its exact ledger identity for coverage.

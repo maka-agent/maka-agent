@@ -684,6 +684,13 @@ function isTurnOrigin(value: unknown): value is TurnOrigin {
   if (value.kind === 'goal') {
     return Object.keys(value).length === 2 && typeof value.goalId === 'string';
   }
+  if (value.kind === 'memory_extraction') {
+    return (
+      Object.keys(value).length === 3 &&
+      typeof value.operationId === 'string' &&
+      typeof value.attemptId === 'string'
+    );
+  }
   return (
     value.kind === 'agent_graph' &&
     Object.keys(value).length === 4 &&

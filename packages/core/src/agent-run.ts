@@ -94,6 +94,11 @@ export type RootExecutionDescriptor =
       claim: AgentGraphIntentClaim;
       agentId: string;
       agentName: string;
+    }
+  | {
+      kind: 'memory_extraction_child';
+      operationId: string;
+      attemptId: string;
     };
 
 const AGENT_RUN_CONTINUATION_SOURCE_V1_SHAPE = defineObjectShape<AgentRunContinuationSourceV1>()(
@@ -162,6 +167,10 @@ export interface AgentRunHeader {
   agentGraphWakeId?: string;
   /** Durable delivery attempt for this host-authored supervisor turn. */
   agentGraphWakeAttemptId?: string;
+  /** Durable extraction operation owning this internal Memory Run. */
+  memoryExtractionOperationId?: string;
+  /** Durable lease attempt that admitted this internal Memory Run. */
+  memoryExtractionAttemptId?: string;
   /** Positive identity for a host-authored root that has no message lineage. */
   rootExecutionKind?: 'context_compact';
   failureClass?: string;
@@ -179,7 +188,8 @@ type HostedRootExecutionDescriptor = Extract<
       | 'automation'
       | 'goal'
       | 'agent_graph_supervisor_wake'
-      | 'safe_boundary_continuation';
+      | 'safe_boundary_continuation'
+      | 'memory_extraction_child';
   }
 >;
 
@@ -188,6 +198,12 @@ export function agentRunMatchesHostedRootExecution(
   execution: HostedRootExecutionDescriptor,
 ): boolean {
   if (execution.kind !== 'context_compact' && run.rootExecutionKind !== undefined) return false;
+  if (
+    execution.kind !== 'memory_extraction_child' &&
+    (run.memoryExtractionOperationId !== undefined || run.memoryExtractionAttemptId !== undefined)
+  ) {
+    return false;
+  }
   if (execution.kind === 'regenerate') {
     return (
       run.parentTurnId === execution.sourceTurnId &&
@@ -306,6 +322,15 @@ function hostedRootAuthorityMatches(
         run.agentSwarmAuthorization === 'none' &&
         run.automationId === undefined &&
         run.goalId === undefined
+      );
+    case 'memory_extraction_child':
+      return (
+        run.memoryExtractionOperationId === execution.operationId &&
+        run.memoryExtractionAttemptId === execution.attemptId &&
+        run.automationId === undefined &&
+        run.goalId === undefined &&
+        run.agentGraphWakeId === undefined &&
+        run.agentGraphWakeAttemptId === undefined
       );
   }
 }
@@ -440,6 +465,8 @@ const AGENT_RUN_HEADER_SHAPE = defineObjectShape<AgentRunHeader>()(
     'goalId',
     'agentGraphWakeId',
     'agentGraphWakeAttemptId',
+    'memoryExtractionOperationId',
+    'memoryExtractionAttemptId',
     'rootExecutionKind',
     'failureClass',
     'failureMessage',
@@ -501,6 +528,8 @@ export function decodeAgentRunHeader(value: unknown): AgentRunHeader {
       value.goalId,
       value.agentGraphWakeId,
       value.agentGraphWakeAttemptId,
+      value.memoryExtractionOperationId,
+      value.memoryExtractionAttemptId,
       value.failureClass,
       value.failureMessage,
       value.abortSource,

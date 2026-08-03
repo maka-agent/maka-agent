@@ -5,6 +5,7 @@
 import type { MessageContent } from './events.js';
 import type {
   BackendKind,
+  InternalSessionOwner,
   SessionBlockedReason,
   SessionStatus,
   SubagentSessionParent,
@@ -50,6 +51,8 @@ export interface CreateSessionInput {
   subagentRuntime?: SubagentSessionRuntime;
   subagentSpawn?: SubagentSessionSpawn;
   subagentWorkspace?: SubagentWorkspaceBinding;
+  /** Host-only ownership for an internal Session created through stable creation. */
+  internalOwner?: InternalSessionOwner;
   revisionRootSessionId?: string;
   revisionParentSessionId?: string;
   revisionOfTurnId?: string;
@@ -109,6 +112,11 @@ export type TurnOrigin =
       /** Durable, graph-snapshot-scoped idempotency key for this supervisor wake. */
       wakeId: string;
       /** Durable identity of one delivery attempt for the wake. */
+      attemptId: string;
+    }
+  | {
+      kind: 'memory_extraction';
+      operationId: string;
       attemptId: string;
     };
 

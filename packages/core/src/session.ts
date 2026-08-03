@@ -157,6 +157,13 @@ export interface SessionConversationCopy {
   state: 'preparing' | 'committed';
 }
 
+/** Durable Host ownership for a product-internal Session. */
+export interface InternalSessionOwner {
+  kind: 'memory_extraction';
+  operationId: string;
+  parentSessionId: string;
+}
+
 export type SubagentSessionRuntimeSummary = Omit<
   SubagentSessionRuntime,
   'systemPrompt' | 'categoryPolicy'
@@ -217,6 +224,8 @@ export interface SessionHeader {
   subagentWorkspace?: SubagentWorkspaceBinding;
   /** Immutable Host publication identity for a cross-Session conversation copy. */
   conversationCopy?: SessionConversationCopy;
+  /** Immutable ownership for a Session that must not appear in user-facing catalogs. */
+  internalOwner?: InternalSessionOwner;
   /** Stable root id for an edit-and-resend version family. */
   revisionRootSessionId?: string;
   /** Immediate previous version in the same conversation slot. */
@@ -381,6 +390,10 @@ const SESSION_CONVERSATION_COPY_SHAPE = defineObjectShape<SessionConversationCop
   ['kind', 'sourceSessionId', 'sourceTurnId', 'requestFingerprint', 'state'],
   [],
 );
+const INTERNAL_SESSION_OWNER_SHAPE = defineObjectShape<InternalSessionOwner>()(
+  ['kind', 'operationId', 'parentSessionId'],
+  [],
+);
 const SESSION_LINEAGE_ID_MAX_CHARS = 512;
 const SESSION_LINEAGE_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 const SUBAGENT_RUNTIME_NAME_MAX_CHARS = 512;
@@ -474,6 +487,17 @@ export function isSessionConversationCopy(value: unknown): value is SessionConve
     typeof value.requestFingerprint === 'string' &&
     /^sha256:[0-9a-f]{64}$/.test(value.requestFingerprint) &&
     (value.state === 'preparing' || value.state === 'committed')
+  );
+}
+
+/** Strict decoder guard for Host-owned internal Session identity. */
+export function isInternalSessionOwner(value: unknown): value is InternalSessionOwner {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, INTERNAL_SESSION_OWNER_SHAPE) &&
+    value.kind === 'memory_extraction' &&
+    isSessionLineageId(value.operationId) &&
+    isSessionLineageId(value.parentSessionId)
   );
 }
 
@@ -677,7 +701,8 @@ export interface UserMessage extends MessageContent {
   origin?:
     | { kind: 'automation'; automationId: string }
     | { kind: 'goal'; goalId: string }
-    | { kind: 'agent_graph'; graphId: string; wakeId: string; attemptId: string };
+    | { kind: 'agent_graph'; graphId: string; wakeId: string; attemptId: string }
+    | { kind: 'memory_extraction'; operationId: string; attemptId: string };
 }
 
 /** Prefer the human-facing view of a user message when one was stored. */
@@ -944,10 +969,15 @@ type MessageOrigin = NonNullable<UserMessage['origin']>;
 type AutomationOrigin = Extract<MessageOrigin, { kind: 'automation' }>;
 type GoalOrigin = Extract<MessageOrigin, { kind: 'goal' }>;
 type AgentGraphOrigin = Extract<MessageOrigin, { kind: 'agent_graph' }>;
+type MemoryExtractionOrigin = Extract<MessageOrigin, { kind: 'memory_extraction' }>;
 const AUTOMATION_ORIGIN_SHAPE = defineObjectShape<AutomationOrigin>()(['kind', 'automationId'], []);
 const GOAL_ORIGIN_SHAPE = defineObjectShape<GoalOrigin>()(['kind', 'goalId'], []);
 const AGENT_GRAPH_ORIGIN_SHAPE = defineObjectShape<AgentGraphOrigin>()(
   ['kind', 'graphId', 'wakeId', 'attemptId'],
+  [],
+);
+const MEMORY_EXTRACTION_ORIGIN_SHAPE = defineObjectShape<MemoryExtractionOrigin>()(
+  ['kind', 'operationId', 'attemptId'],
   [],
 );
 
@@ -1164,7 +1194,22 @@ function isAgentGraphOrigin(value: unknown): value is AgentGraphOrigin {
 }
 
 function isMessageOrigin(value: unknown): value is MessageOrigin {
-  return isAutomationOrigin(value) || isGoalOrigin(value) || isAgentGraphOrigin(value);
+  return (
+    isAutomationOrigin(value) ||
+    isGoalOrigin(value) ||
+    isAgentGraphOrigin(value) ||
+    isMemoryExtractionOrigin(value)
+  );
+}
+
+function isMemoryExtractionOrigin(value: unknown): value is MemoryExtractionOrigin {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, MEMORY_EXTRACTION_ORIGIN_SHAPE) &&
+    value.kind === 'memory_extraction' &&
+    typeof value.operationId === 'string' &&
+    typeof value.attemptId === 'string'
+  );
 }
 
 function isOptionalFiniteDuration(value: unknown): boolean {

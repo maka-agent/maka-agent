@@ -1,8 +1,21 @@
 import { join } from 'node:path';
 import type {
   ApplyMemoryMutationsRequest,
+  ClaimMemoryExtractionCleanupRequest,
+  CancelMemoryExtractionsForSessionsRequest,
+  ClaimMemoryExtractionOperationRequest,
+  CommitMemoryExtractionRequest,
+  CreateMemoryExtractionOperationRequest,
+  CreateMemoryExtractionSweepFollowupRequest,
+  FailMemoryExtractionAttemptRequest,
+  FinishMemoryExtractionCleanupRequest,
+  ListRecoverableMemoryExtractionsRequest,
+  ListUnassignedMemoryExtractionSweepDebtsRequest,
   MemoryItemStore,
   MemoryItemWrite,
+  RaiseMemoryExtractionRequestedBoundaryRequest,
+  RenewMemoryExtractionAttemptLeaseRequest,
+  SearchMemoryExtractionCandidatesRequest,
   SearchMemoryItemsByKeyRequest,
 } from '@maka/core/long-term-memory';
 import {
@@ -119,6 +132,102 @@ function createWriterFacade(
       return run(() => store.searchByKeys(snapshot));
     },
     readOperation: (operationId) => run(() => store.readOperation(operationId)),
+    createMemoryExtractionOperation: (request) => {
+      const snapshot = snapshotCreateExtractionRequest(request);
+      return run(() => store.createMemoryExtractionOperation(snapshot));
+    },
+    claimMemoryExtractionOperation: (request) => {
+      const snapshot = Object.freeze({ ...request }) as ClaimMemoryExtractionOperationRequest;
+      return run(() => store.claimMemoryExtractionOperation(snapshot));
+    },
+    listRecoverableMemoryExtractions: (request) => {
+      const snapshot = Object.freeze(
+        request?.limit === undefined ? {} : { limit: request.limit },
+      ) as ListRecoverableMemoryExtractionsRequest;
+      return run(() => store.listRecoverableMemoryExtractions(snapshot));
+    },
+    listRecoverableMemoryExtractionCleanups: (request) => {
+      const snapshot = Object.freeze(
+        request?.limit === undefined ? {} : { limit: request.limit },
+      ) as ListRecoverableMemoryExtractionsRequest;
+      return run(() => store.listRecoverableMemoryExtractionCleanups(snapshot));
+    },
+    hasUnfinishedMemoryExtractions: () => run(() => store.hasUnfinishedMemoryExtractions()),
+    listUnassignedMemoryExtractionSweepDebts: (request) => {
+      const snapshot = Object.freeze(
+        request?.limit === undefined ? {} : { limit: request.limit },
+      ) as ListUnassignedMemoryExtractionSweepDebtsRequest;
+      return run(() => store.listUnassignedMemoryExtractionSweepDebts(snapshot));
+    },
+    createMemoryExtractionSweepFollowup: (request) => {
+      const snapshot = Object.freeze({
+        operation: snapshotCreateExtractionRequest(request.operation),
+        expectedCursorVersion: request.expectedCursorVersion,
+      }) as CreateMemoryExtractionSweepFollowupRequest;
+      return run(() => store.createMemoryExtractionSweepFollowup(snapshot));
+    },
+    renewMemoryExtractionAttemptLease: (request) => {
+      const snapshot = Object.freeze({
+        operationId: request.operationId,
+        attemptId: request.attemptId,
+        runId: request.runId,
+        leaseExpiresAt: request.leaseExpiresAt,
+      }) as RenewMemoryExtractionAttemptLeaseRequest;
+      return run(() => store.renewMemoryExtractionAttemptLease(snapshot));
+    },
+    failMemoryExtractionAttempt: (request) => {
+      const snapshot = Object.freeze({
+        ...request,
+        ...(request.metrics === undefined || request.metrics === null
+          ? {}
+          : { metrics: Object.freeze({ ...request.metrics }) }),
+      }) as FailMemoryExtractionAttemptRequest;
+      return run(() => store.failMemoryExtractionAttempt(snapshot));
+    },
+    readMemoryExtractionOperation: (operationId) =>
+      run(() => store.readMemoryExtractionOperation(operationId)),
+    readMemoryExtractionAttempt: (attemptId) =>
+      run(() => store.readMemoryExtractionAttempt(attemptId)),
+    readMemoryExtractionCursor: (sessionId, runId) =>
+      run(() => store.readMemoryExtractionCursor(sessionId, runId)),
+    raiseMemoryExtractionRequestedBoundary: (request) => {
+      const snapshot = Object.freeze({
+        ...request,
+      }) as RaiseMemoryExtractionRequestedBoundaryRequest;
+      return run(() => store.raiseMemoryExtractionRequestedBoundary(snapshot));
+    },
+    searchMemoryExtractionCandidates: (request) => {
+      const snapshot = Object.freeze({
+        ...request,
+        keys: Object.freeze([...request.keys]),
+        ...(request.sourceEventIds === undefined
+          ? {}
+          : { sourceEventIds: Object.freeze([...request.sourceEventIds]) }),
+      }) as SearchMemoryExtractionCandidatesRequest;
+      return run(() => store.searchMemoryExtractionCandidates(snapshot));
+    },
+    commitMemoryExtraction: (request) => {
+      const snapshot = Object.freeze({
+        ...request,
+        mutations: snapshotMutations(request.mutations),
+      }) as CommitMemoryExtractionRequest;
+      return run(() => store.commitMemoryExtraction(snapshot));
+    },
+    claimMemoryExtractionCleanup: (request) => {
+      const snapshot = Object.freeze({ ...request }) as ClaimMemoryExtractionCleanupRequest;
+      return run(() => store.claimMemoryExtractionCleanup(snapshot));
+    },
+    finishMemoryExtractionCleanup: (request) => {
+      const snapshot = Object.freeze({ ...request }) as FinishMemoryExtractionCleanupRequest;
+      return run(() => store.finishMemoryExtractionCleanup(snapshot));
+    },
+    cancelMemoryExtractionsForSessions: (request) => {
+      const snapshot = Object.freeze({
+        sessionIds: Object.freeze([...request.sessionIds]),
+        diagnosticRetentionUntil: request.diagnosticRetentionUntil,
+      }) as CancelMemoryExtractionsForSessionsRequest;
+      return run(() => store.cancelMemoryExtractionsForSessions(snapshot));
+    },
     close: () => {
       if (closed) return;
       closed = true;
@@ -133,26 +242,43 @@ function createWriterFacade(
 function snapshotApplyRequest(request: ApplyMemoryMutationsRequest): ApplyMemoryMutationsRequest {
   return Object.freeze({
     operationId: request.operationId,
-    mutations: Object.freeze(
-      request.mutations.map((mutation) => {
-        if (mutation.type === 'create') {
-          return Object.freeze({ type: mutation.type, item: snapshotItemWrite(mutation.item) });
-        }
-        if (mutation.type === 'update') {
-          return Object.freeze({
-            type: mutation.type,
-            itemId: mutation.itemId,
-            expectedVersion: mutation.expectedVersion,
-            item: snapshotItemWrite(mutation.item),
-          });
-        }
+    mutations: snapshotMutations(request.mutations),
+  });
+}
+
+function snapshotMutations(
+  mutations: ApplyMemoryMutationsRequest['mutations'],
+): ApplyMemoryMutationsRequest['mutations'] {
+  return Object.freeze(
+    mutations.map((mutation) => {
+      if (mutation.type === 'create') {
+        return Object.freeze({ type: mutation.type, item: snapshotItemWrite(mutation.item) });
+      }
+      if (mutation.type === 'update') {
         return Object.freeze({
           type: mutation.type,
           itemId: mutation.itemId,
           expectedVersion: mutation.expectedVersion,
+          item: snapshotItemWrite(mutation.item),
         });
-      }),
-    ),
+      }
+      return Object.freeze({
+        type: mutation.type,
+        itemId: mutation.itemId,
+        expectedVersion: mutation.expectedVersion,
+      });
+    }),
+  );
+}
+
+function snapshotCreateExtractionRequest(
+  request: CreateMemoryExtractionOperationRequest,
+): CreateMemoryExtractionOperationRequest {
+  return Object.freeze({
+    ...request,
+    ...(request.ranges === undefined
+      ? {}
+      : { ranges: Object.freeze(request.ranges.map((range) => Object.freeze({ ...range }))) }),
   });
 }
 

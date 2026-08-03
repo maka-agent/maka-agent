@@ -351,6 +351,59 @@ export type {
   ProviderRequestUsage,
 } from './provider-request-telemetry.js';
 export type { MakaTool, MakaToolContext } from './tool-runtime.js';
+export {
+  buildMemoryExtractionScheduleTools,
+  MEMORY_EXTRACT_TOOL_NAME,
+  MEMORY_REMEMBER_TOOL_NAME,
+} from './memory-extraction-tools.js';
+export type {
+  AutomaticMemoryExtractionScheduleRequest,
+  AutomaticMemoryExtractionScheduler,
+  AutomaticMemoryExtractionTriggerKind,
+  MemoryExtractionScheduler,
+  MemoryExtractionScheduleMode,
+  MemoryExtractionScheduleRequest,
+  MemoryExtractionScheduleResult,
+  MemoryExtractionTriggerKind,
+} from './memory-extraction-tools.js';
+export {
+  buildMemoryExtractionChildTools,
+  createMemoryExtractionChildToolSet,
+  buildUnboundMemoryExtractionChildTools,
+  MEMORY_EVIDENCE_READ_TOOL_NAME,
+  MEMORY_EVIDENCE_SEARCH_TOOL_NAME,
+  MEMORY_SUBMIT_TOOL_NAME,
+  MemoryExtractionProtocolError,
+} from './memory-extraction-child-tools.js';
+export type {
+  MemoryCandidateView,
+  MemoryEvidenceReadInput,
+  MemoryEvidenceReadPort,
+  MemoryEvidenceReadResult,
+  MemoryEvidenceSearchInput,
+  MemoryEvidenceSearchPort,
+  MemoryEvidenceSearchResult,
+  MemoryEvidenceSourceView,
+  MemoryEvidenceSpanView,
+  MemoryExtractionChildAuthority,
+  MemoryExtractionChildBinding,
+  MemoryExtractionChildToolPorts,
+  MemoryExtractionChildToolSet,
+  MemoryExtractionTerminalToolFailure,
+  MemoryExtractionInvocation,
+  MemoryExtractionResponse,
+  MemoryProposal,
+  MemoryProposalSubmissionResult,
+  MemoryResolutionCandidate,
+  MemoryResolutionCase,
+  MemoryResolutionDecision,
+  MemorySubmissionNeedsResolution,
+  MemorySubmissionPort,
+  MemorySubmissionReceipt,
+  MemorySubmitInput,
+  MemoryToolErrorResult,
+  MemoryToolExpectedPhase,
+} from './memory-extraction-child-tools.js';
 export { buildMcpTools, mcpProxyToolName } from './mcp-tools.js';
 export type {
   McpToolProvider,

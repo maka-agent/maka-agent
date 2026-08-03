@@ -2481,6 +2481,9 @@ export class SqliteSessionMetadataStore {
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentWorkspace')) {
       throw new Error('Subagent session workspace binding is immutable');
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'internalOwner')) {
+      throw new Error('Internal Session ownership is immutable');
+    }
     return this.transaction(() => this.updateHeaderSync(sessionId, patch, options));
   }
 

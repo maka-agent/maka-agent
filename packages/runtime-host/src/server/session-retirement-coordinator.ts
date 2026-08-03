@@ -94,6 +94,9 @@ export interface HostSessionRetirementCoordinatorOptions {
   readonly continuity: RetirementContinuity;
   readonly artifacts: Pick<InteractiveArtifactStoreWriter, 'purgeSessionArtifacts'>;
   readonly taskLedger: Pick<InteractiveTaskLedgerWriter, 'purgeConversationTaskLedger'>;
+  readonly memoryExtractions?: {
+    retireSessions(sessionIds: readonly string[]): Promise<void>;
+  };
   readonly purgeOperationalState: (sessionId: string) => Promise<void>;
   readonly purgeAgentGraphState: (sessionId: string) => Promise<void>;
   readonly worktrees?: Pick<SubagentWorktreeExecutor, 'retire'>;
@@ -145,6 +148,7 @@ export class HostSessionRetirementCoordinator {
   readonly #continuity: RetirementContinuity;
   readonly #artifacts: HostSessionRetirementCoordinatorOptions['artifacts'];
   readonly #taskLedger: HostSessionRetirementCoordinatorOptions['taskLedger'];
+  readonly #memoryExtractions: HostSessionRetirementCoordinatorOptions['memoryExtractions'];
   readonly #purgeOperationalState: HostSessionRetirementCoordinatorOptions['purgeOperationalState'];
   readonly #purgeAgentGraphState: HostSessionRetirementCoordinatorOptions['purgeAgentGraphState'];
   readonly #worktrees: HostSessionRetirementCoordinatorOptions['worktrees'];
@@ -170,6 +174,7 @@ export class HostSessionRetirementCoordinator {
     this.#continuity = options.continuity;
     this.#artifacts = options.artifacts;
     this.#taskLedger = options.taskLedger;
+    this.#memoryExtractions = options.memoryExtractions;
     this.#purgeOperationalState = options.purgeOperationalState;
     this.#purgeAgentGraphState = options.purgeAgentGraphState;
     this.#worktrees = options.worktrees;
@@ -178,12 +183,19 @@ export class HostSessionRetirementCoordinator {
 
   async recover(): Promise<void> {
     await this.#stores.reconcileOrphanedAgentGraphRetirements();
-    this.#scheduleCleanup(await this.#stores.listPendingSessionRetirementCleanupIds());
+    const pendingCleanup = await this.#stores.listPendingSessionRetirementCleanupIds();
+    await this.#memoryExtractions?.retireSessions(pendingCleanup);
+    this.#scheduleCleanup(pendingCleanup);
   }
 
   async close(): Promise<void> {
     this.#closing = true;
     await this.#cleanupWorker;
+  }
+
+  /** Host-only retirement path for hidden Sessions that have no client connection context. */
+  removeInternalSession(input: SessionRemoveInput): Promise<OperationOutcome<'session.remove'>> {
+    return this.#remove(input);
   }
 
   async #setLifecycle(
@@ -262,9 +274,11 @@ export class HostSessionRetirementCoordinator {
     }
     if (probe.kind === 'removed') {
       try {
-        this.#scheduleCleanup(
-          await this.#stores.listPendingSessionRetirementCleanupIds(input.sessionId),
+        const pendingCleanup = await this.#stores.listPendingSessionRetirementCleanupIds(
+          input.sessionId,
         );
+        await this.#memoryExtractions?.retireSessions(pendingCleanup);
+        this.#scheduleCleanup(pendingCleanup);
       } catch {
         this.#requestDrain();
       }
@@ -294,6 +308,7 @@ export class HostSessionRetirementCoordinator {
             versionedFamily(committable),
           );
           committed = true;
+          await this.#memoryExtractions?.retireSessions(removedSessionIds);
           handles.goal.commit();
           handles.automation.commit();
           await this.#graphWake.retireSessions(family.sessionIds);
@@ -458,6 +473,10 @@ export class HostSessionRetirementCoordinator {
   }
 
   async #cleanupRetiredSession(sessionId: string): Promise<void> {
+    // Session deletion and Memory cancellation are separate durable authorities.
+    // Repeat the idempotent cancellation before purging evidence so a crash
+    // between those commits cannot strand a runnable extraction.
+    await this.#memoryExtractions?.retireSessions([sessionId]);
     const worktree = this.#retiredWorktrees.get(sessionId);
     const outcomes = await Promise.allSettled([
       purgeSessionSidecars(

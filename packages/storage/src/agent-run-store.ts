@@ -1475,6 +1475,22 @@ function normalizeRootExecutionDescriptor(value: unknown): RootExecutionDescript
       targetInvocationId: value.targetInvocationId,
     });
   }
+  if (value.kind === 'memory_extraction_child') {
+    if (
+      !hasExactKeys(value, ['kind', 'operationId', 'attemptId']) ||
+      typeof value.operationId !== 'string' ||
+      !isSafeId(value.operationId) ||
+      typeof value.attemptId !== 'string' ||
+      !isSafeId(value.attemptId)
+    ) {
+      throw new Error('Invalid root execution descriptor');
+    }
+    return Object.freeze({
+      kind: value.kind,
+      operationId: value.operationId,
+      attemptId: value.attemptId,
+    });
+  }
   if (value.kind === 'claimed_agent_graph_intent') {
     if (
       !hasExactKeys(value, ['kind', 'claim', 'agentId', 'agentName']) ||

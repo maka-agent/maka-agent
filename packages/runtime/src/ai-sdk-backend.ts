@@ -181,6 +181,7 @@ import {
   buildHistorySearchSource,
   buildPromptSegmentEstimates,
   estimateRuntimeEventsTokens,
+  estimateTokens,
   mergeContextBudgetDiagnostic,
   mergeContextBudgetDiagnosticPatches,
   mergeRuntimeEventsInOriginalOrder,
@@ -342,6 +343,8 @@ export interface AiSdkBackendInput extends AiSdkCompactionCapabilities {
   providerOptions?: Record<string, unknown>;
   /** Optional fire-and-forget telemetry hook. Tool implementations remain unaware. */
   recordToolInvocation?: ToolTelemetryRecorder;
+  /** Independent request-occupancy threshold for automatic memory extraction. Defaults to 0.5. */
+  memoryExtractionThresholdRatio?: number;
   /** Optional Phase 2 SQLite T1/T2 boundary for real tool execution. */
   runtimeCommitSink?: RuntimeCommitSink;
   /** Durable session-lifetime cumulative usage checkpoint after each completed provider step. */
@@ -548,10 +551,15 @@ class TurnScope {
    * so a provider request never carries an unpersisted steering directive.
    */
   injectedSteeringMessages: ModelMessage[] = [];
+  memoryExtractionEpoch = 'history:initial';
+  memoryExtractionThresholdTriggeredEpoch: string | undefined;
+  memoryExtractionLastOccupancyRatio = 0;
+  memoryExtractionObservedCheckpointId: string | undefined;
 
   constructor(
     readonly turnId: string,
     readonly runId: string | undefined,
+    readonly execution: BackendSendInput['execution'] | undefined,
     readonly orchestration: EffectiveOrchestration,
     readonly toolRuntime: ToolRuntime,
   ) {}
@@ -591,6 +599,13 @@ export class AiSdkBackend implements AgentBackend {
    * across turns.
    */
   private priorRequestShape: RequestShapeDiagnostic | undefined;
+  /**
+   * A context epoch may cross the extraction threshold in more than one turn.
+   * Keep the successful edge at Session-backend scope so a long context does
+   * not schedule extraction again on every subsequent turn. Failed schedules
+   * are removed and may be retried by a later turn.
+   */
+  private readonly memoryExtractionThresholdScheduledEpochs = new Set<string>();
   private readonly compaction: AiSdkCompaction;
   /** Session-scoped running total, deliberately accumulated across turns. */
   private cumulativeUsageCheckpoint: NormalizedAiSdkUsage | undefined;
@@ -611,7 +626,10 @@ export class AiSdkBackend implements AgentBackend {
       now: this.now,
     });
     this.compaction = new AiSdkCompaction({
-      input,
+      input:
+        input.header.internalOwner?.kind === 'memory_extraction'
+          ? withoutAutomaticMemoryExtractionScheduler(input)
+          : input,
       sessionId: this.sessionId,
       now: this.now,
       modelAdapter: this.modelAdapter,
@@ -640,12 +658,14 @@ export class AiSdkBackend implements AgentBackend {
     runId: string | undefined;
     invocationId: string | undefined;
     hostedInteraction: HostedInteractionBridge | undefined;
+    execution: BackendSendInput['execution'] | undefined;
     scope: () => TurnScope;
   }): ToolRuntime {
     const input = this.input;
     return new ToolRuntime({
       sessionId: input.sessionId,
       header: input.header,
+      getCurrentExecution: () => identity.execution,
       connection: input.connection,
       modelId: input.modelId,
       appendMessage: input.appendMessage,
@@ -680,6 +700,16 @@ export class AiSdkBackend implements AgentBackend {
   // --------------------------------------------------------------------------
 
   async compactHistory(input: BackendCompactHistoryInput): Promise<BackendCompactHistoryResult> {
+    this.scheduleAutomaticMemoryExtractionNow(
+      {
+        turnId: input.turnId,
+        runId: input.runId,
+        text: '',
+        context: [],
+      },
+      'compaction',
+      `manual:${input.runId}:${input.turnId}`,
+    );
     return this.compaction.compactHistory(input, this.priorRequestShape?.requestShapeHash);
   }
 
@@ -703,12 +733,14 @@ export class AiSdkBackend implements AgentBackend {
     scope = new TurnScope(
       input.turnId,
       input.runId,
+      input.execution,
       orchestration,
       this.createToolRuntime({
         turnId: input.turnId,
         runId: input.runId,
         invocationId: input.invocationId ?? input.runId,
         hostedInteraction: input.hostedInteraction,
+        execution: input.execution,
         scope: () => scope,
       }),
     );
@@ -962,6 +994,10 @@ export class AiSdkBackend implements AgentBackend {
 
     // --- Build messages from RuntimeEvent history and its compatibility projection. ---
     const priorReplay = await this.buildPriorMessages(scope, input);
+    this.observeMemoryExtractionCheckpoint(
+      scope,
+      priorReplay.latestHistoryCompactCheckpoint?.checkpointId,
+    );
     if (input.continuation && priorReplay.messages.length === 0) {
       const replay = priorReplayFailureTrace(priorReplay);
       const error = new ContinuationReplayEmptyError(replay.gate, replay.diagnosticCodes);
@@ -1357,6 +1393,17 @@ export class AiSdkBackend implements AgentBackend {
           const requestSystemPrompt = finalChildSummaryStep
             ? joinPromptFragments([systemPrompt, CHILD_STEP_BUDGET_FINALIZATION_PROMPT])
             : systemPrompt;
+          this.scheduleMemoryExtractionThresholdIfCrossed({
+            scope,
+            input,
+            queue,
+            estimatedTokens: estimateTokens(
+              (requestSystemPrompt?.length ?? 0) +
+                JSON.stringify(projectedMessages).length +
+                toolSchemaCharsForDiagnostics(providerTools, activeToolsForRequest),
+              this.input.contextBudget?.charsPerToken ?? 4,
+            ),
+          });
           providerRequestTracker?.setStep(runtimeSteps);
           let attemptMessages = projectedMessages;
           let providerAttempt = 1;
@@ -2354,6 +2401,7 @@ export class AiSdkBackend implements AgentBackend {
         (block) => !loadedBlockIds.has(block.blockId),
       );
       if (draftBlocks.length > 0) {
+        this.scheduleAutomaticMemoryExtractionNow(input, 'compaction', scope.memoryExtractionEpoch);
         if (this.input.summarizeHistoryCompact && this.input.recordHistoryCompactCheckpoint) {
           const writePatch = await this.compaction.writeHistoryCompactCheckpoint({
             turnId: input.turnId,
@@ -3155,6 +3203,124 @@ export class AiSdkBackend implements AgentBackend {
     return await this.input.shellRunContextSummary?.();
   }
 
+  private observeMemoryExtractionCheckpoint(
+    scope: TurnScope,
+    checkpointId: string | undefined,
+  ): void {
+    if (!checkpointId || checkpointId === scope.memoryExtractionObservedCheckpointId) return;
+    scope.memoryExtractionObservedCheckpointId = checkpointId;
+    scope.memoryExtractionEpoch = `history:${checkpointId}`;
+    scope.memoryExtractionThresholdTriggeredEpoch = undefined;
+    scope.memoryExtractionLastOccupancyRatio = 0;
+  }
+
+  private scheduleMemoryExtractionThresholdIfCrossed(input: {
+    scope: TurnScope;
+    input: BackendSendInput;
+    queue: AsyncEventQueue<SessionEvent>;
+    estimatedTokens: number;
+  }): void {
+    const contextWindow = resolveSelectedModelContextWindow(
+      this.input.connection,
+      this.input.modelId,
+    );
+    if (!contextWindow || contextWindow <= 0) return;
+    const configured = this.input.memoryExtractionThresholdRatio ?? 0.5;
+    const threshold =
+      Number.isFinite(configured) && configured > 0 && configured < 1 ? configured : 0.5;
+    const ratio = Math.max(0, input.estimatedTokens) / contextWindow;
+    const crossed =
+      input.scope.memoryExtractionLastOccupancyRatio < threshold && ratio >= threshold;
+    input.scope.memoryExtractionLastOccupancyRatio = ratio;
+    if (
+      !crossed ||
+      this.memoryExtractionThresholdScheduledEpochs.has(input.scope.memoryExtractionEpoch) ||
+      input.scope.memoryExtractionThresholdTriggeredEpoch === input.scope.memoryExtractionEpoch
+    ) {
+      return;
+    }
+    const epoch = input.scope.memoryExtractionEpoch;
+    input.scope.memoryExtractionThresholdTriggeredEpoch = epoch;
+    const scheduled = this.scheduleAutomaticMemoryExtraction(
+      input.input,
+      input.queue,
+      'context_threshold',
+      epoch,
+      () => {
+        this.memoryExtractionThresholdScheduledEpochs.delete(epoch);
+        if (input.scope.memoryExtractionThresholdTriggeredEpoch === epoch) {
+          input.scope.memoryExtractionThresholdTriggeredEpoch = undefined;
+          input.scope.memoryExtractionLastOccupancyRatio = 0;
+        }
+      },
+    );
+    if (scheduled) {
+      this.memoryExtractionThresholdScheduledEpochs.add(epoch);
+    } else {
+      input.scope.memoryExtractionThresholdTriggeredEpoch = undefined;
+    }
+  }
+
+  private scheduleAutomaticMemoryExtraction(
+    input: BackendSendInput,
+    queue: AsyncEventQueue<SessionEvent>,
+    triggerKind: 'context_threshold' | 'compaction',
+    triggerEpoch: string,
+    onFailure?: () => void,
+  ): boolean {
+    const schedule = this.input.scheduleAutomaticMemoryExtraction;
+    if (
+      !schedule ||
+      !input.runId ||
+      this.input.header.internalOwner?.kind === 'memory_extraction' ||
+      input.execution?.kind === 'memory_extraction_child'
+    ) {
+      return false;
+    }
+    void queue
+      .waitUntilConsumedThroughCurrent()
+      .then(() =>
+        schedule({
+          sessionId: this.sessionId,
+          runId: input.runId!,
+          turnId: input.turnId,
+          triggerKind,
+          triggerEpoch,
+        }),
+      )
+      .catch(() => onFailure?.());
+    return true;
+  }
+
+  private scheduleAutomaticMemoryExtractionNow(
+    input: BackendSendInput,
+    triggerKind: 'context_threshold' | 'compaction',
+    triggerEpoch: string,
+  ): void {
+    const schedule = this.input.scheduleAutomaticMemoryExtraction;
+    if (
+      !schedule ||
+      !input.runId ||
+      this.input.header.internalOwner?.kind === 'memory_extraction' ||
+      input.execution?.kind === 'memory_extraction_child'
+    ) {
+      return;
+    }
+    try {
+      void Promise.resolve(
+        schedule({
+          sessionId: this.sessionId,
+          runId: input.runId,
+          turnId: input.turnId,
+          triggerKind,
+          triggerEpoch,
+        }),
+      ).catch(() => undefined);
+    } catch {
+      // Automatic extraction is fail-open for the foreground request.
+    }
+  }
+
   private async *drain(queue: AsyncEventQueue<SessionEvent>): AsyncIterable<SessionEvent> {
     try {
       for await (const ev of queue) {
@@ -3280,6 +3446,11 @@ export class AiSdkBackend implements AgentBackend {
       throw error;
     }
   }
+}
+
+function withoutAutomaticMemoryExtractionScheduler(input: AiSdkBackendInput): AiSdkBackendInput {
+  const { scheduleAutomaticMemoryExtraction: _schedule, ...rest } = input;
+  return rest;
 }
 
 /**

@@ -14,6 +14,7 @@ import type {
 } from './context-budget.js';
 import type { HistoryCompactCheckpoint } from './history-compact-checkpoint.js';
 import type { ModelFactory } from './model-adapter.js';
+import type { AutomaticMemoryExtractionScheduler } from './memory-extraction-tools.js';
 import type { SemanticCompactBlock } from './semantic-compact.js';
 
 export type ToolResultArchiveRecorderInput = (
@@ -150,6 +151,8 @@ export interface AiSdkCompactionCapabilities {
   apiKey: string;
   modelId: string;
   modelFactory: ModelFactory;
+  /** Best-effort Runtime-only Memory scheduling; compaction never awaits it. */
+  scheduleAutomaticMemoryExtraction?: AutomaticMemoryExtractionScheduler;
   /** Optional prior-history budget. Keeps whole turns to preserve tool-call/result pairs. */
   contextBudget?: ContextBudgetPolicy;
   /**

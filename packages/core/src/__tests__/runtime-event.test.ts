@@ -74,6 +74,38 @@ test('Core decoder matches the shared RuntimeEvent validation corpus', () => {
   }
 });
 
+test('Memory Extraction turn provenance survives canonical RuntimeEvent decoding', () => {
+  const origin = {
+    kind: 'memory_extraction' as const,
+    operationId: 'operation-1',
+    attemptId: 'attempt-1',
+  };
+  const decoded = decodeRuntimeEvent(
+    baseEvent({
+      role: 'user',
+      author: 'host',
+      content: { kind: 'text', text: 'Extract memory.', origin },
+    }),
+  );
+
+  assert.deepEqual(decoded.content, { kind: 'text', text: 'Extract memory.', origin });
+  assert.throws(
+    () =>
+      decodeRuntimeEvent(
+        baseEvent({
+          role: 'user',
+          author: 'host',
+          content: {
+            kind: 'text',
+            text: 'Extract memory.',
+            origin: { ...origin, unexpected: true } as never,
+          },
+        }),
+      ),
+    /Invalid RuntimeEvent schema/,
+  );
+});
+
 test('Stored assistant reasoning parts survive recovery decoding', () => {
   const parts = [
     {

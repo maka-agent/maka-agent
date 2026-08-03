@@ -2557,6 +2557,7 @@ export class RootTurnCoordinator {
                     runId: active.runId,
                     userMessageId: active.userMessageId ?? undefined,
                     durability: 'required',
+                    rootExecution: active.descriptor,
                     onRunStarted: async (startedRunId) => {
                       if (startedRunId !== active.runId) {
                         throw new Error(
@@ -3058,6 +3059,7 @@ function assertRunMatchesExecution(
     case 'automation':
     case 'goal':
     case 'agent_graph_supervisor_wake':
+    case 'memory_extraction_child':
     case 'safe_boundary_continuation':
       if (agentRunMatchesHostedRootExecution(run, execution)) return;
       break;
@@ -3099,7 +3101,8 @@ function assertTrustedAgentIdentity(
         | 'automation'
         | 'goal'
         | 'agent_graph_supervisor_wake'
-        | 'safe_boundary_continuation';
+        | 'safe_boundary_continuation'
+        | 'memory_extraction_child';
     }
   >,
 ): void {
@@ -3157,6 +3160,12 @@ function recoveryExecutionContract(
         pendingWithoutRun: 'root_replay',
       };
     case 'agent_graph_supervisor_wake':
+      return {
+        allowsQueueSources: false,
+        requiresUserMessage: true,
+        pendingWithoutRun: 'host_recovery_closure',
+      };
+    case 'memory_extraction_child':
       return {
         allowsQueueSources: false,
         requiresUserMessage: true,
@@ -3220,6 +3229,12 @@ function rootExecutionMessageOrigin(execution: RootExecutionDescriptor) {
         kind: 'agent_graph' as const,
         graphId: execution.graphId,
         wakeId: execution.wakeId,
+        attemptId: execution.attemptId,
+      };
+    case 'memory_extraction_child':
+      return {
+        kind: 'memory_extraction' as const,
+        operationId: execution.operationId,
         attemptId: execution.attemptId,
       };
     default:

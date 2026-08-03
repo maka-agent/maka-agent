@@ -41,7 +41,68 @@ export const MEMORY_MUTATION_TYPES = ['create', 'update', 'archive', 'restore'] 
 export type MemoryMutationType = (typeof MEMORY_MUTATION_TYPES)[number];
 export type MemoryWriteOperationType = MemoryMutationType | 'batch';
 
+export const MEMORY_EXTRACTION_MODES = ['sweep', 'targeted'] as const;
+export type MemoryExtractionMode = (typeof MEMORY_EXTRACTION_MODES)[number];
+
+export const MEMORY_EXTRACTION_TRIGGER_KINDS = [
+  'context_threshold',
+  'compaction',
+  'user_requested',
+  'agent_requested',
+] as const;
+export type MemoryExtractionTriggerKind = (typeof MEMORY_EXTRACTION_TRIGGER_KINDS)[number];
+
+export const MEMORY_EXTRACTION_OPERATION_STATES = [
+  'pending',
+  'running',
+  'succeeded',
+  'failed',
+] as const;
+export type MemoryExtractionOperationState = (typeof MEMORY_EXTRACTION_OPERATION_STATES)[number];
+
+export const MEMORY_EXTRACTION_ATTEMPT_STATES = [
+  'running',
+  'succeeded',
+  'failed',
+  'abandoned',
+] as const;
+export type MemoryExtractionAttemptState = (typeof MEMORY_EXTRACTION_ATTEMPT_STATES)[number];
+
+export const MEMORY_EXTRACTION_SNAPSHOT_KINDS = [
+  'provider_prefix',
+  'runtime_delta',
+  'reconstructed_full',
+] as const;
+export type MemoryExtractionSnapshotKind = (typeof MEMORY_EXTRACTION_SNAPSHOT_KINDS)[number];
+
+export const MEMORY_EXTRACTION_FAILURE_STAGES = [
+  'admission',
+  'provider',
+  'search',
+  'read',
+  'submit',
+  'commit',
+  'recovery',
+  'cleanup',
+] as const;
+export type MemoryExtractionFailureStage = (typeof MEMORY_EXTRACTION_FAILURE_STAGES)[number];
+
+export const MEMORY_EXTRACTION_CLEANUP_STATES = ['pending', 'running', 'completed'] as const;
+export type MemoryExtractionCleanupState = (typeof MEMORY_EXTRACTION_CLEANUP_STATES)[number];
+
+export const MEMORY_EXTRACTION_RESULT_TYPES = [
+  'proposed',
+  'empty',
+  'unresolved',
+  'not_storable',
+] as const;
+export type MemoryExtractionResultType = (typeof MEMORY_EXTRACTION_RESULT_TYPES)[number];
+
+/** Store and scheduler hard cap for one atomic multi-Run Sweep. */
+export const MEMORY_EXTRACTION_MAX_RANGES = 32;
+
 export const LONG_TERM_MEMORY_CONTENT_MAX_CODE_POINTS = 2_000;
+export type MemorySha256Digest = `sha256:${string}`;
 
 const LONG_TERM_MEMORY_CONTROL_CHARS = new RegExp(
   `[${String.fromCharCode(0x00)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}-${String.fromCharCode(0x9f)}]`,
@@ -179,11 +240,347 @@ export interface SearchMemoryItemsByKeyRequest {
   readonly limit?: number;
 }
 
+/** A frozen sweep range. Event sequence values are comparable only within its Run. */
+export interface MemoryExtractionOperationRange {
+  readonly operationId: string;
+  readonly rangeOrdinal: number;
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly runId: string;
+  readonly turnId: string;
+  readonly fromEventSeqExclusive: number;
+  readonly fromEventId: string | null;
+  readonly fromPrefixDigest: MemorySha256Digest | null;
+  readonly toEventSeqInclusive: number;
+  readonly toEventId: string;
+  readonly toPrefixDigest: MemorySha256Digest;
+}
+
+export type MemoryExtractionOperationRangeInput = Omit<
+  MemoryExtractionOperationRange,
+  'operationId'
+>;
+
+/** Persistent task authority for one frozen memory-extraction input. */
+export interface MemoryExtractionOperation {
+  readonly operationId: string;
+  readonly sessionId: string;
+  readonly mode: MemoryExtractionMode;
+  readonly triggerKind: MemoryExtractionTriggerKind;
+  readonly internalSessionId: string;
+  readonly sessionCreateFingerprint: MemorySha256Digest;
+  readonly requestHash: MemorySha256Digest;
+  readonly requestJson: string;
+  readonly triggerEpoch: string | null;
+  readonly state: MemoryExtractionOperationState;
+  readonly attemptCount: number;
+  readonly activeAttemptId: string | null;
+  readonly leaseExpiresAt: number | null;
+  readonly nextAttemptAt: number | null;
+  readonly lastErrorCode: string | null;
+  readonly lastErrorStage: MemoryExtractionFailureStage | null;
+  readonly lastErrorAt: number | null;
+  readonly lastFailedAttemptId: string | null;
+  readonly startedAt: number | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly completedAt: number | null;
+  readonly resultType: MemoryExtractionResultType | null;
+  /** Raw lowercase SHA-256 hex, matching memory_write_operations.request_hash. */
+  readonly commitHash: string | null;
+  readonly receipt: MemoryExtractionCommitReceipt | null;
+  readonly diagnosticRetentionUntil: number | null;
+  readonly cleanupState: MemoryExtractionCleanupState | null;
+  readonly cleanupClaimId: string | null;
+  readonly cleanupLeaseExpiresAt: number | null;
+  readonly cleanupAttemptCount: number;
+  readonly cleanupErrorCode: string | null;
+  readonly cleanedAt: number | null;
+  readonly ranges: readonly MemoryExtractionOperationRange[];
+}
+
+export interface CreateMemoryExtractionOperationRequest {
+  readonly operationId: string;
+  readonly sessionId: string;
+  readonly mode: MemoryExtractionMode;
+  readonly triggerKind: MemoryExtractionTriggerKind;
+  readonly internalSessionId: string;
+  readonly sessionCreateFingerprint: MemorySha256Digest;
+  /** Semantic task hash; cache-only capture hints must not be its sole input. */
+  readonly requestHash: MemorySha256Digest;
+  /** Versioned boundary/search manifest. It must not contain prompts or proposal text. */
+  readonly requestJson: string;
+  readonly triggerEpoch?: string | null;
+  /** Required for sweep and forbidden for targeted operations. */
+  readonly ranges?: readonly MemoryExtractionOperationRangeInput[];
+  /** Atomic admission ceiling for unfinished Targeted Operations in this Session. */
+  readonly maxUnfinishedTargetedPerSession?: number;
+}
+
+export interface CreateMemoryExtractionOperationResult {
+  readonly operation: MemoryExtractionOperation;
+  readonly replayed: boolean;
+}
+
+/** Numeric-only durable diagnostics. Raw provider output and errors are intentionally excluded. */
+export interface MemoryExtractionAttemptMetrics {
+  readonly version: 1;
+  readonly inputTokens?: number;
+  readonly outputTokens?: number;
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
+  readonly latencyMs?: number;
+  readonly searchCount?: number;
+  readonly readCount?: number;
+}
+
+export interface MemoryExtractionAttempt {
+  readonly attemptId: string;
+  readonly operationId: string;
+  readonly attemptOrdinal: number;
+  readonly state: MemoryExtractionAttemptState;
+  readonly turnId: string;
+  readonly runId: string;
+  readonly snapshotKind: MemoryExtractionSnapshotKind;
+  readonly startedAt: number;
+  readonly completedAt: number | null;
+  readonly failureCode: string | null;
+  readonly failureStage: MemoryExtractionFailureStage | null;
+  readonly metrics: MemoryExtractionAttemptMetrics | null;
+}
+
+export interface ClaimMemoryExtractionOperationRequest {
+  readonly operationId: string;
+  readonly attemptId: string;
+  readonly turnId: string;
+  readonly runId: string;
+  readonly snapshotKind: MemoryExtractionSnapshotKind;
+  readonly leaseExpiresAt: number;
+  /** Optional durable retry ceiling enforced atomically before a new Attempt is created. */
+  readonly maxAttempts?: number;
+  /** Required with maxAttempts so exhaustion can enter retained terminal failure. */
+  readonly diagnosticRetentionUntil?: number;
+}
+
+export interface ClaimMemoryExtractionOperationResult {
+  readonly operation: MemoryExtractionOperation;
+  readonly attempt: MemoryExtractionAttempt;
+  readonly replayed: boolean;
+}
+
+export interface ListRecoverableMemoryExtractionsRequest {
+  /**
+   * Eligibility is evaluated against the Store clock; callers cannot supply `now`.
+   * The Store applies a bounded default and rejects values above its hard cap.
+   */
+  readonly limit?: number;
+}
+
+export interface ListUnassignedMemoryExtractionSweepDebtsRequest {
+  readonly limit?: number;
+}
+
+/** A durable Sweep boundary that was requested but has no active Operation. */
+export type MemoryExtractionSweepDebt = MemoryExtractionCursor & {
+  readonly activeSweepOperationId: null;
+};
+
+export interface CreateMemoryExtractionSweepFollowupRequest {
+  readonly operation: CreateMemoryExtractionOperationRequest;
+  /** CAS guard captured by the reconciler before it builds the follow-up request. */
+  readonly expectedCursorVersion: number;
+}
+
+export interface RenewMemoryExtractionAttemptLeaseRequest {
+  readonly operationId: string;
+  readonly attemptId: string;
+  /** Trusted Child AgentRun identity bound when the Attempt was claimed. */
+  readonly runId: string;
+  readonly leaseExpiresAt: number;
+}
+
+export interface FailMemoryExtractionAttemptRequest {
+  readonly operationId: string;
+  readonly attemptId: string;
+  readonly runId: string;
+  readonly failureCode: string;
+  readonly failureStage: MemoryExtractionFailureStage;
+  readonly metrics?: MemoryExtractionAttemptMetrics | null;
+  /** When set, the Operation returns to pending; otherwise this is its final failure. */
+  readonly nextAttemptAt?: number | null;
+  /** Required for a final failure and ignored for a retryable failure. */
+  readonly diagnosticRetentionUntil?: number | null;
+}
+
+export interface MemoryExtractionCursor {
+  readonly sessionId: string;
+  readonly invocationId: string;
+  readonly runId: string;
+  readonly turnId: string;
+  readonly committedEventSeq: number;
+  readonly committedEventId: string | null;
+  readonly committedPrefixDigest: MemorySha256Digest | null;
+  readonly requestedEventSeq: number;
+  readonly requestedEventId: string | null;
+  readonly requestedPrefixDigest: MemorySha256Digest | null;
+  readonly activeSweepOperationId: string | null;
+  readonly version: number;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+/** Raise, but never lower, a running sweep's requested high-water boundary. */
+export interface RaiseMemoryExtractionRequestedBoundaryRequest {
+  readonly sessionId: string;
+  readonly runId: string;
+  readonly activeSweepOperationId: string;
+  readonly requestedEventSeq: number;
+  readonly requestedEventId: string;
+  readonly requestedPrefixDigest: MemorySha256Digest;
+}
+
+export interface SearchMemoryExtractionCandidatesRequest {
+  readonly content: string;
+  readonly kind: MemoryItemKind;
+  readonly statementType: MemoryStatementType;
+  readonly temporalType: MemoryTemporalType;
+  readonly scopeType: MemoryScopeType;
+  readonly scopeKey?: string | null;
+  readonly eventStartedAt?: number | null;
+  readonly eventEndedAt?: number | null;
+  readonly keys: readonly string[];
+  readonly sourceEventIds?: readonly string[];
+  /** Hard-capped by the Store at 20. */
+  readonly limit?: number;
+}
+
+export interface MemoryExtractionCandidate {
+  readonly record: MemoryItemRecord;
+  readonly contentHashMatch: boolean;
+  readonly sourceOverlapCount: number;
+  readonly exactKeyMatchCount: number;
+  readonly kindMatch: boolean;
+  readonly statementTypeMatch: boolean;
+  readonly temporalMatch: boolean;
+}
+
+export interface SearchMemoryExtractionCandidatesResult {
+  readonly candidates: readonly MemoryExtractionCandidate[];
+  readonly truncated: boolean;
+}
+
+export interface CommitMemoryExtractionRequest {
+  readonly operationId: string;
+  readonly attemptId: string;
+  /** Trusted Child AgentRun identity bound when the Attempt was claimed. */
+  readonly runId: string;
+  readonly resultType: MemoryExtractionResultType;
+  readonly selectionSaturated: boolean;
+  readonly evidenceDigest: MemorySha256Digest;
+  readonly mutations: readonly MemoryItemMutation[];
+  readonly diagnosticRetentionUntil: number;
+}
+
+export interface MemoryExtractionCommitReceipt {
+  readonly schemaVersion: 1;
+  readonly operationId: string;
+  readonly attemptId: string;
+  readonly resultType: MemoryExtractionResultType;
+  readonly selectionSaturated: boolean;
+  readonly evidenceDigest: MemorySha256Digest;
+  readonly mutationDigest: MemorySha256Digest;
+  readonly writeOperationId: string;
+  readonly committedAt: number;
+  readonly mutationResults: readonly MemoryMutationResult[];
+  /** Frozen post-commit snapshots; replay never re-reads later Cursor state. */
+  readonly cursors: readonly MemoryExtractionCursor[];
+}
+
+export interface CommitMemoryExtractionResult {
+  readonly operation: MemoryExtractionOperation;
+  readonly attempt: MemoryExtractionAttempt;
+  readonly writeOperation: MemoryWriteOperationResult;
+  readonly cursors: readonly MemoryExtractionCursor[];
+  readonly receipt: MemoryExtractionCommitReceipt;
+  readonly resultType: MemoryExtractionResultType;
+  readonly replayed: boolean;
+}
+
+export interface ClaimMemoryExtractionCleanupRequest {
+  readonly operationId: string;
+  readonly claimId: string;
+  readonly leaseExpiresAt: number;
+}
+
+export interface FinishMemoryExtractionCleanupRequest {
+  readonly operationId: string;
+  readonly claimId: string;
+  /** Omit on success; a stable code returns the cleanup task to pending. */
+  readonly errorCode?: string;
+}
+
+export interface CancelMemoryExtractionsForSessionsRequest {
+  readonly sessionIds: readonly string[];
+  readonly diagnosticRetentionUntil: number;
+}
+
 export interface MemoryItemStore {
   applyMutations(request: ApplyMemoryMutationsRequest): Promise<MemoryWriteOperationResult>;
   readItem(itemId: string): Promise<MemoryItemRecord | undefined>;
   searchByKeys(request: SearchMemoryItemsByKeyRequest): Promise<readonly MemoryItemRecord[]>;
   readOperation(operationId: string): Promise<MemoryWriteOperationResult | undefined>;
+  createMemoryExtractionOperation(
+    request: CreateMemoryExtractionOperationRequest,
+  ): Promise<CreateMemoryExtractionOperationResult>;
+  claimMemoryExtractionOperation(
+    request: ClaimMemoryExtractionOperationRequest,
+  ): Promise<ClaimMemoryExtractionOperationResult | undefined>;
+  listRecoverableMemoryExtractions(
+    request?: ListRecoverableMemoryExtractionsRequest,
+  ): Promise<readonly MemoryExtractionOperation[]>;
+  /** Terminal Operations whose diagnostic retention elapsed and whose cleanup is claimable. */
+  listRecoverableMemoryExtractionCleanups(
+    request?: ListRecoverableMemoryExtractionsRequest,
+  ): Promise<readonly MemoryExtractionOperation[]>;
+  hasUnfinishedMemoryExtractions(): Promise<boolean>;
+  listUnassignedMemoryExtractionSweepDebts(
+    request?: ListUnassignedMemoryExtractionSweepDebtsRequest,
+  ): Promise<readonly MemoryExtractionSweepDebt[]>;
+  createMemoryExtractionSweepFollowup(
+    request: CreateMemoryExtractionSweepFollowupRequest,
+  ): Promise<CreateMemoryExtractionOperationResult | undefined>;
+  renewMemoryExtractionAttemptLease(
+    request: RenewMemoryExtractionAttemptLeaseRequest,
+  ): Promise<MemoryExtractionOperation>;
+  failMemoryExtractionAttempt(
+    request: FailMemoryExtractionAttemptRequest,
+  ): Promise<MemoryExtractionOperation>;
+  readMemoryExtractionOperation(
+    operationId: string,
+  ): Promise<MemoryExtractionOperation | undefined>;
+  readMemoryExtractionAttempt(attemptId: string): Promise<MemoryExtractionAttempt | undefined>;
+  readMemoryExtractionCursor(
+    sessionId: string,
+    runId: string,
+  ): Promise<MemoryExtractionCursor | undefined>;
+  raiseMemoryExtractionRequestedBoundary(
+    request: RaiseMemoryExtractionRequestedBoundaryRequest,
+  ): Promise<MemoryExtractionCursor>;
+  searchMemoryExtractionCandidates(
+    request: SearchMemoryExtractionCandidatesRequest,
+  ): Promise<SearchMemoryExtractionCandidatesResult>;
+  commitMemoryExtraction(
+    request: CommitMemoryExtractionRequest,
+  ): Promise<CommitMemoryExtractionResult>;
+  claimMemoryExtractionCleanup(
+    request: ClaimMemoryExtractionCleanupRequest,
+  ): Promise<MemoryExtractionOperation | undefined>;
+  finishMemoryExtractionCleanup(
+    request: FinishMemoryExtractionCleanupRequest,
+  ): Promise<MemoryExtractionOperation>;
+  cancelMemoryExtractionsForSessions(
+    request: CancelMemoryExtractionsForSessionsRequest,
+  ): Promise<readonly string[]>;
 }
 
 export type MemoryItemStoreConflictReason =
@@ -192,7 +589,13 @@ export type MemoryItemStoreConflictReason =
   | 'duplicate_active'
   | 'duplicate_within_batch'
   | 'item_not_found'
-  | 'invalid_lifecycle_transition';
+  | 'invalid_lifecycle_transition'
+  | 'extraction_operation_not_found'
+  | 'extraction_operation_not_claimable'
+  | 'extraction_queue_full'
+  | 'extraction_attempt_not_active'
+  | 'extraction_cursor_conflict'
+  | 'extraction_cleanup_conflict';
 
 export class MemoryItemStoreConflictError extends Error {
   readonly name = 'MemoryItemStoreConflictError';
@@ -295,6 +698,50 @@ export function isMemoryKeyType(value: unknown): value is MemoryKeyType {
 
 export function isMemoryKeyOrigin(value: unknown): value is MemoryKeyOrigin {
   return memberOf(MEMORY_KEY_ORIGINS, value);
+}
+
+export function isMemoryExtractionMode(value: unknown): value is MemoryExtractionMode {
+  return memberOf(MEMORY_EXTRACTION_MODES, value);
+}
+
+export function isMemoryExtractionTriggerKind(
+  value: unknown,
+): value is MemoryExtractionTriggerKind {
+  return memberOf(MEMORY_EXTRACTION_TRIGGER_KINDS, value);
+}
+
+export function isMemoryExtractionOperationState(
+  value: unknown,
+): value is MemoryExtractionOperationState {
+  return memberOf(MEMORY_EXTRACTION_OPERATION_STATES, value);
+}
+
+export function isMemoryExtractionAttemptState(
+  value: unknown,
+): value is MemoryExtractionAttemptState {
+  return memberOf(MEMORY_EXTRACTION_ATTEMPT_STATES, value);
+}
+
+export function isMemoryExtractionSnapshotKind(
+  value: unknown,
+): value is MemoryExtractionSnapshotKind {
+  return memberOf(MEMORY_EXTRACTION_SNAPSHOT_KINDS, value);
+}
+
+export function isMemoryExtractionFailureStage(
+  value: unknown,
+): value is MemoryExtractionFailureStage {
+  return memberOf(MEMORY_EXTRACTION_FAILURE_STAGES, value);
+}
+
+export function isMemoryExtractionCleanupState(
+  value: unknown,
+): value is MemoryExtractionCleanupState {
+  return memberOf(MEMORY_EXTRACTION_CLEANUP_STATES, value);
+}
+
+export function isMemoryExtractionResultType(value: unknown): value is MemoryExtractionResultType {
+  return memberOf(MEMORY_EXTRACTION_RESULT_TYPES, value);
 }
 
 function memberOf<const T extends readonly string[]>(

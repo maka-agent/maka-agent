@@ -79,6 +79,239 @@ import { buildLlmHistorySummarizer } from '../history-compact-summarizer.js';
 import { createTestAiSdkBackend } from './execution-boundary-test-helpers.js';
 
 describe('AiSdkBackend model history', () => {
+  test('schedules the 50% Memory edge once and skips internal Memory Sessions', async () => {
+    const scheduled: unknown[] = [];
+    const thresholdConnection: LlmConnection = {
+      ...connection(),
+      models: [{ id: 'mock-model-id', contextWindow: 100 }],
+    };
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: { ...header(), model: 'mock-model-id' },
+      appendMessage: async () => {},
+      connection: thresholdConnection,
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => completionModel(),
+      tools: [],
+      scheduleAutomaticMemoryExtraction: async (request) => {
+        scheduled.push(request);
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({ runId: 'run-1', turnId: 'turn-1', text: 'x'.repeat(500), context: [] }),
+    );
+    await drain(
+      backend.send({ runId: 'run-2', turnId: 'turn-2', text: 'y'.repeat(500), context: [] }),
+    );
+    await waitFor(() => scheduled.length === 1);
+    assert.equal((scheduled[0] as { triggerKind: string }).triggerKind, 'context_threshold');
+
+    const internalScheduled: unknown[] = [];
+    const internal = createTestAiSdkBackend({
+      sessionId: 'internal-session',
+      header: {
+        ...header(),
+        id: 'internal-session',
+        model: 'mock-model-id',
+        internalOwner: {
+          kind: 'memory_extraction',
+          operationId: 'operation-1',
+          parentSessionId: 'parent-session',
+        },
+      },
+      appendMessage: async () => {},
+      connection: thresholdConnection,
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => completionModel(),
+      tools: [],
+      scheduleAutomaticMemoryExtraction: async (request) => {
+        internalScheduled.push(request);
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+    await drain(
+      internal.send({
+        runId: 'memory-run',
+        turnId: 'memory-turn',
+        text: 'z'.repeat(500),
+        context: [],
+        execution: {
+          kind: 'memory_extraction_child',
+          operationId: 'operation-1',
+          attemptId: 'attempt-1',
+        },
+      }),
+    );
+    assert.deepEqual(internalScheduled, []);
+  });
+
+  test('an internal Memory Session may compact without recursively scheduling extraction', async () => {
+    const durable = durableTurnHarness('memory-turn', 'extract durable memories');
+    const scheduled: unknown[] = [];
+    const checkpoints: HistoryCompactCheckpoint[] = [];
+    let streamCalls = 0;
+    const model = new MockLanguageModelV4({
+      doStream: async () => {
+        streamCalls += 1;
+        const chunks: LanguageModelV4StreamPart[] =
+          streamCalls === 1
+            ? [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'tool-call',
+                  toolCallId: 'memory-read-1',
+                  toolName: 'memory_evidence_read',
+                  input: '{}',
+                },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'tool-calls', raw: 'tool_calls' },
+                  usage: {
+                    inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 20, text: 20, reasoning: 0 },
+                  },
+                },
+              ]
+            : [
+                { type: 'stream-start', warnings: [] },
+                {
+                  type: 'finish',
+                  finishReason: { unified: 'stop', raw: 'stop' },
+                  usage: {
+                    inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+                    outputTokens: { total: 10, text: 10, reasoning: 0 },
+                  },
+                },
+              ];
+        return {
+          stream: simulateReadableStream({ chunks, initialDelayInMs: null, chunkDelayInMs: null }),
+        };
+      },
+    });
+    const internalHeader: SessionHeader = {
+      ...header(),
+      internalOwner: {
+        kind: 'memory_extraction',
+        operationId: 'operation-1',
+        parentSessionId: 'parent-session',
+      },
+    };
+    const internal = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: internalHeader,
+      appendMessage: async () => {},
+      connection: {
+        ...connection(),
+        models: [{ id: 'mock-model-id', contextWindow: 5_000 }],
+      },
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => model,
+      tools: [
+        {
+          name: 'memory_evidence_read',
+          description: 'Read bounded evidence.',
+          parameters: z.object({}).strict(),
+          impl: async () => ({ body: 'large durable evidence '.repeat(400) }),
+        },
+      ],
+      contextBudget: {
+        maxHistoryEstimatedTokens: 20_000,
+        charsPerToken: 1,
+        historyCompact: {
+          enabled: true,
+          mode: 'read_write',
+          maxSummaryEstimatedTokens: 1_000,
+          midTurn: { enabled: true, reserveTokens: 1_000, reserveTailEvents: 1 },
+        },
+      },
+      allowMidTurnHistoryCompaction: true,
+      summarizeHistoryCompact: async () => 'MEMORY_CHILD_COMPACTED_EVIDENCE',
+      recordHistoryCompactCheckpoint: (checkpoint) => {
+        checkpoints.push(checkpoint);
+      },
+      loadTurnRuntimeEvents: durable.loadTurnRuntimeEvents,
+      scheduleAutomaticMemoryExtraction: async (request) => {
+        scheduled.push(request);
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drainDurably(
+      internal.send(
+        durable.input({
+          runId: 'run-1',
+          runtimeContext: [
+            runtimeTextEvent({
+              id: 'memory-prior-user',
+              turnId: 'memory-prior-turn-1',
+              role: 'user',
+              author: 'user',
+              text: 'prior user evidence '.repeat(80),
+            }),
+            runtimeTextEvent({
+              id: 'memory-prior-agent',
+              turnId: 'memory-prior-turn-2',
+              role: 'model',
+              author: 'agent',
+              text: 'prior agent evidence '.repeat(80),
+            }),
+          ],
+          execution: {
+            kind: 'memory_extraction_child',
+            operationId: 'operation-1',
+            attemptId: 'attempt-1',
+          },
+        }),
+      ),
+      durable,
+    );
+
+    assert.equal(checkpoints.length, 1, 'the internal run must actually compact');
+    assert.equal(streamCalls, 2, 'the internal run must continue after compaction');
+    assert.deepEqual(scheduled, [], 'Memory child compaction must not recursively schedule Memory');
+  });
+
+  test('a failed 50% Memory schedule is fail-open and may retry in the same epoch', async () => {
+    let scheduleCalls = 0;
+    const backend = createTestAiSdkBackend({
+      sessionId: 'session-1',
+      header: { ...header(), model: 'mock-model-id' },
+      appendMessage: async () => {},
+      connection: {
+        ...connection(),
+        models: [{ id: 'mock-model-id', contextWindow: 100 }],
+      },
+      apiKey: 'sk-test',
+      modelId: 'mock-model-id',
+      modelFactory: () => completionModel(),
+      tools: [],
+      scheduleAutomaticMemoryExtraction: async () => {
+        scheduleCalls += 1;
+        throw new Error('injected scheduler failure');
+      },
+      newId: idGenerator(),
+      now: monotonicClock(),
+    });
+
+    await drain(
+      backend.send({ runId: 'run-1', turnId: 'turn-1', text: 'x'.repeat(500), context: [] }),
+    );
+    await waitFor(() => scheduleCalls === 1);
+    await Promise.resolve();
+    await drain(
+      backend.send({ runId: 'run-2', turnId: 'turn-2', text: 'y'.repeat(500), context: [] }),
+    );
+    await waitFor(() => scheduleCalls === 2);
+  });
+
   test('preserves operation-owned audio through the durable request path and redacts its capture', async () => {
     const model = completionModel();
     const captures: ProviderRequestCaptureRecord[] = [];

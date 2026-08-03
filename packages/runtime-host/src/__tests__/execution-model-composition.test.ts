@@ -35,6 +35,7 @@ import { createSqliteRuntimeStore } from '@maka/storage';
 import { createAgentGraphControlStore } from '@maka/storage/agent-graph-control-store';
 import { openInteractiveArtifactStoreForWrite } from '@maka/storage/artifact-stores';
 import { openInteractiveExecutionStoresForWrite } from '@maka/storage/execution-stores';
+import { openInteractiveLongTermMemoryStoreForWrite } from '@maka/storage/long-term-memory-store';
 import {
   openInteractiveRuntimePolicyStoresForWrite,
   type RuntimePolicyStoresWriter,
@@ -650,9 +651,19 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       assert.equal(terminal.status, 'completed');
     }
 
-    const mainRequests = provider.requests.filter((request) => request.body.stream === true);
+    await waitForMemoryExtractionProviderRoundTrip(provider.requests);
+    const longTermMemory = await openInteractiveLongTermMemoryStoreForWrite(owner.lease);
+    await waitForMemoryExtractionIdle(longTermMemory);
+    assert.equal(drainRequests, 0);
+    const memoryRequests = provider.requests.filter((request) =>
+      isMemoryExtractionProviderRequest(request.body),
+    );
+    const mainRequests = provider.requests.filter(
+      (request) => request.body.stream === true && !isMemoryExtractionProviderRequest(request.body),
+    );
     const compactRequests = provider.requests.filter((request) => request.body.stream !== true);
     assert.equal(mainRequests.length, 5);
+    assert.ok(memoryRequests.length >= 2);
     assert.ok(compactRequests.length >= 1);
     const request = mainRequests[0];
     assert.equal(request?.authorization, `Bearer ${API_KEY}`);
@@ -688,6 +699,11 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       'Write',
       'WriteStdin',
       'load_tools',
+      'memory_evidence_read',
+      'memory_evidence_search',
+      'memory_extract',
+      'memory_remember',
+      'memory_submit',
       'task_create',
       'task_get',
       'task_list',
@@ -723,6 +739,7 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       connectionContext,
       'hosted-real-provider',
       'main',
+      session.id,
     );
     assert.equal(usage.providerId, 'moonshot');
     assert.equal(usage.modelId, MODEL_ID);
@@ -735,19 +752,21 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       connectionContext,
       'hosted-real-provider',
       'history_compact',
+      session.id,
     );
     assert.equal(compactUsage.inputTokens, 7);
     assert.equal(compactUsage.outputTokens, 3);
-    const evidence = await waitForProviderEvidence(execution, session.id, provider.requests.length);
-    assert.equal(evidence.captures.length, provider.requests.length);
-    assert.equal(evidence.attempts.length, provider.requests.length);
+    const parentRequestCount = mainRequests.length + compactRequests.length;
+    const evidence = await waitForProviderEvidence(execution, session.id, parentRequestCount);
+    assert.equal(evidence.captures.length, parentRequestCount);
+    assert.equal(evidence.attempts.length, parentRequestCount);
 
     const artifacts = await openInteractiveArtifactStoreForWrite(owner.lease);
     const artifactPage = await artifacts.listPage(session.id, { offset: 0, limit: 100 });
     const captureArtifacts = artifactPage.records.filter(
       (artifact) => artifact.source === 'provider_request_capture',
     );
-    assert.equal(captureArtifacts.length, provider.requests.length);
+    assert.equal(captureArtifacts.length, parentRequestCount);
     let summaryCaptureFound = false;
     for (const artifact of captureArtifacts) {
       const read = await artifacts.readTextInSession(session.id, artifact.id);
@@ -758,7 +777,9 @@ test('production Host executes a canonical ai-sdk Session against a real provide
     }
     assert.equal(summaryCaptureFound, true);
 
-    const requestsBeforeArtifactFailure = provider.requests.length;
+    const requestsBeforeArtifactFailure = provider.requests.filter(
+      (request) => !isMemoryExtractionProviderRequest(request.body),
+    ).length;
     artifacts.close();
     const failedTurnId = randomUUID();
     const failedStart = await startTurn(
@@ -776,7 +797,11 @@ test('production Host executes a canonical ai-sdk Session against a real provide
       connectionContext,
     );
     assert.equal(failedTerminal.status, 'failed');
-    assert.equal(provider.requests.length, requestsBeforeArtifactFailure);
+    assert.equal(
+      provider.requests.filter((request) => !isMemoryExtractionProviderRequest(request.body))
+        .length,
+      requestsBeforeArtifactFailure,
+    );
     assert.equal(drainRequests, 1);
   } finally {
     try {
@@ -1910,6 +1935,7 @@ async function waitForUsage(
   context: ConnectionContext,
   connectionSlug: string,
   callKind: ModelCallKind,
+  sessionId: string,
 ): Promise<Extract<UsageQueryResult, { kind: 'logs'; source: 'llm' }>['rows'][number]> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
     const queried = await composition.handlers['usage.query'](
@@ -1921,6 +1947,7 @@ async function waitForUsage(
       const row = queried.result.rows.find(
         (candidate) =>
           candidate.connectionSlug === connectionSlug &&
+          candidate.sessionId === sessionId &&
           (candidate.callKind ?? 'main') === callKind,
       );
       if (row) return row;
@@ -1948,6 +1975,28 @@ async function waitForProviderEvidence(
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   throw new Error('Hosted provider request evidence was not persisted');
+}
+
+async function waitForMemoryExtractionProviderRoundTrip(
+  requests: readonly ProviderRequest[],
+): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (requests.filter((request) => isMemoryExtractionProviderRequest(request.body)).length >= 2) {
+      return;
+    }
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Memory Extraction provider round-trip did not complete');
+}
+
+async function waitForMemoryExtractionIdle(memory: {
+  hasUnfinishedMemoryExtractions(): Promise<boolean>;
+}): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (!(await memory.hasUnfinishedMemoryExtractions())) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error('Memory Extraction did not reach a terminal durable state');
 }
 
 function isTerminal(snapshot: TurnSnapshot): boolean {
@@ -2356,6 +2405,22 @@ async function handleProviderRequest(
     return;
   }
   const streamRequestIndex = requests.filter((candidate) => candidate.body.stream === true).length;
+  if (isMemoryExtractionProviderRequest(body)) {
+    assert.ok(toolNames(body).includes('memory_submit'));
+    if (!hasMemorySubmitCallInHistory(body)) {
+      respondProviderToolCall(response, streamRequestIndex, 'memory_submit', {
+        action: 'propose',
+        result: {
+          outcome: 'empty',
+          selectionSaturated: false,
+          proposals: [],
+        },
+      });
+      return;
+    }
+    respondProviderText(response, 'Memory extraction completed.');
+    return;
+  }
   if (flow.kind === 'agent_graph') {
     flow.scenario.respond(body, {
       text: (text) => respondProviderText(response, text),
@@ -2444,6 +2509,23 @@ async function handleProviderRequest(
     return;
   }
   respondProviderText(response, RESPONSE_TEXT);
+}
+
+function isMemoryExtractionProviderRequest(body: Record<string, unknown>): boolean {
+  return JSON.stringify(body.messages ?? []).includes('<runtime_memory_extraction>');
+}
+
+function hasMemorySubmitCallInHistory(body: Record<string, unknown>): boolean {
+  const messages = body.messages;
+  return (
+    Array.isArray(messages) &&
+    messages.some(
+      (message) =>
+        typeof message === 'object' &&
+        message !== null &&
+        JSON.stringify(message).includes('"name":"memory_submit"'),
+    )
+  );
 }
 
 function respondProviderText(response: ServerResponse, text: string): void {

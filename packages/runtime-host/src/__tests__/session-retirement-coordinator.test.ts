@@ -524,6 +524,42 @@ describe('Host Session retirement coordinator', () => {
     });
   });
 
+  test('cancels Memory extraction after tombstoning and before every operational-state purge', async () => {
+    await withHarness(async (harness) => {
+      harness.failArtifactCleanup = true;
+      const target = await harness.store.readHeaderRecordSnapshot(harness.rootId);
+
+      assert.deepEqual(
+        await harness.coordinator.handlers['session.remove'](
+          { sessionId: harness.rootId, expectedRevision: target.revision },
+          CONNECTION_CONTEXT,
+        ),
+        { ok: true, result: { kind: 'removed', sessionId: harness.rootId } },
+      );
+      await waitFor(
+        () =>
+          harness.familyIds.every(
+            (sessionId) => harness.actions.operationalPurgeCancellationCounts.get(sessionId) === 2,
+          ),
+        'initial retirement cleanup did not purge every family operational state',
+      );
+      for (const sessionId of harness.familyIds) {
+        assert.equal(harness.actions.memoryExtractionCancellations.get(sessionId), 2);
+      }
+
+      harness.failArtifactCleanup = false;
+      await harness.coordinator.recover();
+      await waitFor(
+        async () => (await harness.store.listPendingSessionRetirementCleanupIds()).length === 0,
+        'pending retirement cleanup did not converge after recovery',
+      );
+      for (const sessionId of harness.familyIds) {
+        assert.equal(harness.actions.memoryExtractionCancellations.get(sessionId), 4);
+        assert.equal(harness.actions.operationalPurgeCancellationCounts.get(sessionId), 4);
+      }
+    });
+  });
+
   test('returns after the tombstone commit and joins active cleanup on close', async () => {
     await withHarness(async (harness) => {
       let enterCleanup!: () => void;
@@ -647,6 +683,8 @@ interface RetirementActions {
   readonly retiredWorktrees: string[];
   readonly finalizedWorkspacePatches: string[];
   readonly retiredGraphWakes: string[];
+  readonly memoryExtractionCancellations: Map<string, number>;
+  readonly operationalPurgeCancellationCounts: Map<string, number>;
   goalCommits: number;
   goalRollbacks: number;
   automationCommits: number;
@@ -685,6 +723,8 @@ async function withHarness(
       retiredWorktrees: [],
       finalizedWorkspacePatches: [],
       retiredGraphWakes: [],
+      memoryExtractionCancellations: new Map(),
+      operationalPurgeCancellationCounts: new Map(),
       goalCommits: 0,
       goalRollbacks: 0,
       automationCommits: 0,
@@ -832,7 +872,30 @@ async function withHarness(
           actions.purgedTasks.push(sessionId);
         },
       },
+      memoryExtractions: {
+        retireSessions: async (sessionIds) => {
+          for (const sessionId of sessionIds) {
+            assert.deepEqual(
+              await store.probeSessionRemoval(sessionId),
+              { kind: 'removed' },
+              `Session ${sessionId} must commit its tombstone before Memory cancellation`,
+            );
+            actions.memoryExtractionCancellations.set(
+              sessionId,
+              (actions.memoryExtractionCancellations.get(sessionId) ?? 0) + 1,
+            );
+          }
+        },
+      },
       purgeOperationalState: async (sessionId) => {
+        const cancellationCount = actions.memoryExtractionCancellations.get(sessionId) ?? 0;
+        const previousPurgeCancellationCount =
+          actions.operationalPurgeCancellationCounts.get(sessionId) ?? 0;
+        assert.ok(
+          cancellationCount > previousPurgeCancellationCount,
+          `Session ${sessionId} operational-state purge requires a fresh Memory cancellation`,
+        );
+        actions.operationalPurgeCancellationCounts.set(sessionId, cancellationCount);
         actions.purgedOperationalState.push(sessionId);
       },
       purgeAgentGraphState: async (sessionId) => {

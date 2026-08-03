@@ -38,6 +38,7 @@ import {
   resolveSelectedModelContextWindow,
   SkillShadowSelectionTracker,
   type BackendFactoryContext,
+  type AutomaticMemoryExtractionScheduler,
   type BuildBuiltinToolsOptions,
   type GoalEvaluatorResource,
   type MakaTool,
@@ -224,10 +225,15 @@ export interface HostAiSdkBackendInput {
   readonly builtinTools?: BuildBuiltinToolsOptions;
   readonly hostTools?: readonly MakaTool[];
   readonly resolveRootTools?: (sessionId: string) => Promise<readonly MakaTool[]>;
+  /** Attempt-scoped replacements for provider-visible internal tool definitions. */
+  readonly resolveInternalTools?: (
+    header: SessionHeader,
+  ) => Promise<readonly MakaTool[] | undefined> | readonly MakaTool[] | undefined;
   readonly automationTool?: MakaTool;
   readonly goalTools?: readonly MakaTool[];
   readonly parentAgentTools?: readonly MakaTool[];
   readonly childAgents?: HostChildAgentBackendCapabilities;
+  readonly scheduleAutomaticMemoryExtraction?: AutomaticMemoryExtractionScheduler;
   readonly createFetchTransport?: (proxy: ProxiedFetchProxy | null) => ProxiedFetchTransport;
 }
 
@@ -461,7 +467,16 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
             input.context.abortSignal,
           )
         : [];
-    const hostTools = [...(input.hostTools ?? []), ...rootTools];
+    const internalTools = input.resolveInternalTools
+      ? await readDuringBackendCreation(
+          () => Promise.resolve(input.resolveInternalTools!(input.context.header)),
+          input.context.abortSignal,
+        )
+      : undefined;
+    const hostTools = replaceHostToolImplementations(
+      [...(input.hostTools ?? []), ...rootTools],
+      internalTools ?? [],
+    );
     modelComposition = createHostExecutionModelComposition({
       policy: input.runtimePolicy.runtimePolicy,
       skills: input.skills,
@@ -651,6 +666,9 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
         recordModelCallAttempt,
         assertModelCallAccountingReady,
         recordToolInvocation: (event) => recordToolInvocation({ repo: telemetry }, event),
+        ...(input.scheduleAutomaticMemoryExtraction
+          ? { scheduleAutomaticMemoryExtraction: input.scheduleAutomaticMemoryExtraction }
+          : {}),
         ...(input.runtimeCommitSink ? { runtimeCommitSink: input.runtimeCommitSink } : {}),
         ...(providerRequestCapture
           ? {
@@ -676,6 +694,33 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
     }
     throw error;
   }
+}
+
+function replaceHostToolImplementations(
+  tools: readonly MakaTool[],
+  replacements: readonly MakaTool[],
+): MakaTool[] {
+  if (replacements.length === 0) return [...tools];
+  const byName = new Map<string, MakaTool>();
+  for (const replacement of replacements) {
+    if (byName.has(replacement.name)) {
+      throw new Error(`Duplicate internal tool replacement: ${replacement.name}`);
+    }
+    byName.set(replacement.name, replacement);
+  }
+  const replaced = new Set<string>();
+  const result = tools.map((tool) => {
+    const replacement = byName.get(tool.name);
+    if (!replacement) return tool;
+    replaced.add(tool.name);
+    return replacement;
+  });
+  for (const name of byName.keys()) {
+    if (!replaced.has(name)) {
+      throw new Error(`Internal tool replacement has no provider-visible definition: ${name}`);
+    }
+  }
+  return result;
 }
 
 function readDuringBackendCreation<T>(
