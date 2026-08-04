@@ -7,6 +7,9 @@
     "node": ">=22.19.0"
   },
   "packageManager": "npm@11.12.1",
+  "releaseToolchain": {
+    "node": "24.18.1"
+  },
   "type": "module",
   "workspaces": [
     "packages/core",
@@ -45,7 +48,9 @@
     "check:third-party-notices": "node scripts/generate-third-party-notices.mjs --check",
     "check:release": "npm run check:stale && npm run check:third-party-notices && node scripts/check-dead-css.mjs --check",
     "package:macos-arm64": "node scripts/package-macos-arm64.mjs",
+    "package:macos-arm64-cli": "node scripts/package-macos-arm64-cli.mjs",
     "verify:macos-arm64": "node scripts/verify-macos-arm64-dmg.mjs",
+    "verify:macos-arm64-cli": "node scripts/verify-macos-arm64-cli.mjs",
     "measure:session-bundle": "node scripts/measure-session-bundle.mjs",
     "astryx:theme": "node scripts/build-astryx-theme.mjs",
     "sync:model-metadata": "node scripts/sync-model-metadata.mjs",
