@@ -24,12 +24,6 @@ import {
   MCP_DIAGNOSTIC_INPUT_CODE_UNITS,
   MCP_ERROR_DIAGNOSTIC_CODE_POINTS,
 } from './diagnostic-text.js';
-import {
-  formatMcpHeaderExclusionWarning,
-  partitionMcpHeaderToolDefinitions,
-  validateMcpHeaderArguments,
-  type McpHeaderDeclaration,
-} from './sep-2243.js';
 import { createMcpToolBinding, parseMcpToolBinding } from './tool-binding.js';
 import { McpToolCallError, normalizeToolCallError } from './tool-call-error.js';
 import { discoverMcpTools, type McpDiscoveredTool } from './tool-discovery.js';
@@ -67,7 +61,6 @@ interface ToolSnapshotEntry {
   descriptor: McpToolDescriptor;
   binding: McpToolBinding;
   connectionGeneration: number;
-  headerDeclarations: readonly McpHeaderDeclaration[];
   callPreparation?: McpToolCallPreparationState;
 }
 
@@ -89,7 +82,6 @@ interface Connection {
   status: McpServerStatus;
   toolSnapshot: Map<string, ToolSnapshotEntry>;
   connectionGeneration?: number;
-  enforceMcpHeaders: boolean;
   refreshState?: ToolRefreshState;
   closing: boolean;
 }
@@ -159,7 +151,6 @@ export class McpClientManager {
           fingerprint,
           closing: false,
           toolSnapshot: new Map(),
-          enforceMcpHeaders: false,
           status: this.makeStatus(
             serverId,
             serverConfig.enabled === false ? 'disabled' : 'disconnected',
@@ -236,7 +227,6 @@ export class McpClientManager {
     entry.stdioTransport = undefined;
     this.replaceToolSnapshot(entry, new Map());
     entry.connectionGeneration = undefined;
-    entry.enforceMcpHeaders = false;
     entry.refreshState = undefined;
     await safeClose(client, transport);
     await connectPromise?.catch(() => {});
@@ -261,7 +251,6 @@ export class McpClientManager {
       );
       entry.toolSnapshot = new Map();
       entry.connectionGeneration = undefined;
-      entry.enforceMcpHeaders = false;
       entry.refreshState = undefined;
       return safeClose(entry.client, entry.transport);
     });
@@ -333,16 +322,6 @@ export class McpClientManager {
       throw new McpToolCallError(serverId, toolName, 'tool binding is stale');
     }
     const client = entry.client;
-    if (entry.enforceMcpHeaders) {
-      const validation = validateMcpHeaderArguments(snapshot.headerDeclarations, args);
-      if (!validation.valid) {
-        throw new McpToolCallError(
-          serverId,
-          toolName,
-          `unsafe integer argument at ${validation.path.join('.')}`,
-        );
-      }
-    }
     const preparation =
       snapshot.callPreparation ??
       (snapshot.callPreparation = this.toolCallPreparer.prepare(snapshot.definition));
@@ -456,8 +435,6 @@ export class McpClientManager {
       entry.stdioTransport = connected.stdioTransport;
       const connectionGeneration = this.allocateConnectionGeneration();
       entry.connectionGeneration = connectionGeneration;
-      const enforceMcpHeaders =
-        connected.kind === 'streamable-http' && connected.client.getProtocolEra() === 'modern';
       const definitions = await listAllTools(
         connected.client,
         serverId,
@@ -476,7 +453,6 @@ export class McpClientManager {
       const snapshot = createToolSnapshot(
         serverId,
         definitions,
-        enforceMcpHeaders,
         this.bindingManagerId,
         connectionGeneration,
       );
@@ -508,7 +484,6 @@ export class McpClientManager {
         });
       });
       this.replaceToolSnapshot(entry, snapshot.entries);
-      entry.enforceMcpHeaders = enforceMcpHeaders;
       this.update(entry, {
         serverId,
         state: 'connected',
@@ -533,7 +508,6 @@ export class McpClientManager {
         entry.stdioTransport = undefined;
         this.replaceToolSnapshot(entry, new Map());
         entry.connectionGeneration = undefined;
-        entry.enforceMcpHeaders = false;
         entry.refreshState = undefined;
       }
       if (signal.aborted) {
@@ -648,7 +622,6 @@ export class McpClientManager {
       const snapshot = createToolSnapshot(
         serverId,
         definitions,
-        entry.enforceMcpHeaders,
         this.bindingManagerId,
         state.connectionGeneration,
         entry.toolSnapshot,
@@ -683,7 +656,6 @@ export class McpClientManager {
     entry.stdioTransport = undefined;
     this.replaceToolSnapshot(entry, new Map());
     entry.connectionGeneration = undefined;
-    entry.enforceMcpHeaders = false;
     entry.refreshState = undefined;
     this.update(entry, {
       ...entry.status,
@@ -781,31 +753,13 @@ async function listAllTools(
 function createToolSnapshot(
   serverId: string,
   definitions: readonly McpDiscoveredTool[],
-  enforceMcpHeaders: boolean,
   managerId: string,
   connectionGeneration: number,
   previousEntries?: ReadonlyMap<string, ToolSnapshotEntry>,
 ): { entries: Map<string, ToolSnapshotEntry>; descriptors: McpToolDescriptor[] } {
-  const tools = definitions.map(({ definition }) => definition);
-  const partition = enforceMcpHeaders
-    ? partitionMcpHeaderToolDefinitions(tools)
-    : {
-        valid: tools.map((tool) => ({ tool, declarations: [] })),
-        rejected: [],
-      };
-  const warning = formatMcpHeaderExclusionWarning(partition.rejected);
-  if (warning) console.warn(warning);
-
   const entries = new Map<string, ToolSnapshotEntry>();
   const descriptors: McpToolDescriptor[] = [];
-  const discoveredByName = new Map(
-    definitions.map((definition) => [definition.definition.name, definition]),
-  );
-  for (const { tool, declarations } of partition.valid) {
-    const discovered = discoveredByName.get(tool.name);
-    if (!discovered) {
-      throw new Error(`MCP server "${serverId}" lost Tool "${tool.name}" during validation`);
-    }
+  for (const discovered of definitions) {
     const definition = discovered.definition;
     const descriptor = descriptorFromTool(serverId, definition);
     const definitionFingerprint = discovered.definitionFingerprint;
@@ -827,10 +781,6 @@ function createToolSnapshot(
       descriptor,
       binding,
       connectionGeneration,
-      headerDeclarations: declarations.map((declaration) => ({
-        ...declaration,
-        path: [...declaration.path],
-      })),
       ...(previous?.connectionGeneration === connectionGeneration &&
       previous.definitionFingerprint === definitionFingerprint &&
       previous.callPreparation
@@ -1073,7 +1023,7 @@ function safeMcpOperationError(
   serverId: string,
   operation: string,
   cause: unknown,
-  includeCause = true,
+  includeCause = cause !== undefined,
 ): Error {
   const prefix = `MCP server ${JSON.stringify(formatMcpDiagnosticText(serverId))} ${operation}`;
   const message = includeCause ? `${prefix}: ${errorMessage(cause)}` : prefix;
