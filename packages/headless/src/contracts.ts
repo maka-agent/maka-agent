@@ -19,6 +19,7 @@ import type {
   OrchestrationMode,
   ThinkingLevel,
 } from '@maka/core';
+import { resolveEditingProtocolEnv, type EditingProtocol } from '@maka/core/apply-patch';
 
 /**
  * A unit of work the lab runs a Config against. Field names lean toward
@@ -167,6 +168,15 @@ export interface Config {
    * deferred `load_tools` activation.
    */
   agentTools?: boolean;
+  /** Explicit per-run editing surface override; current Edit/Write remains the default. */
+  editingProtocol?: EditingProtocol;
+}
+
+export function editingProtocolFromValue(
+  value: string | undefined,
+  label = 'MAKA_EDITING_PROTOCOL',
+): EditingProtocol | undefined {
+  return resolveEditingProtocolEnv(value, label);
 }
 
 export interface HeavyTaskModeConfig {

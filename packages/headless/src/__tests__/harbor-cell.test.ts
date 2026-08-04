@@ -1100,7 +1100,11 @@ describe('runHarborCell', () => {
       assert.equal(observed.spawned, false);
       assert.match(observed.error ?? '', /missing tools/i);
       assert.deepEqual(result.output.executionIdentity?.productToolSurface, {
-        policy: { economy: true, disabledSurfaceIds: ['agent'] },
+        policy: {
+          economy: true,
+          disabledSurfaceIds: ['agent'],
+          editingProtocol: 'edit_write',
+        },
         productToolNames: ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'],
       });
     });

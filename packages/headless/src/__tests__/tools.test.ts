@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { exec as childExec } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { describe, test } from 'node:test';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -221,6 +221,25 @@ describe('isolated headless tools', () => {
       seen.slice(1).every((call) => !call.boundedTail),
       'Read/Glob/Grep must request full output, not a bounded tail',
     );
+  });
+
+  test('nested writable targets emit real shell parameter expansion', async () => {
+    let captured = '';
+    const tools = buildIsolatedHeadlessTools({
+      async exec(input) {
+        captured = input.command;
+        return { exitCode: 0, stdout: fileToolOutputForCommand(input.command), stderr: '' };
+      },
+    });
+
+    await tool(tools, 'Write').impl(
+      { path: 'generated/deep/file.txt', content: 'nested\n' },
+      toolCtx('/workspace'),
+    );
+
+    assert.equal(captured.includes('segment=${remaining%%/*}'), true);
+    assert.equal(captured.includes('remaining=${remaining#*/}'), true);
+    assert.equal(captured.includes(String.raw`segment=\${remaining%%/*}`), false);
   });
 
   test('command-backed file tools forward active-turn cancellation to the isolated executor', async () => {
@@ -1662,6 +1681,119 @@ describe('isolated headless tools', () => {
     assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'outside needle\n');
   });
 
+  test('ApplyPatch creates destination parents and rejects canonical duplicate targets', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('the isolated command-backed executor requires a POSIX shell');
+      return;
+    }
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-'));
+    try {
+      const tools = execBackedTools(process.env, 'apply_patch');
+      const apply = tool(tools, 'ApplyPatch');
+      const nested = await apply.impl(
+        {
+          patch:
+            '*** Begin Patch\n' +
+            '*** Add File: generated/deep/file.txt\n' +
+            '+nested\n' +
+            '*** End Patch\n',
+        },
+        toolCtx(cwd),
+      );
+      assert.equal((nested as { ok: boolean }).ok, true);
+      assert.equal(await readFile(join(cwd, 'generated', 'deep', 'file.txt'), 'utf8'), 'nested\n');
+
+      await assert.rejects(
+        async () =>
+          await apply.impl(
+            {
+              patch:
+                '*** Begin Patch\n' +
+                '*** Add File: duplicate.txt\n' +
+                '+first\n' +
+                '*** Add File: ./duplicate.txt\n' +
+                '+second\n' +
+                '*** End Patch\n',
+            },
+            toolCtx(cwd),
+          ),
+        /already exists/i,
+      );
+      await assert.rejects(() => readFile(join(cwd, 'duplicate.txt'), 'utf8'));
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('ApplyPatch treats a symlink entry as an existing Add target before any mutation', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-symlink-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-outside-'));
+    try {
+      await writeFile(join(cwd, 'first.txt'), 'before\n', 'utf8');
+      await writeFile(join(outside, 'secret.txt'), 'secret\n', 'utf8');
+      await symlink(join(outside, 'secret.txt'), join(cwd, 'escape.txt'));
+      const apply = tool(execBackedTools(process.env, 'apply_patch'), 'ApplyPatch');
+
+      await assert.rejects(
+        async () =>
+          await apply.impl(
+            {
+              patch:
+                '*** Begin Patch\n' +
+                '*** Update File: first.txt\n' +
+                '@@\n' +
+                '-before\n' +
+                '+after\n' +
+                '*** Add File: escape.txt\n' +
+                '+overwrite\n' +
+                '*** End Patch\n',
+            },
+            toolCtx(cwd),
+          ),
+        /already exists/i,
+      );
+      assert.equal(await readFile(join(cwd, 'first.txt'), 'utf8'), 'before\n');
+      assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret\n');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  test('ApplyPatch Delete removes the symlink entry and leaves its target intact', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-delete-link-'));
+    const outside = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-delete-outside-'));
+    try {
+      await writeFile(join(outside, 'secret.txt'), 'secret\n', 'utf8');
+      await symlink(join(outside, 'secret.txt'), join(cwd, 'escape.txt'));
+      const apply = tool(execBackedTools(process.env, 'apply_patch'), 'ApplyPatch');
+
+      const result = await apply.impl(
+        {
+          patch: '*** Begin Patch\n' + '*** Delete File: escape.txt\n' + '*** End Patch\n',
+        },
+        toolCtx(cwd),
+      );
+      // Entry-delete semantics: the link itself is removed, matching the
+      // shared engine's lstat/delete contract, without following it to the
+      // file outside the workspace.
+      assert.equal((result as { ok: boolean }).ok, true);
+      await assert.rejects(() => stat(join(cwd, 'escape.txt')), { code: 'ENOENT' });
+      assert.equal(await readFile(join(outside, 'secret.txt'), 'utf8'), 'secret\n');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
   test('isolated file tools reject path escapes before executor invocation', async () => {
     let calls = 0;
     const tools = buildIsolatedHeadlessTools({
@@ -1806,25 +1938,31 @@ describe('isolated headless tools', () => {
   });
 });
 
-function execBackedTools(env: NodeJS.ProcessEnv = process.env) {
-  return buildIsolatedHeadlessTools({
-    async exec(input) {
-      try {
-        const { stdout, stderr } = await execAsync(input.command, {
-          cwd: input.cwd,
-          env,
-          maxBuffer: 1024 * 1024,
-        });
-        return { exitCode: 0, stdout, stderr };
-      } catch (error: any) {
-        return {
-          exitCode: typeof error?.code === 'number' ? error.code : 1,
-          stdout: typeof error?.stdout === 'string' ? error.stdout : '',
-          stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
-        };
-      }
+function execBackedTools(
+  env: NodeJS.ProcessEnv = process.env,
+  editingProtocol: 'edit_write' | 'apply_patch' = 'edit_write',
+) {
+  return buildIsolatedHeadlessTools(
+    {
+      async exec(input) {
+        try {
+          const { stdout, stderr } = await execAsync(input.command, {
+            cwd: input.cwd,
+            env,
+            maxBuffer: 1024 * 1024,
+          });
+          return { exitCode: 0, stdout, stderr };
+        } catch (error: any) {
+          return {
+            exitCode: typeof error?.code === 'number' ? error.code : 1,
+            stdout: typeof error?.stdout === 'string' ? error.stdout : '',
+            stderr: typeof error?.stderr === 'string' ? error.stderr : String(error),
+          };
+        }
+      },
     },
-  });
+    { editingProtocol },
+  );
 }
 
 function tool(tools: ReturnType<typeof buildIsolatedHeadlessTools>, name: string) {

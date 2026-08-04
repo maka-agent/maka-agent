@@ -10,8 +10,8 @@
 // "full access" stricter than ask mode, which grants :slash_tmp outright (#2083).
 
 import { Buffer } from 'node:buffer';
-import { realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { lstat, realpath, unlink } from 'node:fs/promises';
+import { isAbsolute, resolve } from 'node:path';
 import type { ExecutionBoundary, PermissionMode, PermissionProfile } from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
 import { withFileWriteLock } from './file-write-lock.js';
@@ -20,7 +20,10 @@ import type {
   FilesystemWorkerClientOperation,
 } from './filesystem-worker/client.js';
 import type { ImageMimeType } from './image-file.js';
-import type { FilesystemWorkerResult } from './filesystem-worker/protocol.js';
+import type {
+  FilesystemWorkerResult,
+  FilesystemWorkerTarget,
+} from './filesystem-worker/protocol.js';
 import { normalizeSandboxBoundaryPath } from './sandbox-boundary-path.js';
 import { SandboxCommandError } from './sandbox/errors.js';
 import type {
@@ -320,6 +323,31 @@ function createWorkspaceFilesystemExecutor(
           });
           return { kind: 'grep', matches };
         }
+        case 'lstat': {
+          // Entry semantics: probe the directory entry itself, never the
+          // followed target, so a plan-time symlink probe matches the
+          // delete/move mutation that follows.
+          let targetType: FilesystemWorkerTarget['targetType'];
+          try {
+            const metadata = await lstat(resolve(cwd, operation.path));
+            if (metadata.isSymbolicLink()) targetType = 'symlink';
+            else if (metadata.isFile()) targetType = 'file';
+            else if (metadata.isDirectory()) targetType = 'directory';
+            else targetType = 'other';
+          } catch (error) {
+            if (nodeErrorCode(error) === 'ENOENT' || nodeErrorCode(error) === 'ENOTDIR') {
+              targetType = 'missing';
+            } else {
+              throw error;
+            }
+          }
+          return { kind: 'lstat', targetType };
+        }
+        case 'delete': {
+          const target = resolve(cwd, operation.path);
+          await unlink(target);
+          return { kind: 'delete', ok: true, path: target };
+        }
       }
     },
   };
@@ -335,6 +363,11 @@ function assertGlobPatternInScope(pattern: string, scope: WorkspacePathScope): v
   if (isAbsolute(pattern) || pattern.split(/[\\/]+/).includes('..')) {
     throw new Error('Glob pattern must stay inside session cwd');
   }
+}
+
+function nodeErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object' || !('code' in error)) return undefined;
+  return typeof error.code === 'string' ? error.code : undefined;
 }
 
 /** The canonical spelling of an existing directory, or the input when it is not resolvable here. */

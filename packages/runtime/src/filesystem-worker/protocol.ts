@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { validateSandboxBoundaryExpansion } from '@maka/core';
 
-export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 4 as const;
+// v6: directory-entry lstat plus create-vs-replace write semantics for the
+// transactional ApplyPatch applier (#1552).
+export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 6 as const;
 
 const path = z.string().min(1).max(4096);
 const cwd = z.string().min(1).max(4096);
@@ -40,7 +42,7 @@ export const FilesystemWorkerTargetSchema = z
     enforcementPath: path,
     access: z.enum(['read', 'write']),
     scope: z.enum(['exact', 'subtree']),
-    targetType: z.enum(['file', 'directory', 'other', 'missing']),
+    targetType: z.enum(['file', 'directory', 'symlink', 'other', 'missing']),
   })
   .strict();
 
@@ -54,7 +56,16 @@ export const FilesystemWorkerOperationSchema = z.discriminatedUnion('kind', [
       limit: z.number().int().positive().optional(),
     })
     .strict(),
-  z.object({ kind: z.literal('write'), cwd, path, content: z.string() }).strict(),
+  z.object({ kind: z.literal('lstat'), cwd, path }).strict(),
+  z
+    .object({
+      kind: z.literal('write'),
+      cwd,
+      path,
+      content: z.string(),
+      mode: z.enum(['create', 'replace']).optional(),
+    })
+    .strict(),
   z
     .object({
       kind: z.literal('edit'),
@@ -72,6 +83,7 @@ export const FilesystemWorkerOperationSchema = z.discriminatedUnion('kind', [
       sortKeys: z.boolean(),
     })
     .strict(),
+  z.object({ kind: z.literal('delete'), cwd, path }).strict(),
   z
     .object({
       kind: z.literal('glob'),
@@ -106,6 +118,12 @@ export const FilesystemWorkerRequestSchema = z
   .strict();
 
 export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('lstat'),
+      targetType: z.enum(['file', 'directory', 'symlink', 'other', 'missing']),
+    })
+    .strict(),
   z.object({ kind: z.literal('read'), content: z.string() }).strict(),
   z
     .object({
@@ -144,6 +162,13 @@ export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
       bytesAfter: z.number().int().nonnegative().optional(),
       byteDelta: z.number().int(),
       changed: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal('delete'),
+      ok: z.literal(true),
+      path: z.string(),
     })
     .strict(),
   z.object({ kind: z.literal('glob'), files: z.array(z.string()) }).strict(),

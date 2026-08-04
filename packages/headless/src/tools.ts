@@ -4,6 +4,7 @@ import type {
   MakaTool,
   ToolResultArchiveResourceReader,
 } from '@maka/runtime';
+import { type EditingProtocol } from '@maka/core/apply-patch';
 import {
   assertProductBindingCatalogClean,
   bashToolShellGuidance,
@@ -11,9 +12,11 @@ import {
   buildForegroundBashTool,
   buildParentAgentTools,
   computeEditedSource,
+  executeApplyPatchWithAdapter,
   isSupportedImagePath,
   projectEffectiveProductToolSurface,
   validateImageBytes,
+  type ApplyPatchFsAdapter,
 } from '@maka/runtime';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
 import { createHash } from 'node:crypto';
@@ -36,6 +39,8 @@ import {
 
 export interface BuildIsolatedHeadlessToolsOptions {
   agentTools?: boolean;
+  /** Per-run editing protocol consumed only by the product-tool projector. */
+  editingProtocol?: EditingProtocol;
   /**
    * Ref-addressed archive reader. Supplying it binds `ArchiveRead`, which pruned
    * tool results name explicitly in their placeholders. Pass it whenever the host
@@ -99,14 +104,18 @@ export function buildIsolatedHeadlessProductToolSurface(
   executor: IsolatedToolExecutor,
   options: Pick<
     BuildIsolatedHeadlessToolsOptions,
-    'agentTools' | 'archiveResources' | 'heavyTaskEvidence' | 'snapshotImage'
+    'agentTools' | 'archiveResources' | 'heavyTaskEvidence' | 'snapshotImage' | 'editingProtocol'
   > = {},
 ): EffectiveProductToolSurface {
+  const editingProtocol: EditingProtocol = options.editingProtocol ?? 'edit_write';
+  // Bind every editing protocol implementation; the product-tool projector
+  // selects exactly one via policy.editingProtocol (#1493 / #1552).
   const productTools = [
     buildIsolatedBashTool(executor, options),
     buildIsolatedReadTool(executor, options),
     buildIsolatedWriteTool(executor, options),
     buildIsolatedEditTool(executor, options),
+    buildIsolatedApplyPatchTool(executor, options),
     buildIsolatedGlobTool(executor, options),
     buildIsolatedGrepTool(executor, options),
     ...buildParentAgentTools(),
@@ -121,6 +130,7 @@ export function buildIsolatedHeadlessProductToolSurface(
     tools: productTools,
     policy: {
       economy: true,
+      editingProtocol,
       ...(options.agentTools ? {} : { disabledSurfaceIds: ['agent'] }),
     },
   });
@@ -135,7 +145,7 @@ export function buildHeadlessProductToolSurfaceForBackend(
   executor: IsolatedToolExecutor | undefined,
   options: Pick<
     BuildIsolatedHeadlessToolsOptions,
-    'agentTools' | 'archiveResources' | 'heavyTaskEvidence' | 'snapshotImage'
+    'agentTools' | 'archiveResources' | 'heavyTaskEvidence' | 'snapshotImage' | 'editingProtocol'
   > = {},
 ): EffectiveProductToolSurface | undefined {
   if (!headlessBackendBindsMakaProductTools(backend) || !executor) return undefined;
@@ -301,6 +311,115 @@ export function buildIsolatedWriteTool(
         await options.heavyTaskEvidence?.recordToolEvidence({ name: 'Write', input, result }, ctx);
         return result;
       });
+    },
+  };
+}
+
+export function buildIsolatedApplyPatchTool(
+  executor: IsolatedToolExecutor,
+  options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence'> = {},
+): MakaTool {
+  return {
+    name: 'ApplyPatch',
+    activityKind: 'edit',
+    categoryHint: 'file_write',
+    description:
+      'Apply a Codex-compatible multi-file patch in the isolated headless task workspace. ' +
+      'Pass the full *** Begin Patch … *** End Patch envelope. Parsed and preflighted ' +
+      'before any mutation; absolute paths and parent escapes are rejected.',
+    parameters: z.object({
+      patch: z.string().describe('Full *** Begin Patch … *** End Patch text.'),
+    }),
+    impl: async ({ patch }, ctx) => {
+      const { cwd } = ctx;
+      const fs = createIsolatedApplyPatchFs(executor, cwd, ctx.abortSignal);
+      const result = await executeApplyPatchWithAdapter(patch, fs, withFileWriteLock);
+      await options.heavyTaskEvidence?.recordToolEvidence(
+        {
+          name: 'ApplyPatch',
+          input: { cwd, patch },
+          result: {
+            ok: result.ok,
+            operations: result.operations.map((operation) => ({
+              operation: operation.operation,
+              path: operation.path,
+              ...(operation.fromPath ? { fromPath: operation.fromPath } : {}),
+              status: operation.status,
+              ...(operation.bytes !== undefined ? { bytes: operation.bytes } : {}),
+            })),
+            completed: result.completed,
+            uncompleted: result.uncompleted,
+            ...(result.partial !== undefined ? { partial: result.partial } : {}),
+            ...(result.error ? { error: result.error } : {}),
+          },
+        },
+        ctx,
+      );
+      return result;
+    },
+  };
+}
+
+function createIsolatedApplyPatchFs(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  abortSignal: AbortSignal,
+): ApplyPatchFsAdapter {
+  return {
+    async lockKey(path) {
+      const normalized = normalizeWorkspacePath(path, cwd, 'ApplyPatch path');
+      return fileWriteKey(cwd, normalized);
+    },
+    async lstat(path) {
+      const normalized = normalizeWorkspacePath(path, cwd, 'ApplyPatch exists path');
+      const kind = (
+        await execFileCommand(
+          executor,
+          cwd,
+          shellFileCommand(LSTAT_SCRIPT, [normalized]),
+          abortSignal,
+        )
+      ).trim();
+      if (kind === 'missing' || kind === 'file' || kind === 'symlink' || kind === 'other') {
+        return kind;
+      }
+      throw new Error(`ApplyPatch lstat returned an invalid entry type for ${normalized}`);
+    },
+    async readText(path, label) {
+      const normalized = normalizeWorkspacePath(path, cwd, label);
+      const raw = await readIsolatedFileBytes(
+        executor,
+        cwd,
+        normalized,
+        abortSignal,
+        EDIT_READ_BYTES_SCRIPT,
+        label,
+      );
+      const source = raw.toString('utf8');
+      if (Buffer.compare(Buffer.from(source, 'utf8'), raw) !== 0) {
+        throw new Error(`${label} does not support non-UTF-8 files: ${normalized}`);
+      }
+      return source;
+    },
+    async writeText(path, content, mode) {
+      const normalized = normalizeWorkspacePath(path, cwd, 'ApplyPatch write path');
+      const bytes = Buffer.from(content, 'utf8');
+      // Create-capable write: Add/Move destinations must not require an existing target.
+      // Edit's atomic script uses existing_target and fails new files with "does not exist".
+      await writeIsolatedFileBytes(
+        executor,
+        cwd,
+        normalized,
+        bytes,
+        abortSignal,
+        mode === 'create' ? 'create' : 'edit',
+      );
+      return { path: normalized, bytes: bytes.length };
+    },
+    async deletePath(path) {
+      const normalized = normalizeWorkspacePath(path, cwd, 'ApplyPatch delete path');
+      await deleteIsolatedPath(executor, cwd, normalized, abortSignal);
+      return { path: normalized };
     },
   };
 }
@@ -584,13 +703,24 @@ async function writeIsolatedFileBytes(
   path: string,
   content: Buffer,
   abortSignal: AbortSignal,
+  mode: 'edit' | 'create' = 'edit',
 ): Promise<void> {
+  const script = mode === 'create' ? CREATE_WRITE_BYTES_SCRIPT : EDIT_WRITE_BYTES_SCRIPT;
   await execFileCommand(
     executor,
     cwd,
-    shellFileCommand(EDIT_WRITE_BYTES_SCRIPT, [path, content.toString('base64')]),
+    shellFileCommand(script, [path, content.toString('base64')]),
     abortSignal,
   );
+}
+
+async function deleteIsolatedPath(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  path: string,
+  abortSignal: AbortSignal,
+): Promise<void> {
+  await execFileCommand(executor, cwd, shellFileCommand(DELETE_SCRIPT, [path]), abortSignal);
 }
 
 function computeEditBytes(
@@ -735,15 +865,16 @@ function assertNoDriveOrParentSegment(inputPath: string, label: string): void {
 }
 
 function assertNormalizedRelativePath(inputPath: string, label: string): string {
+  const normalized = pathPosix.normalize(inputPath.replaceAll('\\', '/'));
   if (
-    inputPath.length === 0 ||
-    inputPath.startsWith('/') ||
-    /^[A-Za-z]:[\\/]/.test(inputPath) ||
-    inputPath.split(/[\\/]+/).includes('..')
+    normalized.length === 0 ||
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:[\\/]/.test(normalized) ||
+    normalized.split(/[\\/]+/).includes('..')
   ) {
     throw new Error(`${label} must stay inside the isolated workspace`);
   }
-  return inputPath;
+  return normalized;
 }
 
 const COMMON_SHELL_HELPERS = String.raw`
@@ -782,7 +913,11 @@ existing_target() {
   printf '%s\n' "$real"
 }
 
-writable_target() {
+# Delete/Move operands address a directory entry, never the link target
+# (matches the shared ApplyPatch engine's lstat/delete semantics): canonicalize
+# the parent, check containment, then hand back the entry itself without
+# following a final symlink.
+delete_operand() {
   input_path=$1
   label=$2
   target=$root/$input_path
@@ -790,6 +925,41 @@ writable_target() {
   base=$(basename "$target")
   parent_real=$(cd -P "$parent" 2>/dev/null && pwd -P) || fail "$label must stay inside workspace"
   inside_workspace "$parent_real" || fail "$label must stay inside workspace"
+  entry=$parent_real/$base
+  [ -e "$entry" ] || [ -L "$entry" ] || fail "$label does not exist: $input_path"
+  printf '%s\n' "$entry"
+}
+
+writable_target() {
+  input_path=$1
+  label=$2
+  parent_rel=$(dirname "$input_path")
+  parent_real=$root
+  remaining=$parent_rel
+  while [ "$remaining" != "." ] && [ -n "$remaining" ]; do
+    case "$remaining" in
+      */*)
+        segment=${'${remaining%%/*}'}
+        remaining=${'${remaining#*/}'}
+        ;;
+      *)
+        segment=$remaining
+        remaining=.
+        ;;
+    esac
+    [ "$segment" = "." ] && continue
+    next=$parent_real/$segment
+    [ -L "$next" ] && fail "$label must stay inside workspace"
+    if [ -e "$next" ]; then
+      [ -d "$next" ] || fail "$label parent is not a directory"
+    else
+      mkdir "$next" || fail "$label parent could not be created"
+    fi
+    parent_real=$(cd -P "$next" 2>/dev/null && pwd -P) ||
+      fail "$label must stay inside workspace"
+    inside_workspace "$parent_real" || fail "$label must stay inside workspace"
+  done
+  base=$(basename "$input_path")
   real=$parent_real/$base
   [ -L "$real" ] && fail "$label must stay inside workspace"
   printf '%s\n' "$real"
@@ -854,10 +1024,58 @@ LC_ALL=C awk -v start="$offset" -v limit="$limit" '
 ' "$target"
 `;
 
+const LSTAT_SCRIPT = `${COMMON_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+input_path=$1
+parent_rel=$(dirname "$input_path")
+parent=$root
+remaining=$parent_rel
+while [ "$remaining" != "." ] && [ -n "$remaining" ]; do
+  case "$remaining" in
+    */*)
+      segment=${'${remaining%%/*}'}
+      remaining=${'${remaining#*/}'}
+      ;;
+    *)
+      segment=$remaining
+      remaining=.
+      ;;
+  esac
+  [ "$segment" = "." ] && continue
+  next=$parent/$segment
+  [ -L "$next" ] && fail 'ApplyPatch lstat parent must stay inside workspace'
+  if [ ! -e "$next" ]; then
+    printf 'missing\n'
+    exit 0
+  fi
+  [ -d "$next" ] || fail 'ApplyPatch lstat parent is not a directory'
+  parent=$(cd -P "$next" 2>/dev/null && pwd -P) ||
+    fail 'ApplyPatch lstat parent must stay inside workspace'
+  inside_workspace "$parent" || fail 'ApplyPatch lstat parent must stay inside workspace'
+done
+target=$parent/$(basename "$input_path")
+if [ -L "$target" ]; then
+  printf 'symlink\n'
+elif [ -f "$target" ]; then
+  printf 'file\n'
+elif [ -e "$target" ]; then
+  printf 'other\n'
+else
+  printf 'missing\n'
+fi
+`;
+
 const WRITE_SCRIPT = `${COMMON_SHELL_HELPERS}
 root=$(pwd -P) || exit 1
 target=$(writable_target "$1" 'Write path') || exit 1
 printf '%s' "$2" > "$target"
+`;
+
+const DELETE_SCRIPT = `${COMMON_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+target=$(delete_operand "$1" 'Delete path') || exit 1
+[ -f "$target" ] || [ -L "$target" ] || fail 'Delete path must be a regular file'
+rm -f "$target"
 `;
 
 const EDIT_READ_BYTES_SCRIPT = `${COMMON_SHELL_HELPERS}
@@ -915,6 +1133,35 @@ fi
 mode=$( (stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) | head -n 1 )
 [ -n "$mode" ] && chmod "$mode" "$tmp" 2>/dev/null || true
 mv "$tmp" "$target" || fail 'Edit atomic rename failed'
+created=
+trap - EXIT HUP INT TERM
+`;
+
+// No-clobber create for ApplyPatch Add/Move destinations. The temporary file
+// is linked into place atomically so a destination that appears after planning
+// cannot be overwritten.
+const CREATE_WRITE_BYTES_SCRIPT = `${COMMON_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+target=$(writable_target "$1" 'Write path') || exit 1
+payload=$2
+tmp=
+created=
+cleanup() {
+  [ -n "$created" ] && [ -n "$tmp" ] && rm -f "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
+tmp=$(mktemp "$target.maka-write.XXXXXX") || fail 'Write temp file creation failed'
+created=1
+if printf '%s' "$payload" | base64 -d > "$tmp" 2>/dev/null; then
+  :
+elif printf '%s' "$payload" | base64 -D > "$tmp" 2>/dev/null; then
+  :
+else
+  fail 'base64 decode failed for Write payload'
+fi
+[ ! -e "$target" ] && [ ! -L "$target" ] || fail 'Write target already exists'
+ln "$tmp" "$target" || fail 'Write target already exists'
+rm -f "$tmp"
 created=
 trap - EXIT HUP INT TERM
 `;

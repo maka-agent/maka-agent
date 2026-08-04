@@ -31,9 +31,11 @@ import {
   WEB_RESEARCH_AGENT_DEFINITION,
   WEB_RESEARCH_AGENT_PROFILE,
   assertAgentDefinitionRunnable,
+  buildToolsForAgentDefinition,
   evaluateAgentDefinitionAvailability,
   evaluateAgentDefinitionToolAccess,
   listBuiltinAgentDefinitions,
+  projectDefinitionToolNames,
   requireBuiltinAgentDefinitionByProfile,
 } from '../agent-catalog.js';
 import { AGENT_SWARM_TOOL_NAME } from '../agent-swarm-tools.js';
@@ -43,6 +45,7 @@ import {
   AGENT_SPAWN_TOOL_NAME,
   CHILD_AGENT_TOOL_NAMES,
   buildChildAgentTools,
+  childAgentToolsWithinEditingProtocol,
   buildParentAgentTools,
   buildSubagentListTool,
   buildSubagentOutputTool,
@@ -331,6 +334,62 @@ describe('subagent tools', () => {
     });
   });
 
+  test('ApplyPatch-only parents cannot elevate implementation children to Write or Edit', () => {
+    const parentScopedTools = childAgentToolsWithinEditingProtocol(
+      buildChildAgentTools(buildBuiltinTools()),
+      'apply_patch',
+    );
+
+    expect(parentScopedTools.some((tool) => tool.name === 'Write')).toBe(false);
+    expect(parentScopedTools.some((tool) => tool.name === 'Edit')).toBe(false);
+    expect(
+      listBuiltinAgentDefinitions({
+        tools: parentScopedTools,
+        worktreeChildExecutorAvailable: true,
+      }).find((definition) => definition.id === IMPLEMENTATION_AGENT_ID)?.availability,
+    ).toEqual({ status: 'available' });
+    expect(
+      buildToolsForAgentDefinition(parentScopedTools, IMPLEMENTATION_AGENT_DEFINITION).map(
+        (tool) => tool.name,
+      ),
+    ).toEqual(['Read', 'Glob', 'Grep', 'ApplyPatch', 'Bash']);
+  });
+
+  test('durable child snapshots store the projected surface, not raw definition tools', () => {
+    const parentScopedTools = childAgentToolsWithinEditingProtocol(
+      buildChildAgentTools(buildBuiltinTools()),
+      'apply_patch',
+    );
+    const projected = projectDefinitionToolNames(
+      IMPLEMENTATION_AGENT_DEFINITION,
+      parentScopedTools,
+    );
+
+    // The snapshot must equal what resume/retry/restore rebuilds from the
+    // snapshot: buildToolsForAgentDefinition against the same host tools.
+    expect(projected).toEqual(['Read', 'Glob', 'Grep', 'ApplyPatch', 'Bash']);
+    expect(projected).toEqual(
+      buildToolsForAgentDefinition(parentScopedTools, IMPLEMENTATION_AGENT_DEFINITION).map(
+        (tool) => tool.name,
+      ),
+    );
+
+    // Projecting an already-projected snapshot (the resume path re-projects
+    // snapshot.toolNames) must be a no-op, or the strict length invariant
+    // fails on the second round trip.
+    const snapshotTools = projected.map((name) => testCatalogTool(name, 'file_write'));
+    expect(projectDefinitionToolNames(IMPLEMENTATION_AGENT_DEFINITION, snapshotTools)).toEqual(
+      projected,
+    );
+    expect(
+      buildToolsForAgentDefinition(snapshotTools, {
+        id: IMPLEMENTATION_AGENT_ID,
+        permissionMode: 'ask',
+        tools: projected,
+      }).length,
+    ).toBe(projected.length);
+  });
+
   test('agent definition availability depends on exposed tools, not legacy parent modes', () => {
     expect(
       evaluateAgentDefinitionAvailability({
@@ -442,6 +501,7 @@ describe('subagent tools', () => {
       'Write',
       'Edit',
       'Bash',
+      'ApplyPatch',
     ]);
     expect([...CHILD_AGENT_TOOL_NAMES]).toEqual([
       'Read',
@@ -451,6 +511,7 @@ describe('subagent tools', () => {
       'Write',
       'Edit',
       'Bash',
+      'ApplyPatch',
     ]);
   });
 

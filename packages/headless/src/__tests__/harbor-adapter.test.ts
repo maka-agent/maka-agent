@@ -29,6 +29,10 @@ function validContextEnvValue(key: string): string {
   return '1';
 }
 
+async function readRepoFile(relativePath: string): Promise<string> {
+  return readFile(resolve(repoRoot, relativePath), 'utf8');
+}
+
 describe('Harbor adapter contract', () => {
   test('Maka trajectory builder preserves multi-step tool pairing and fails closed to a summary', (t: TestContext) => {
     const providerOptionsEvent = decodeRuntimeEvent({
@@ -95,6 +99,75 @@ describe('Harbor adapter contract', () => {
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /trajectory-harbor-contract ok/);
+  });
+
+  test('run-cell.mjs delegates to the shared env entrypoint', async () => {
+    const source = await readRepoFile('packages/headless/harbor/run-cell.mjs');
+    const cellSource = await readRepoFile('packages/headless/src/harbor-cell.ts');
+
+    assert.match(source, /^#!\/usr\/bin\/env node/);
+    assert.match(source, /runHarborCellFromEnv/);
+    assert.match(source, /process\.env/);
+    assert.match(cellSource, /resolvedEnv\.MAKA_WORKDIR \?\? process\.cwd\(\)/);
+  });
+
+  test('maka_agent.py invokes run-cell with the shared artifact contract', async () => {
+    const source = await readRepoFile('packages/headless/harbor/maka_agent.py');
+    const processScopeSource = await readRepoFile('packages/headless/harbor/process_scope.py');
+
+    assert.match(source, /class MakaAgent\(BaseInstalledAgent\):/);
+    assert.match(source, /async def install\(self, environment: BaseEnvironment\) -> None:/);
+    assert.match(source, /MAKA_INSTRUCTION_FILE/);
+    assert.match(source, /MAKA_SYSTEM_PROMPT/);
+    assert.match(source, /MAKA_OUTPUT_DIR/);
+    assert.match(source, /MAKA_STORAGE_ROOT/);
+    assert.match(source, /maka-cell-output\.json/);
+    assert.match(source, /run-cell\.mjs/);
+    assert.match(source, /run-host-cell\.mjs/);
+    assert.match(source, /MAKA_HOST_API_KEY_FILE/);
+    assert.match(source, /MAKA_HARBOR_TOOL_EXECUTOR_URL/);
+    assert.match(source, /_run_host_cell/);
+    assert.match(source, /_ToolExecutorServer/);
+    assert.match(source, /from process_scope import/);
+    assert.match(source, /_scoped_process_cleanup_command/);
+    assert.match(source, /_scoped_command_cleanup_command/);
+    assert.match(processScopeSource, /MAKA_HARBOR_COMMAND_SCOPE/);
+    assert.match(processScopeSource, /MAKA_HARBOR_COMMAND_ID/);
+    assert.match(processScopeSource, /def scoped_process_cleanup_command/);
+    assert.match(processScopeSource, /def scoped_command_cleanup_command/);
+    assert.match(processScopeSource, /\/proc\/\[0-9\]\*\/environ/);
+    assert.doesNotMatch(processScopeSource, /grep -Fqx/);
+    assert.match(processScopeSource, /grep -Fx -- .* > \/dev\/null/);
+    assert.match(source, /upload_file\(local_instruction_path, instruction_path\.as_posix\(\)\)/);
+    assert.match(source, /bash -lc/);
+    assert.match(source, /set -o pipefail/);
+    assert.doesNotMatch(source, /cd \/app/);
+    assert.doesNotMatch(source, /"MAKA_WORKDIR": "\/app"/);
+    assert.match(source, /Maka cell did not write/);
+    assert.match(source, /Maka cell output is not valid JSON/);
+    assert.match(source, /_read_cell_output\(required=True\)/);
+    assert.match(source, /MAKA_CELL_TIMEOUT_SEC/);
+    assert.match(source, /MAKA_CELL_SETTLEMENT_GRACE_SEC/);
+    assert.match(source, /MAKA_CELL_SOFT_TIMEOUT_MS/);
+    assert.match(source, /timeout_sec=self\._cell_timeout_sec\(\)/);
+    assert.match(source, /process\.returncode == 124/);
+    assert.match(source, /deepseek\/deepseek-v4-flash/);
+    assert.doesNotMatch(source, /deepseek\/deepseek-chat/);
+    assert.match(source, /economy_task_flag = self\._resolved_flags\.get\("economy_task_mode"\)/);
+    assert.match(source, /economy_task_env = self\._get_env\("MAKA_ECONOMY_TASK_MODE"\)/);
+    assert.match(
+      source,
+      /economy_task_mode = True if economy_task_flag is True else economy_task_env == "true"/,
+    );
+    assert.match(source, /"MAKA_ECONOMY_TASK_MODE": "true" if economy_task_mode else "false"/);
+    assert.match(source, /"MAKA_AGENT_TOOLS"/);
+    assert.match(source, /"MAKA_EDITING_PROTOCOL"/);
+    assert.doesNotMatch(
+      source,
+      /"MAKA_ECONOMY_TASK_MODE": "true" if self\._resolved_flags\.get\("economy_task_mode"\) else "false"/,
+    );
+    assert.doesNotMatch(source, /and raw else None/);
+    assert.doesNotMatch(source, /MAKA_INSTRUCTION_EOF/);
   });
 
   test('maka_agent.py emits a host-cell timeout recognized as budget exhaustion', async () => {
@@ -2299,6 +2372,12 @@ with tempfile.TemporaryDirectory() as tmp:
         "MAKA_AGENT_TOOLS": "true",
     })._cell_env(Path("/logs/agent/instruction.txt"))
     assert agent_tools_env["MAKA_AGENT_TOOLS"] == "true", agent_tools_env
+
+    editing_protocol_env = MakaAgent(Path(tmp), extra_env={
+        "MAKA_BACKEND": "fake",
+        "MAKA_EDITING_PROTOCOL": "apply_patch",
+    })._cell_env(Path("/logs/agent/instruction.txt"))
+    assert editing_protocol_env["MAKA_EDITING_PROTOCOL"] == "apply_patch", editing_protocol_env
 
     # Host-side LLM mode must not forward provider secrets into the task-cell env.
     host_agent = MakaAgent(Path(tmp), extra_env={

@@ -19,6 +19,7 @@
 import type {
   AppSettings,
   CollaborationMode,
+  EditingProtocol,
   OrchestrationMode,
   PermissionMode,
   SessionStartMode,
@@ -28,7 +29,9 @@ import {
   DEFAULT_SESSION_NAME,
   isChatDefaultPermissionMode,
   isCollaborationMode,
+  isEditingProtocol,
   isOrchestrationMode,
+  resolveEditingProtocolEnv as resolveEditingProtocolEnvValue,
 } from '@maka/core';
 
 import { resolveDefaultPermissionMode } from './permission-mode-default.js';
@@ -61,6 +64,12 @@ const SESSION_MODE_SEEDS = {
   },
 } satisfies Record<SessionStartMode, SessionModeSeed>;
 
+export function resolveEditingProtocolEnv(value: string | undefined): EditingProtocol {
+  // Desktop sessions default to Edit/Write; an explicit env override is the
+  // only way to reach apply_patch.
+  return resolveEditingProtocolEnvValue(value) ?? 'edit_write';
+}
+
 /**
  * `unknown`, because this is an IPC boundary and the renderer's type is a
  * promise, not a guarantee. An unrecognized value confers nothing — it is not
@@ -82,6 +91,7 @@ export interface CreateSessionRequest {
   permissionMode?: PermissionMode;
   collaborationMode?: CollaborationMode;
   orchestrationMode?: OrchestrationMode;
+  editingProtocol?: EditingProtocol;
   name?: string;
   labels?: string[];
 }
@@ -90,13 +100,17 @@ export interface ResolvedCreateSessionInput {
   permissionMode: PermissionMode;
   collaborationMode: CollaborationMode;
   orchestrationMode: OrchestrationMode;
+  editingProtocol: EditingProtocol;
   name: string;
   labels: string[] | undefined;
 }
 
 export async function resolveCreateSessionInput(
   input: CreateSessionRequest | undefined,
-  deps: { readSettings: () => Promise<AppSettings> },
+  deps: {
+    readSettings: () => Promise<AppSettings>;
+    defaultEditingProtocol?: EditingProtocol;
+  },
 ): Promise<ResolvedCreateSessionInput> {
   const modeSeed = sessionModeSeed(input?.mode);
 
@@ -107,6 +121,10 @@ export async function resolveCreateSessionInput(
   const orchestrationMode = input?.orchestrationMode ?? 'default';
   if (!isOrchestrationMode(orchestrationMode)) {
     throw new TypeError('Invalid orchestration mode.');
+  }
+  const editingProtocol = input?.editingProtocol ?? deps.defaultEditingProtocol ?? 'edit_write';
+  if (!isEditingProtocol(editingProtocol)) {
+    throw new TypeError('Invalid editing protocol.');
   }
   // `explore` is a boundary a mode confers, never one a caller may open a
   // session at — core already spells that out as `ChatDefaultPermissionMode`
@@ -124,6 +142,7 @@ export async function resolveCreateSessionInput(
       (await resolveDefaultPermissionMode(deps.readSettings)),
     collaborationMode,
     orchestrationMode,
+    editingProtocol,
     name: modeSeed?.name ?? input?.name ?? DEFAULT_SESSION_NAME,
     // Merged, not replaced: a mode adds a label, it does not own the set. No
     // caller sends both today, and silently dropping the caller's would be the

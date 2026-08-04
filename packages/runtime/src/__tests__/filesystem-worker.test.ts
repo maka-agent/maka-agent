@@ -195,6 +195,65 @@ describe('filesystem worker operations', () => {
     await assert.rejects(readFile(outsidePath, 'utf8'), { code: 'ENOENT' });
   });
 
+  test('creates missing destination parents for an approved create', async () => {
+    const root = await temporaryDirectory('maka-worker-write-parent-');
+    const target = join(root, 'generated', 'deep', 'file.txt');
+
+    // #2059 follow-final containment: a plain write needs its parent in
+    // realpath space, while create-mode (ApplyPatch Add) may build the
+    // missing parent chain through the canonical entry.
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'write', cwd: root, path: target, content: 'nested', mode: 'create' },
+        { enforcementPath: target, access: 'write', scope: 'exact', targetType: 'missing' },
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(await readFile(target, 'utf8'), 'nested');
+  });
+
+  test('create-mode writes never clobber an entry that appeared after planning', async () => {
+    const root = await temporaryDirectory('maka-worker-write-no-clobber-');
+    const target = join(root, 'target.txt');
+    await writeFile(target, 'winner', 'utf8');
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'write', cwd: root, path: target, content: 'stale', mode: 'create' },
+        { enforcementPath: target, access: 'write', scope: 'exact', targetType: 'file' },
+      ),
+    );
+
+    assert.equal(response.ok, false);
+    assert.equal(await readFile(target, 'utf8'), 'winner');
+  });
+
+  test('replace-mode writes land on the canonical target and never follow a final symlink', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const root = await temporaryDirectory('maka-worker-write-replace-link-');
+    const target = join(root, 'target.txt');
+    const link = join(root, 'link.txt');
+    await writeFile(target, 'target', 'utf8');
+    await symlink(target, link);
+
+    // #2059 follow-final semantics: replace-mode is authorised against the
+    // canonical (followed) path and the O_NOFOLLOW open stays pinned there.
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'write', cwd: root, path: link, content: 'stale', mode: 'replace' },
+        { enforcementPath: target, access: 'write', scope: 'exact', targetType: 'file' },
+        link,
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(await readFile(target, 'utf8'), 'stale');
+  });
+
   test('denies a write through a dangling symlink the boundary does not cover', async () => {
     // The worker enforces its own boundary rather than trusting the caller to
     // have canonicalised the path: a link inside the root whose target does not
@@ -217,6 +276,80 @@ describe('filesystem worker operations', () => {
     assert.equal(response.ok, false);
     if (!response.ok) assert.equal(response.error.code, 'path_denied');
     await assert.rejects(readFile(target, 'utf8'), { code: 'ENOENT' });
+  });
+
+  test('lstat reports the directory entry without following its final symlink', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const root = await temporaryDirectory('maka-worker-lstat-link-');
+    const target = join(root, 'target.txt');
+    const link = join(root, 'link.txt');
+    await writeFile(target, 'target', 'utf8');
+    await symlink(target, link);
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'lstat', cwd: root, path: link },
+        { enforcementPath: link, access: 'read', scope: 'exact', targetType: 'symlink' },
+        link,
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    if (response.ok) {
+      assert.deepEqual(response.result, { kind: 'lstat', targetType: 'symlink' });
+    }
+  });
+
+  test('deletes an in-workspace symlink operand without deleting its target', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const root = await temporaryDirectory('maka-worker-delete-link-');
+    const target = join(root, 'target.txt');
+    const link = join(root, 'link.txt');
+    await writeFile(target, 'keep', 'utf8');
+    await symlink(target, link);
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'delete', cwd: root, path: link },
+        { enforcementPath: link, access: 'write', scope: 'exact', targetType: 'symlink' },
+        link,
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    assert.equal(await readFile(target, 'utf8'), 'keep');
+    await assert.rejects(readFile(link, 'utf8'), { code: 'ENOENT' });
+  });
+
+  test('deletes an escaping symlink entry without touching its target', async (t) => {
+    if (process.platform === 'win32') {
+      t.skip('file symlink creation is not reliably available on Windows CI');
+      return;
+    }
+    const root = await temporaryDirectory('maka-worker-delete-link-root-');
+    const outside = await temporaryDirectory('maka-worker-delete-link-outside-');
+    const target = join(outside, 'target.txt');
+    const link = join(root, 'link.txt');
+    await writeFile(target, 'keep', 'utf8');
+    await symlink(target, link);
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'delete', cwd: root, path: link },
+        { enforcementPath: link, access: 'write', scope: 'exact', targetType: 'symlink' },
+        link,
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    await assert.rejects(readFile(link, 'utf8'), { code: 'ENOENT' });
+    assert.equal(await readFile(target, 'utf8'), 'keep');
   });
 
   test('fails when an approved target changes type before execution', async () => {

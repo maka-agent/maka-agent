@@ -2596,6 +2596,7 @@ function fullHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
     model: 'gpt-5',
     thinkingLevel: 'high',
     permissionMode: 'ask',
+    editingProtocol: 'edit_write',
     collaborationMode: 'agent',
     orchestrationMode: 'swarm',
     schemaVersion: 1,

@@ -16,14 +16,21 @@ import {
   unlinkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, isAbsolute } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import {
+  canWritePath,
   compilePermissionProfile,
   type SandboxBoundaryExpansion,
   type StorageRef,
   type PermissionProfile,
 } from '@maka/core';
 import { bashToolResultToModelOutput } from './bash-model-output.js';
+export type { EditingProtocol } from '@maka/core/apply-patch';
+import {
+  executeApplyPatchWithAdapter,
+  type ApplyPatchAccessIntent,
+  type ApplyPatchFsAdapter,
+} from './apply-patch-engine.js';
 import {
   buildManagedBashTool,
   buildStopBackgroundTaskTool,
@@ -43,11 +50,14 @@ import {
   type WorkspaceExecResult,
   type WorkspaceExecutor,
 } from './workspace-executor.js';
+import { lstat, mkdir, open, realpath, unlink, writeFile } from 'node:fs/promises';
+import { isPathInside, realpathAllowMissing } from './path-containment.js';
+
 import {
   createBoundaryFilesystemExecutor,
   type FilesystemExecuteInput,
 } from './filesystem-executor.js';
-
+import { withFileWriteLock } from './file-write-lock.js';
 // tool-runtime.ts is the single source of truth for the tool shape; this
 // re-export only keeps back-compat for callers that imported from
 // builtin-tools directly.
@@ -63,7 +73,11 @@ import type { ChildFdInput } from './child-fd-input.js';
 import { buildArchiveReadTool } from './archive-read-tool.js';
 import type { ToolResultArchiveResourceReader } from './tool-result-archive-resource.js';
 import { normalizeSandboxBoundaryPath } from './sandbox-boundary-path.js';
-import type { FilesystemWorkerClient } from './filesystem-worker/client.js';
+import {
+  FilesystemWorkerClientError,
+  filesystemWorkerRuntimeWritableRoots,
+  type FilesystemWorkerClient,
+} from './filesystem-worker/client.js';
 import {
   preflightDeclaredSandboxBoundary,
   sandboxBoundaryExpansionSchema,
@@ -400,6 +414,33 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       },
     },
     {
+      name: 'ApplyPatch',
+      activityKind: 'edit',
+      categoryHint: 'file_write',
+      description:
+        'Apply a Codex-compatible multi-file patch in one call. Pass the full patch ' +
+        'envelope (*** Begin Patch … *** End Patch) with Add File / Update File ' +
+        '(optional Move to) / Delete File operations. Paths must be relative to the ' +
+        'session cwd. The complete patch is parsed and preflighted before any mutation; ' +
+        'syntax errors, path escapes, missing targets, and hunk mismatches leave the ' +
+        'workspace unchanged. Subject to permission policy.',
+      parameters: z.object({
+        patch: z
+          .string()
+          .describe('Full *** Begin Patch … *** End Patch text (Codex apply_patch envelope).'),
+      }),
+      executionFacts,
+      impl: async ({ patch }, ctx) => {
+        const fs = createRuntimeApplyPatchFs({
+          ctx,
+          executor,
+          filesystemWorker: options.filesystemWorker,
+          permissionProfile: options.permissionProfile,
+        });
+        return await executeApplyPatchWithAdapter(patch, fs, withFileWriteLock);
+      },
+    },
+    {
       name: 'FormatJson',
       activityKind: 'edit',
       description:
@@ -505,7 +546,9 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
       },
     },
   ];
-  return tools.filter((tool) => options.includeEdit !== false || tool.name !== 'Edit');
+  // Builders bind implementations only. The normalized per-run product-tool
+  // policy is the single authority that selects the editing protocol.
+  return tools.filter((tool) => tool.name !== 'Edit' || options.includeEdit !== false);
 }
 
 /** The per-call context every file tool hands to the filesystem authority. */
@@ -983,6 +1026,359 @@ function effectivePermissionProfile(
   if (explicitProfile) return { profile: explicitProfile, workspaceRoots: [canonicalCwd] };
   const compiled = compilePermissionProfile({ mode: permissionMode, cwd: canonicalCwd });
   return { profile: compiled.profile, workspaceRoots: compiled.workspaceRoots };
+}
+
+function filesystemWorkerForExecution(
+  worker: Pick<FilesystemWorkerClient, 'execute'> | undefined,
+  ctx: MakaToolContext,
+): Pick<FilesystemWorkerClient, 'execute'> | undefined {
+  if (ctx.executionBoundary?.kind === 'bypass' || ctx.executionBoundary?.kind === 'external') {
+    return undefined;
+  }
+  if (worker) return worker;
+  if (ctx.executionBoundary?.kind !== 'managed') return undefined;
+  throw new SandboxCommandError({
+    domain: 'filesystem',
+    stage: 'capability',
+    reason: 'requires_bypass',
+    recoverable: false,
+    profileName: ctx.executionBoundary.profile.name ?? ctx.executionBoundary.profile.type,
+    message:
+      'Managed filesystem execution is unavailable because the sandboxed worker cannot be enforced.',
+  });
+}
+
+async function fileToolWriteLockKey(cwd: string, path: string): Promise<string> {
+  const target = await normalizeSandboxBoundaryPath({
+    path,
+    access: 'write',
+    scope: 'exact',
+    cwd,
+  });
+  return target.enforcementPath;
+}
+
+interface RuntimeApplyPatchDeps {
+  ctx: MakaToolContext;
+  executor: WorkspaceExecutor;
+  filesystemWorker?: Pick<FilesystemWorkerClient, 'execute'>;
+  permissionProfile?: PermissionProfile;
+}
+
+function createRuntimeApplyPatchFs(input: RuntimeApplyPatchDeps): ApplyPatchFsAdapter {
+  const { cwd } = input.ctx;
+  const filesystemWorker = filesystemWorkerForExecution(input.filesystemWorker, input.ctx);
+  const canonicalCwd = filesystemWorker ? canonicalExistingPath(cwd) : cwd;
+
+  const workerExecute = async (operation: {
+    kind: 'lstat' | 'read' | 'write' | 'delete';
+    path: string;
+    content?: string;
+    mode?: 'create' | 'replace';
+  }) => {
+    if (!filesystemWorker) throw new Error('Filesystem worker is unavailable.');
+    return filesystemWorker.execute({
+      operation:
+        operation.kind === 'write'
+          ? {
+              kind: 'write',
+              path: operation.path,
+              content: operation.content ?? '',
+              ...(operation.mode ? { mode: operation.mode } : {}),
+            }
+          : operation.kind === 'delete'
+            ? { kind: 'delete', path: operation.path }
+            : operation.kind === 'lstat'
+              ? { kind: 'lstat', path: operation.path }
+              : { kind: 'read', path: operation.path },
+      cwd: canonicalCwd,
+      ...(input.ctx.executionBoundary ? { executionBoundary: input.ctx.executionBoundary } : {}),
+      mode: input.ctx.permissionMode ?? 'ask',
+      ...(input.permissionProfile ? { permissionProfile: input.permissionProfile } : {}),
+      ...(input.ctx.abortSignal ? { abortSignal: input.ctx.abortSignal } : {}),
+    });
+  };
+
+  return {
+    async lockKey(path) {
+      if (filesystemWorker) {
+        // Delete/Move address a directory entry, never the link target, so
+        // the lock key is the canonical entry path: concurrent ops through
+        // the same entry serialize on one key without rejecting an escaping
+        // link before its op runs.
+        const target = await assertApplyPatchEntryContained(canonicalCwd, path);
+        return target.entryPath;
+      }
+      return (await input.executor.writeLockKey({ cwd, path })).key;
+    },
+    async lstat(path) {
+      if (filesystemWorker) {
+        const result = await workerExecute({ kind: 'lstat', path });
+        if (result.kind !== 'lstat')
+          throw new Error('Filesystem worker returned mismatched lstat.');
+        return result.targetType;
+      }
+      const target = await assertApplyPatchEntryContained(cwd, path);
+      try {
+        const metadata = await lstat(target.entryPath);
+        if (metadata.isSymbolicLink()) return 'symlink';
+        if (metadata.isFile()) return 'file';
+        return 'other';
+      } catch (error) {
+        if (
+          typeof error === 'object' &&
+          error !== null &&
+          'code' in error &&
+          (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+        ) {
+          return 'missing';
+        }
+        throw error;
+      }
+    },
+    async readText(path, label) {
+      if (filesystemWorker) {
+        const result = await workerExecute({ kind: 'read', path });
+        if (result.kind === 'read_image') throw new Error(`${label} does not support image files.`);
+        if (result.kind !== 'read') throw new Error(`${label}: unexpected read result for ${path}`);
+        return result.content;
+      }
+      const { path: resolvedPath } = await input.executor.resolveExistingPath({
+        cwd,
+        path,
+        label,
+        scope: 'workspace',
+      });
+      const read = await input.executor.readFile({ cwd, path: resolvedPath });
+      if ('bytes' in read) throw new Error(`${label} does not support image files.`);
+      return read.content;
+    },
+    async writeText(path, content, mode) {
+      if (filesystemWorker) {
+        const result = await workerExecute({ kind: 'write', path, content, mode });
+        if (result.kind !== 'write') {
+          throw new Error('Filesystem worker returned a mismatched write.');
+        }
+        return { path: result.path, bytes: result.bytes };
+      }
+      const target = await assertApplyPatchPathContained(cwd, path);
+      await mkdir(dirname(target.enforcementPath), { recursive: true });
+      if (mode === 'create') {
+        await writeFile(target.enforcementPath, content, { encoding: 'utf8', flag: 'wx' });
+        return { path: target.enforcementPath, bytes: Buffer.byteLength(content, 'utf8') };
+      }
+      // Follow-final containment (#2059): an Update lands on the canonical
+      // target, never through a link, and O_NOFOLLOW keeps it there.
+      const metadata = await lstat(target.enforcementPath);
+      if (!metadata.isFile() || metadata.isSymbolicLink()) {
+        throw new Error(`ApplyPatch Update target must be a regular file: ${path}`);
+      }
+      const handle = await open(
+        target.enforcementPath,
+        constants.O_NOFOLLOW === undefined ? 'r+' : constants.O_WRONLY | constants.O_NOFOLLOW,
+      );
+      try {
+        await handle.truncate(0);
+        await handle.writeFile(content, 'utf8');
+      } finally {
+        await handle.close();
+      }
+      return { path: target.enforcementPath, bytes: Buffer.byteLength(content, 'utf8') };
+    },
+    async deletePath(path) {
+      if (filesystemWorker) {
+        const result = await workerExecute({ kind: 'delete', path });
+        if (result.kind !== 'delete') {
+          throw new Error('Filesystem worker returned a mismatched delete.');
+        }
+        return { path: result.path };
+      }
+      const target = await assertApplyPatchEntryContained(cwd, path);
+      await unlink(target.entryPath);
+      return { path: target.entryPath };
+    },
+    async preflightPermissions(accesses: readonly ApplyPatchAccessIntent[]) {
+      await preflightApplyPatchPermissions({
+        accesses,
+        cwd,
+        canonicalCwd,
+        ctx: input.ctx,
+        executor: input.executor,
+        filesystemWorker,
+        permissionProfile: input.permissionProfile,
+      });
+    },
+  };
+}
+
+async function assertApplyPatchPathContained(
+  cwd: string,
+  path: string,
+): Promise<Awaited<ReturnType<typeof normalizeSandboxBoundaryPath>>> {
+  const root = await realpath(cwd);
+  const target = await normalizeSandboxBoundaryPath({
+    path,
+    access: 'write',
+    scope: 'exact',
+    cwd: root,
+  });
+  if (!isPathInside(root, target.displayPath) || !isPathInside(root, target.enforcementPath)) {
+    throw new Error(`ApplyPatch path must stay inside session cwd: ${path}`);
+  }
+  return target;
+}
+
+/**
+ * Canonicalise a directory entry (Delete/Move source, lstat operand) without
+ * following its final symlink: the parent chain resolves in realpath space
+ * (#2059 containment authority) and the leaf name is appended. A link inside
+ * the root whose parent chain resolves outside still fails containment; the
+ * entry itself (file or link) stays addressable for lstat/unlink.
+ */
+async function assertApplyPatchEntryContained(
+  cwd: string,
+  path: string,
+): Promise<{ displayPath: string; entryPath: string }> {
+  const root = await realpath(cwd);
+  const displayPath = resolve(root, path);
+  if (!isPathInside(root, displayPath)) {
+    throw new Error(`ApplyPatch path must stay inside session cwd: ${path}`);
+  }
+  const parentReal = await realpathAllowMissing(dirname(displayPath));
+  const entryPath = resolve(parentReal, basename(displayPath));
+  if (!isPathInside(root, entryPath)) {
+    throw new Error(`ApplyPatch path must stay inside session cwd: ${path}`);
+  }
+  return { displayPath, entryPath };
+}
+
+async function preflightApplyPatchPermissions(input: {
+  accesses: readonly ApplyPatchAccessIntent[];
+  cwd: string;
+  canonicalCwd: string;
+  ctx: MakaToolContext;
+  executor: WorkspaceExecutor;
+  filesystemWorker?: Pick<FilesystemWorkerClient, 'execute'>;
+  permissionProfile?: PermissionProfile;
+}): Promise<void> {
+  if (input.accesses.length === 0) return;
+
+  // Without a managed filesystem worker, path resolve is the host safety check.
+  if (!input.filesystemWorker) {
+    for (const intent of input.accesses) {
+      if (intent.access === 'write') {
+        await assertApplyPatchPathContained(input.cwd, intent.path);
+      } else {
+        await assertApplyPatchEntryContained(input.cwd, intent.path);
+      }
+    }
+    return;
+  }
+
+  const managed = input.ctx.executionBoundary?.kind === 'managed';
+  const platform = process.platform as SandboxPlatform;
+  const compiled =
+    managed && input.ctx.executionBoundary?.kind === 'managed'
+      ? {
+          profile: input.ctx.executionBoundary.profile,
+          workspaceRoots: [input.canonicalCwd],
+        }
+      : input.permissionProfile
+        ? {
+            profile: input.permissionProfile,
+            workspaceRoots: [input.canonicalCwd],
+          }
+        : compilePermissionProfile({
+            mode: input.ctx.permissionMode ?? 'ask',
+            cwd: input.canonicalCwd,
+          });
+
+  const tmpCanonical = await realpath(tmpdir()).catch(() => tmpdir());
+  const slashTmpCanonical = await realpath('/tmp').catch(() => '/tmp');
+  const missingEntries: Array<{
+    path: string;
+    access: 'write';
+    scope: 'exact';
+  }> = [];
+
+  for (const intent of input.accesses) {
+    // Delete/Move sources address a directory entry; Add/Update/Move
+    // destinations write through the canonical (followed) target (#2059).
+    const entry =
+      intent.access === 'delete'
+        ? await assertApplyPatchEntryContained(input.canonicalCwd, intent.path)
+        : undefined;
+    const target = entry
+      ? {
+          displayPath: entry.displayPath,
+          enforcementPath: entry.entryPath,
+          targetType: await entryTargetType(entry.entryPath),
+        }
+      : await normalizeSandboxBoundaryPath({
+          path: intent.path,
+          access: 'write',
+          scope: 'exact',
+          cwd: input.canonicalCwd,
+        });
+    const runtimeWritableRoots = filesystemWorkerRuntimeWritableRoots({
+      platform,
+      access: 'write',
+      enforcementPath: target.enforcementPath,
+      targetType: target.targetType,
+    });
+    const pathContext = {
+      workspaceRoots: compiled.workspaceRoots,
+      tmpdir: tmpCanonical,
+      slashTmp: slashTmpCanonical,
+      ...(runtimeWritableRoots ? { runtimeWritableRoots } : {}),
+    };
+    const allowed = canWritePath(compiled.profile, target.enforcementPath, pathContext);
+    if (!allowed) {
+      missingEntries.push({
+        path: target.enforcementPath,
+        access: 'write',
+        scope: 'exact',
+      });
+    }
+  }
+
+  if (missingEntries.length === 0) return;
+
+  throw new FilesystemWorkerClientError({
+    reason: managed ? 'sandbox_boundary_required' : 'path_denied',
+    stage: 'validation',
+    recoverable: true,
+    message: managed
+      ? 'ApplyPatch requires sandbox boundary expansion for one or more paths before mutation.'
+      : 'ApplyPatch path is not writable under the current permission profile.',
+    ...(managed
+      ? {
+          requiredExpansion: {
+            filesystem: {
+              entries: missingEntries,
+            },
+          },
+        }
+      : {}),
+  });
+}
+
+async function entryTargetType(path: string): Promise<'missing' | 'file' | 'other'> {
+  try {
+    const metadata = await lstat(path);
+    if (metadata.isFile() || metadata.isSymbolicLink()) return 'file';
+    return 'other';
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+    ) {
+      return 'missing';
+    }
+    throw error;
+  }
 }
 
 function terminalError(

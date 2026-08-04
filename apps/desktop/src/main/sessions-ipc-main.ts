@@ -20,6 +20,7 @@ import type {
   SessionListFilter,
   StoredMessage,
   ThinkingLevel,
+  EditingProtocol,
   EphemeralVoiceAudio,
 } from '@maka/core';
 import type { ProviderType } from '@maka/core/llm-connections';
@@ -140,6 +141,8 @@ export interface SessionsIpcDeps {
   ) => Promise<{ turnId: string; ok: boolean; error?: string }>;
   getWorkspacePrivacyContext: () => Promise<WorkspacePrivacyContext>;
   canCreateFakeSession: () => boolean;
+  /** Default captured for new sessions; an IPC request may override it per session. */
+  defaultEditingProtocol?: EditingProtocol;
   consumeNativeAudioOperation?: (input: {
     operationId: string;
     connectionSlug: string;
@@ -242,6 +245,7 @@ export function registerSessionsIpc(
     streamEvents,
     getWorkspacePrivacyContext,
     canCreateFakeSession,
+    defaultEditingProtocol,
     consumeNativeAudioOperation,
   } = deps;
   registerSessionExecutionIpc({
@@ -295,8 +299,17 @@ export function registerSessionsIpc(
     // what the renderer may ask for directly, and what the configured default
     // fills in are all resolved in one pure place (create-session-input.ts),
     // which is also the only place any of it can be tested.
-    const { permissionMode, collaborationMode, orchestrationMode, name, labels } =
-      await resolveCreateSessionInput(input, { readSettings: () => settingsStore.get() });
+    const {
+      permissionMode,
+      collaborationMode,
+      orchestrationMode,
+      editingProtocol,
+      name,
+      labels,
+    } = await resolveCreateSessionInput(input, {
+      readSettings: () => settingsStore.get(),
+      defaultEditingProtocol,
+    });
     if (input?.backend === 'fake') {
       if (!canCreateFakeSession()) {
         throw new Error('FakeBackend sessions are only available in development.');
@@ -308,6 +321,7 @@ export function registerSessionsIpc(
         llmConnectionSlug: input.llmConnectionSlug ?? 'fake',
         model: input.model ?? 'fake-model',
         permissionMode,
+        editingProtocol,
         collaborationMode,
         orchestrationMode,
         name,
@@ -329,6 +343,7 @@ export function registerSessionsIpc(
       model,
       ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
       permissionMode,
+      editingProtocol,
       collaborationMode,
       orchestrationMode,
       name,

@@ -99,6 +99,19 @@ describe('SQLite SessionStore', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  test('persists the editing protocol on the session header', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-editing-protocol-'));
+    const store = createSessionStore(root);
+    try {
+      const session = await store.create(makeInput({ editingProtocol: 'apply_patch' }));
+      assert.equal(session.editingProtocol, 'apply_patch');
+      assert.equal((await store.readHeader(session.id)).editingProtocol, 'apply_patch');
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 function makeInput(overrides: Partial<CreateSessionInput> = {}): CreateSessionInput {

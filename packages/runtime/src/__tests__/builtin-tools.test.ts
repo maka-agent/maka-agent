@@ -23,6 +23,7 @@ import {
 } from '@maka/core/permission-profile';
 import { expect } from '../test-helpers.js';
 import { buildBuiltinTools } from '../builtin-tools.js';
+import { projectEffectiveProductToolSurface } from '../tool-catalog-derive.js';
 import { SandboxManager } from '../sandbox/sandbox-manager.js';
 import { LinuxBubblewrapBackend } from '../sandbox/linux-sandbox.js';
 import { MacosSeatbeltBackend } from '../sandbox/macos-seatbelt.js';
@@ -51,7 +52,11 @@ const ONE_PIXEL_PNG = Buffer.from(
 describe('builtin tool activity kinds', () => {
   test('declares stable semantic categories independently of tool names', () => {
     const kinds = Object.fromEntries(
-      buildBuiltinTools().map((tool) => [tool.name, tool.activityKind]),
+      projectEffectiveProductToolSurface({
+        host: 'cli',
+        tools: buildBuiltinTools(),
+        policy: { economy: false },
+      }).tools.map((tool) => [tool.name, tool.activityKind]),
     );
 
     expect(kinds).toEqual({
@@ -63,6 +68,16 @@ describe('builtin tool activity kinds', () => {
       Glob: 'search',
       Grep: 'search',
     });
+    const patchKinds = Object.fromEntries(
+      projectEffectiveProductToolSurface({
+        host: 'cli',
+        tools: buildBuiltinTools(),
+        policy: { economy: false, editingProtocol: 'apply_patch' },
+      }).tools.map((tool) => [tool.name, tool.activityKind]),
+    );
+    expect(patchKinds.ApplyPatch).toBe('edit');
+    assert.equal('Write' in patchKinds, false);
+    assert.equal('Edit' in patchKinds, false);
   });
 
   test('categorizes background task controls as command activity', () => {

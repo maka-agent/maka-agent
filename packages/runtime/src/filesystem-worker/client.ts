@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import {
   canReadPath,
   canWritePath,
@@ -9,10 +9,16 @@ import {
   type ExecutionBoundary,
   type PermissionMode,
   type PermissionProfile,
+  type SandboxBoundaryAccess,
   type SandboxBoundaryExpansion,
+  type SandboxBoundaryScope,
 } from '@maka/core';
 
-import { normalizeSandboxBoundaryPath } from '../sandbox-boundary-path.js';
+import { realpathAllowMissing } from '../path-containment.js';
+import {
+  normalizeSandboxBoundaryPath,
+  type NormalizedSandboxBoundaryPath,
+} from '../sandbox-boundary-path.js';
 import { pinExistingLinuxProfilePath } from '../sandbox/linux-profile-path.js';
 import type { SandboxManager } from '../sandbox/sandbox-manager.js';
 import type { SandboxPlatform } from '../sandbox/types.js';
@@ -150,12 +156,28 @@ export class FilesystemWorkerClient {
     if (!parsedOperation.success) throw clientError('invalid_operation', 'validation', requestId);
 
     const access = operationAccess(parsedOperation.data.kind);
-    const target = await normalizeSandboxBoundaryPath({
-      path: parsedOperation.data.path,
-      access,
-      scope: operationScope(parsedOperation.data.kind),
-      cwd: canonicalCwd,
-    }).catch(() => {
+    // delete/lstat address the directory entry; create-mode (ApplyPatch Add)
+    // must not clobber an existing entry (including a link). replace-mode
+    // follows the canonical target like a plain write, so the client and
+    // worker resolve the same path.
+    const entryMode =
+      parsedOperation.data.kind === 'delete' ||
+      parsedOperation.data.kind === 'lstat' ||
+      (parsedOperation.data.kind === 'write' && parsedOperation.data.mode === 'create');
+    const target = await (entryMode
+      ? normalizeDirectoryEntryTarget(
+          canonicalCwd,
+          parsedOperation.data.path,
+          access,
+          operationScope(parsedOperation.data.kind),
+        )
+      : normalizeSandboxBoundaryPath({
+          path: parsedOperation.data.path,
+          access,
+          scope: operationScope(parsedOperation.data.kind),
+          cwd: canonicalCwd,
+        })
+    ).catch(() => {
       throw clientError('invalid_operation', 'validation', requestId);
     });
     const compiled =
@@ -220,7 +242,14 @@ export class FilesystemWorkerClient {
     } as const;
     const operation = FilesystemWorkerOperationSchema.parse({
       ...parsedOperation.data,
-      path: target.enforcementPath,
+      // Delete must keep the original directory entry as its operand. The
+      // canonical enforcement path remains pinned separately in
+      // expectedTarget and operationBoundary so the worker can reject a
+      // changed target without replacing a symlink operand with its target.
+      path:
+        parsedOperation.data.kind === 'delete' || parsedOperation.data.kind === 'lstat'
+          ? target.displayPath
+          : target.enforcementPath,
     });
     const request = {
       version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
@@ -243,13 +272,13 @@ export class FilesystemWorkerClient {
     if (!launch.ok) throw clientError(launch.reason, 'launch', requestId, launch.message);
     const workerProfile = deriveWorkerProfile(effectiveProfile, operationBoundary);
     const pinnedTarget =
-      platform === 'linux' && target.targetType !== 'missing'
+      platform === 'linux' && !entryMode && target.targetType !== 'missing'
         ? (() => {
             try {
               return pinExistingLinuxProfilePath({
                 path: target.enforcementPath,
                 access,
-                targetType: target.targetType,
+                targetType: target.targetType as 'file' | 'directory' | 'other',
                 childFd: 4,
               });
             } catch {
@@ -262,7 +291,7 @@ export class FilesystemWorkerClient {
             }
           })()
         : undefined;
-    if (platform === 'linux' && target.targetType !== 'missing' && !pinnedTarget) {
+    if (platform === 'linux' && !entryMode && target.targetType !== 'missing' && !pinnedTarget) {
       throw clientError(
         'path_changed',
         'validation',
@@ -429,7 +458,58 @@ export function filesystemWorkerRuntimeWritableRoots(input: {
   if (input.platform !== 'linux' || input.access !== 'write' || input.targetType !== 'missing') {
     return undefined;
   }
+  // A create may need several parent directories. The worker still validates
+  // the exact operation boundary before mutating; this runtime-only root merely
+  // gives that one trusted worker enough kernel access to mkdir the path.
   return [dirname(input.enforcementPath)];
+}
+
+/**
+ * Canonicalise a directory entry (Delete/Move operand, lstat probe,
+ * create-mode write) without following its final symlink: the parent chain
+ * resolves in realpath space and the leaf name is appended, matching the
+ * worker-side resolveDeleteOperandAllowed semantics. A link inside the root
+ * whose parent chain resolves outside still fails containment; the entry
+ * itself (file or link) stays addressable for lstat/unlink/create checks.
+ */
+async function normalizeDirectoryEntryTarget(
+  cwd: string,
+  path: string,
+  access: SandboxBoundaryAccess,
+  scope: SandboxBoundaryScope | 'auto',
+): Promise<
+  Omit<NormalizedSandboxBoundaryPath, 'targetType'> & {
+    targetType: FilesystemWorkerTarget['targetType'];
+  }
+> {
+  const canonicalCwd = await realpath(cwd);
+  const displayPath = resolve(canonicalCwd, path);
+  const parentReal = await realpathAllowMissing(dirname(displayPath));
+  const enforcementPath = resolve(parentReal, basename(displayPath));
+  const targetType = await entryTargetTypeOf(enforcementPath);
+  const effectiveScope =
+    scope === 'auto' ? (targetType === 'directory' ? 'subtree' : 'exact') : scope;
+  return { displayPath, enforcementPath, access, scope: effectiveScope, targetType };
+}
+
+async function entryTargetTypeOf(path: string): Promise<FilesystemWorkerTarget['targetType']> {
+  try {
+    const metadata = await lstat(path);
+    if (metadata.isSymbolicLink()) return 'symlink';
+    if (metadata.isFile()) return 'file';
+    if (metadata.isDirectory()) return 'directory';
+    return 'other';
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+    ) {
+      return 'missing';
+    }
+    throw error;
+  }
 }
 
 function deriveWorkerProfile(
@@ -467,7 +547,9 @@ function deriveWorkerProfile(
 }
 
 function operationAccess(kind: FilesystemWorkerOperation['kind']): 'read' | 'write' {
-  return kind === 'write' || kind === 'edit' || kind === 'format_json' ? 'write' : 'read';
+  return kind === 'write' || kind === 'edit' || kind === 'format_json' || kind === 'delete'
+    ? 'write'
+    : 'read';
 }
 
 function operationScope(kind: FilesystemWorkerOperation['kind']): 'exact' | 'subtree' | 'auto' {

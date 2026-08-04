@@ -76,6 +76,7 @@ import {
   buildToolsForAgentDefinition,
   requireBuiltinAgentDefinition,
 } from './agent-catalog.js';
+import { childAgentToolsWithinEditingProtocol } from './subagent-tools.js';
 import { loadLatestHistoryCompactCheckpointFromRunLedger } from './history-compact-ledger.js';
 import {
   canReplaceHistoryCompactCheckpoint,
@@ -1154,7 +1155,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
     await this.enterExecutionClaim(execution);
     const parentHeader = await this.deps.store.readHeader(sessionId);
     const definition = requireBuiltinAgentDefinition(input.spec.id);
-    const availableChildTools = this.deps.childTools ?? [];
+    const availableChildTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      parentHeader.editingProtocol,
+    );
     assertAgentDefinitionRunnable({
       definition,
       tools: availableChildTools,
@@ -1256,7 +1260,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
           tools: linkedSnapshot.toolNames,
         }
       : requireBuiltinAgentDefinition(input.spec.id);
-    const availableChildTools = this.deps.childTools ?? [];
+    const availableChildTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      parentHeader.editingProtocol,
+    );
     if (!linkedSnapshot) {
       assertAgentDefinitionRunnable({
         definition: requireBuiltinAgentDefinition(input.spec.id),
@@ -2932,7 +2939,10 @@ export class RuntimeKernel implements RuntimeKernelLike {
       permissionMode: header.permissionMode,
       tools: snapshot.toolNames,
     };
-    const availableTools = this.deps.childTools ?? [];
+    const availableTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      header.editingProtocol,
+    );
     const tools = buildToolsForAgentDefinition(availableTools, snapshotDefinition);
     if (tools.length !== snapshot.toolNames.length) {
       throw new Error('Subagent runtime tool snapshot is unavailable');

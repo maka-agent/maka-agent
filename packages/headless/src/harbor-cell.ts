@@ -54,7 +54,7 @@ import {
   type HarborCellExecutionIdentity,
   type HarborCellOutput,
 } from './cell-output.js';
-import type { Config, Task } from './contracts.js';
+import { editingProtocolFromValue, type Config, type Task } from './contracts.js';
 import { resolveHeavyTaskMode } from './heavy-task-policy.js';
 import { resolveEconomyTaskMode } from './economy-task-policy.js';
 import {
@@ -358,6 +358,7 @@ export async function runHarborCellWithStorage(
     input.realBackendIsolation?.toolExecutor,
     {
       agentTools: config.agentTools,
+      ...(config.editingProtocol ? { editingProtocol: config.editingProtocol } : {}),
       snapshotImage: createReadImageSnapshotter(storage.artifactStore),
       ...(input.archiveResources ? { archiveResources: input.archiveResources } : {}),
     },
@@ -772,10 +773,15 @@ export async function runHarborCellFromEnv(
   const settleAfterMs = harborCellSoftTimeoutMsFromEnv(resolvedEnv);
   const reasoningEffort = reasoningEffortFromEnv(resolvedEnv.MAKA_REASONING_EFFORT);
   const agentTools = booleanEnv(resolvedEnv.MAKA_AGENT_TOOLS, 'MAKA_AGENT_TOOLS') ?? false;
+  const editingProtocol = editingProtocolFromValue(
+    resolvedEnv.MAKA_EDITING_PROTOCOL,
+    'MAKA_EDITING_PROTOCOL',
+  );
   const baseConfig = {
     id: resolvedEnv.MAKA_CONFIG_ID ?? 'harbor-cell',
     backend,
     agentTools,
+    ...(editingProtocol ? { editingProtocol } : {}),
     ...(reasoningEffort ? { thinkingLevel: reasoningEffort } : {}),
     ...(resolvedEnv.MAKA_SYSTEM_PROMPT !== undefined
       ? { systemPrompt: resolvedEnv.MAKA_SYSTEM_PROMPT }

@@ -421,9 +421,28 @@ export { queryTavily } from './tavily-search.js';
 export { buildWebSearchTool } from './web-search-tool.js';
 export type {
   BuildBuiltinToolsOptions,
+  EditingProtocol,
   MakaTool as BuiltinMakaTool,
   MakaToolContext as BuiltinMakaToolContext,
 } from './builtin-tools.js';
+export {
+  parseApplyPatch,
+  applyUpdateChunksToContent,
+  assertSafePatchPath,
+  collectPatchPaths,
+} from '@maka/core/apply-patch';
+export type {
+  ApplyPatchHunk,
+  ApplyPatchParseOutcome,
+  ApplyPatchUpdateChunk,
+} from '@maka/core/apply-patch';
+export { executeApplyPatchWithAdapter } from './apply-patch-engine.js';
+export type {
+  ApplyPatchAccessIntent,
+  ApplyPatchEngineResult,
+  ApplyPatchFsAdapter,
+  ApplyPatchOperationResult,
+} from './apply-patch-engine.js';
 export {
   buildToolResultArchiveResourceRef,
   parseToolResultArchiveResourceRef,

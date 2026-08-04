@@ -81,6 +81,8 @@ describe('builtin file tools use the sandboxed worker', () => {
         execute: async (input) => {
           calls.push(input);
           switch (input.operation.kind) {
+            case 'lstat':
+              return { kind: 'lstat', targetType: 'file' };
             case 'read':
               return { kind: 'read', content: 'worker-content' };
             case 'write':
@@ -106,6 +108,8 @@ describe('builtin file tools use the sandboxed worker', () => {
                 byteDelta: 1,
                 changed: true,
               };
+            case 'delete':
+              return { kind: 'delete', ok: true, path: input.operation.path };
             case 'glob':
               return { kind: 'glob', files: ['worker.ts'] };
             case 'grep':

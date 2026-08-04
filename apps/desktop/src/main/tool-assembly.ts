@@ -389,7 +389,7 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
   const desktopProductToolSurface = projectEffectiveProductToolSurface({
     host: 'desktop',
     tools: builtinTools,
-    policy: { economy: economyEnabled },
+    policy: { economy: economyEnabled, editingProtocol: 'edit_write' },
   });
   // Build the union needed by catalog child profiles. SessionManager applies
   // each profile's narrower allowlist; parent-facing runtime refs are omitted.
@@ -415,7 +415,9 @@ export function assembleDesktopTools(deps: DesktopToolAssemblyDeps) {
     computerUseScreenLock,
     computerUseTools,
     desktopProductToolSurface,
-    builtinTools: [...desktopProductToolSurface.tools],
+    // Keep the protocol union bound at process scope. The backend projector
+    // selects exactly one surface from each persisted session header.
+    builtinTools,
     childAgentTools,
     sandboxDiagnosticsProvider,
   };

@@ -192,6 +192,7 @@ import {
   buildToolsForAgentDefinition,
   getBuiltinAgentDefinition,
   listBuiltinAgentDefinitions,
+  projectDefinitionToolNames,
   requireBuiltinAgentDefinition,
   requireBuiltinAgentDefinitionByProfile,
   AGENT_WORKSPACE_WORKTREE,
@@ -200,6 +201,7 @@ import {
   type AgentDefinitionListItem,
   type SubagentPresetListItem,
 } from './agent-catalog.js';
+import { childAgentToolsWithinEditingProtocol } from './subagent-tools.js';
 import { buildRuntimeEventModelReplayPlan } from './model-history.js';
 import { stableHash } from './request-shape.js';
 import type { SubagentExecutionRef } from './subagent-execution.js';
@@ -2398,9 +2400,13 @@ export class SessionManager {
     }
 
     const definition = requireBuiltinAgentDefinition(input.agentId);
+    const availableChildTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      parentHeader.editingProtocol,
+    );
     assertAgentDefinitionRunnable({
       definition,
-      tools: this.deps.childTools ?? [],
+      tools: availableChildTools,
       worktreeChildExecutorAvailable: this.hasWorktreeChildExecutor(),
     });
     const childPermissionMode =
@@ -2427,7 +2433,8 @@ export class SessionManager {
         profile: definition.profile,
         workspace: definition.contract.workspace,
         permissionMode: childPermissionMode,
-        toolNames: [...definition.tools],
+        editingProtocol: parentHeader.editingProtocol ?? 'edit_write',
+        toolNames: projectDefinitionToolNames(definition, availableChildTools),
         categoryPolicy: {},
         systemPrompt: definition.systemPrompt,
       },
@@ -2486,7 +2493,7 @@ export class SessionManager {
           agentName: definition.name,
           profile: definition.profile,
           systemPrompt: definition.systemPrompt,
-          toolNames: [...definition.tools],
+          toolNames: projectDefinitionToolNames(definition, availableChildTools),
           categoryPolicy: {},
         },
         subagentSpawn: {
@@ -2967,7 +2974,10 @@ export class SessionManager {
     this.assertActiveParentRun(parentSessionId, parentRun, input.spawnedBy.parentTurnId);
 
     const definition = requireBuiltinAgentDefinitionByProfile(input.agentProfile);
-    const availableChildTools = this.deps.childTools ?? [];
+    const availableChildTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      parentHeader.editingProtocol,
+    );
     assertAgentDefinitionRunnable({
       definition,
       tools: availableChildTools,
@@ -2997,6 +3007,7 @@ export class SessionManager {
             ? { thinkingLevel: parentHeader.thinkingLevel }
             : {}),
         permissionMode: definition.permissionMode,
+        editingProtocol: parentHeader.editingProtocol ?? 'edit_write',
         collaborationMode: 'agent',
         orchestrationMode: 'default',
         subagentParent: {
@@ -3014,7 +3025,7 @@ export class SessionManager {
           profile: definition.profile,
           ...(input.resolvedPreset ? { presetId: input.resolvedPreset.id } : {}),
           systemPrompt: definition.systemPrompt,
-          toolNames: [...definition.tools],
+          toolNames: projectDefinitionToolNames(definition, availableChildTools),
           categoryPolicy: {},
         },
         subagentSpawn: {
@@ -3304,9 +3315,13 @@ export class SessionManager {
 
     const sessionHeader = await this.deps.store.readHeader(sessionId);
     await this.ensureChildWorkspace(sessionHeader);
+    const availableChildTools = childAgentToolsWithinEditingProtocol(
+      this.deps.childTools ?? [],
+      sessionHeader.editingProtocol,
+    );
     assertAgentDefinitionRunnable({
       definition,
-      tools: this.deps.childTools ?? [],
+      tools: availableChildTools,
       worktreeChildExecutorAvailable: this.hasWorktreeChildExecutor(),
     });
     const visited = new Set<string>();
@@ -3432,11 +3447,14 @@ export class SessionManager {
     }
     await this.ensureChildWorkspace(child);
     await this.assertLinkedChildBoundaryMatchesParent(parentSessionId, child.id);
-    const runnableTools = buildToolsForAgentDefinition(this.deps.childTools ?? [], {
-      id: snapshot.agentId,
-      permissionMode: child.permissionMode,
-      tools: snapshot.toolNames,
-    });
+    const runnableTools = buildToolsForAgentDefinition(
+      childAgentToolsWithinEditingProtocol(this.deps.childTools ?? [], child.editingProtocol),
+      {
+        id: snapshot.agentId,
+        permissionMode: child.permissionMode,
+        tools: snapshot.toolNames,
+      },
+    );
     if (runnableTools.length !== snapshot.toolNames.length) {
       throw new Error('Child Session durable runtime tool snapshot is unavailable');
     }
@@ -4281,8 +4299,12 @@ export class SessionManager {
   }
 
   async listChildAgents(sessionId: string): Promise<AgentListResult> {
+    const header = await this.deps.store.readHeader(sessionId);
     const definitions = listBuiltinAgentDefinitions({
-      tools: this.deps.childTools ?? [],
+      tools: childAgentToolsWithinEditingProtocol(
+        this.deps.childTools ?? [],
+        header.editingProtocol,
+      ),
       worktreeChildExecutorAvailable: this.hasWorktreeChildExecutor(),
     });
     const presets = this.deps.subagentCatalog ? await this.deps.subagentCatalog.list() : [];
@@ -4919,6 +4941,7 @@ export class SessionManager {
         model: header.model,
         thinkingLevel: header.thinkingLevel,
         permissionMode: header.permissionMode,
+        editingProtocol: header.editingProtocol ?? 'edit_write',
         collaborationMode: header.collaborationMode,
         orchestrationMode: header.orchestrationMode ?? 'default',
         name: header.name,
@@ -4987,6 +5010,7 @@ export class SessionManager {
         model: header.model,
         thinkingLevel: header.thinkingLevel,
         permissionMode: header.permissionMode,
+        editingProtocol: header.editingProtocol ?? 'edit_write',
         collaborationMode: header.collaborationMode,
         orchestrationMode: header.orchestrationMode ?? 'default',
         name: input.name ?? `${header.name} · 分支`,
@@ -6119,6 +6143,7 @@ export function headerToSummary(h: SessionHeader): SessionSummary {
     connectionLocked: h.connectionLocked,
     model: h.model,
     permissionMode: h.permissionMode ?? 'ask',
+    editingProtocol: h.editingProtocol ?? 'edit_write',
     collaborationMode: h.collaborationMode ?? 'agent',
     orchestrationMode: h.orchestrationMode ?? 'default',
   };

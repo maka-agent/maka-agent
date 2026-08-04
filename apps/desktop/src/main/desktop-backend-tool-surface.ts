@@ -22,6 +22,7 @@ import {
   selectCollaborationTools,
 } from '@maka/runtime';
 import type {
+  EditingProtocol,
   HostCapabilities,
   MakaTool,
   ToolAvailabilityConfig,
@@ -79,6 +80,7 @@ export interface DesktopBackendToolSurface {
 
 export interface DesktopNewSessionSkillContext {
   collaborationMode?: CollaborationMode;
+  editingProtocol?: EditingProtocol;
 }
 
 /**
@@ -141,6 +143,7 @@ export async function resolveDesktopNewSessionSkillHost(
     connectionLocked: false,
     model: input.readyConnection.model,
     permissionMode: 'ask',
+    editingProtocol: input.context?.editingProtocol ?? 'edit_write',
     collaborationMode: input.context?.collaborationMode ?? 'agent',
     orchestrationMode: 'default',
     schemaVersion: 1,
@@ -230,7 +233,10 @@ export async function resolveDesktopBackendToolSurface(
   const productToolSurface = projectEffectiveProductToolSurface({
     host: 'desktop',
     tools: selectedTools,
-    policy: { economy: toolEconomy },
+    policy: {
+      economy: toolEconomy,
+      editingProtocol: input.header.editingProtocol ?? 'edit_write',
+    },
   });
 
   return {

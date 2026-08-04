@@ -30,6 +30,7 @@ import {
   isSubagentSessionSpawn,
   isSubagentWorkspaceBinding,
   isSessionStatus,
+  isEditingProtocol,
   normalizeUserSessionName,
   subagentSessionRuntimeSummary,
   WORKSPACE_AUTHORITY_SESSION_ID,
@@ -839,6 +840,7 @@ function buildSessionHeader(
     model: input.model ?? 'default',
     permissionMode: input.permissionMode,
     collaborationMode: input.collaborationMode ?? 'agent',
+    editingProtocol: input.editingProtocol ?? 'edit_write',
     orchestrationMode: input.orchestrationMode ?? 'default',
     ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
     schemaVersion: 1,
@@ -892,6 +894,7 @@ export function normalizeSessionHeader(
     isPermissionMode(header.permissionMode) &&
     isCollaborationMode(header.collaborationMode) &&
     isOrchestrationMode(header.orchestrationMode) &&
+    (header.editingProtocol === undefined || isEditingProtocol(header.editingProtocol)) &&
     header.schemaVersion === 1;
   if (!valid) {
     throw new Error(`Invalid session header for session ${sessionId}: malformed fields`);

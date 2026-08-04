@@ -49,6 +49,7 @@ import {
   SessionActivityRegistry,
   listInvocableSkills,
   prepareSkillInvocationMessage,
+  projectEffectiveProductToolSurface,
   resolveSkillDiscoveryPaths,
 } from '@maka/runtime';
 import type {
@@ -85,6 +86,7 @@ import {
   requireReadyConnection,
 } from './chat-readiness.js';
 import { assertDesktopExecutionBoundary } from './desktop-execution-admission.js';
+import { resolveEditingProtocolEnv } from './create-session-input.js';
 import { createFileCredentialStore } from './credential-store.js';
 import { bindOnboardingDeps, createOnboardingService } from './onboarding-service.js';
 import { createDailyReviewArchiveStore } from './daily-review-archive-store.js';
@@ -886,7 +888,17 @@ const runtime = new SessionManager({
   inspectContinuationSafety: createLocalContinuationSafetyInspector({
     readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
     resolveWorkspaceIdentity: async (cwd) => resolveWorkspaceIdentity({ path: cwd }),
-    listAvailableToolNames: async () => builtinTools.map((tool) => tool.name),
+    listAvailableToolNames: async (sessionId) => {
+      const header = await store.readHeader(sessionId);
+      return projectEffectiveProductToolSurface({
+        host: 'desktop',
+        tools: builtinTools,
+        policy: {
+          ...desktopProductToolSurface.identity.policy,
+          editingProtocol: header.editingProtocol ?? 'edit_write',
+        },
+      }).tools.map((tool) => tool.name);
+    },
     hasPendingBackgroundOperations: async (sessionId) => {
       const [shellUpdates, runs] = await Promise.all([
         shellRuns.listSessionUpdates(sessionId),
@@ -1127,6 +1139,7 @@ function registerIpc(): void {
     streamEvents,
     getWorkspacePrivacyContext,
     canCreateFakeSession: canCreateFakeSessionFromRenderer,
+    defaultEditingProtocol: resolveEditingProtocolEnv(process.env.MAKA_EDITING_PROTOCOL),
     consumeNativeAudioOperation: (input) =>
       voiceIpcService.consumeNativeAudioOperation(input),
   });

@@ -83,6 +83,7 @@ import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import { fetchProviderModels } from '@maka/runtime';
 import { createApiKeyOnboardingSurface, type MakaOnboardingSurface } from './onboarding.js';
 import { isActiveShellRunStatus, resolveModelVisionSupport } from '@maka/core';
+import { resolveEditingProtocolEnv, type EditingProtocol } from '@maka/core/apply-patch';
 import type { ModelChoice, ReadySessionTarget } from './connection-target.js';
 import {
   listReadyModelChoices,
@@ -101,6 +102,8 @@ export interface MakaCliRuntimeContext {
   /** Host-injected configuration root used by connections, credentials, and settings. */
   configRoot: string;
   cwd: string;
+  /** Editing surface captured for sessions created by this runtime context. */
+  editingProtocol: EditingProtocol;
   runtime: SessionManager;
   target: ReadySessionTarget;
   /** Selectable models across every ready connection, for the `/model` picker. */
@@ -164,6 +167,9 @@ export interface SessionRecapGenerator {
 
 export interface CreateMakaCliRuntimeContextInput {
   surface: 'tui' | 'run' | 'activation';
+  /** Explicit per-run editing surface override; defaults to Edit/Write. */
+  editingProtocol?: EditingProtocol;
+
   /** Legacy root; both new roots default to this path. */
   workspaceRoot: string;
   /** Optional portable session-owned state root. */
@@ -219,6 +225,8 @@ export async function createMakaCliRuntimeContext(
   const stateRoot = input.stateRoot ?? input.workspaceRoot;
   const configRoot = input.configRoot ?? input.workspaceRoot;
   const agentGraphEnabled = input.surface === 'tui' || input.enableAgentGraph === true;
+  const editingProtocol =
+    input.editingProtocol ?? editingProtocolFromEnv(process.env.MAKA_EDITING_PROTOCOL);
   if (input.stateRoot !== undefined || input.configRoot !== undefined) {
     await assertSessionBundleRootLayout({
       stateRoot,
@@ -604,6 +612,7 @@ export async function createMakaCliRuntimeContext(
     tools: boundTools,
     policy: {
       economy: input.surface === 'tui' && !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+      editingProtocol,
     },
   });
   const allTools = [...cliProductToolSurface.tools];
@@ -646,8 +655,11 @@ export async function createMakaCliRuntimeContext(
         : [];
     const productToolSurface = projectEffectiveProductToolSurface({
       host: 'cli',
-      tools: ctx.tools ? ctx.tools : [...allTools, ...agentGraphSupervisorTools],
-      policy: cliProductToolSurface.identity.policy,
+      tools: ctx.tools ? ctx.tools : [...boundTools, ...agentGraphSupervisorTools],
+      policy: {
+        ...cliProductToolSurface.identity.policy,
+        editingProtocol: header.editingProtocol ?? editingProtocol,
+      },
     });
     const backendTools = [...productToolSurface.tools];
     const admitsAgentChildren = productToolSurface.boundSurfaceIds.includes(AGENT_TOOL_GROUP_ID);
@@ -807,7 +819,17 @@ export async function createMakaCliRuntimeContext(
     inspectContinuationSafety: createLocalContinuationSafetyInspector({
       readSessionCwd: async (sessionId) => (await store.readHeader(sessionId)).cwd,
       resolveWorkspaceIdentity: async (cwd) => resolveWorkspaceIdentity({ path: cwd }),
-      listAvailableToolNames: async () => allTools.map((tool) => tool.name),
+      listAvailableToolNames: async (sessionId) => {
+        const header = await store.readHeader(sessionId);
+        return projectEffectiveProductToolSurface({
+          host: 'cli',
+          tools: boundTools,
+          policy: {
+            ...cliProductToolSurface.identity.policy,
+            editingProtocol: header.editingProtocol ?? editingProtocol,
+          },
+        }).tools.map((tool) => tool.name);
+      },
       hasPendingBackgroundOperations: async (sessionId) => {
         const [shellUpdates, runs] = await Promise.all([
           shellRuns.listSessionUpdates(sessionId),
@@ -1023,6 +1045,7 @@ export async function createMakaCliRuntimeContext(
     stateRoot,
     configRoot,
     cwd: input.cwd,
+    editingProtocol,
     runtime,
     target,
     modelChoices,
@@ -1090,6 +1113,12 @@ export async function createMakaCliRuntimeContext(
       artifactStore.close?.();
     },
   };
+}
+
+function editingProtocolFromEnv(value: string | undefined): EditingProtocol {
+  // CLI sessions default to Edit/Write; an explicit env override is the only
+  // way to reach apply_patch.
+  return resolveEditingProtocolEnv(value) ?? 'edit_write';
 }
 
 export async function getOrCreateCliClaudeDeviceId(
