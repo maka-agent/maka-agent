@@ -115,6 +115,17 @@ export interface ShellRunRecord {
   updatedAt: number;
   completedAt?: number;
   timeoutMs?: number;
+  /** Host-owned opt-in for one terminal completion turn instead of model polling. */
+  notifyOnComplete?: true;
+  /** Durable delivery facts for the completion wake. */
+  completionWake?: {
+    /** Total model-turn attempts admitted for this notification across restarts. */
+    attemptCount?: number;
+    attemptTurnId?: string;
+    lastFailure?: string;
+    deliveredAt?: number;
+    exhaustedAt?: number;
+  };
   revision: number;
   observedAt?: number;
   output: ShellOutput;
@@ -131,7 +142,14 @@ export interface ShellRunRecord {
 export type ShellRunPatch = Partial<
   Pick<
     ShellRunRecord,
-    'status' | 'exitCode' | 'failureMessage' | 'updatedAt' | 'completedAt' | 'observedAt' | 'output'
+    | 'status'
+    | 'exitCode'
+    | 'failureMessage'
+    | 'updatedAt'
+    | 'completedAt'
+    | 'observedAt'
+    | 'output'
+    | 'completionWake'
   >
 >;
 

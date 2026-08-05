@@ -1937,6 +1937,7 @@ export class AiSdkBackend implements AgentBackend {
               if (outcome.status === 'rejected') throw outcome.reason;
               return outcome.value;
             });
+            let backgroundCompletionSubscribed = false;
             for (let index = 0; index < settlements.length; index += 1) {
               const settlement = settlements[index]!;
               const toolCall = returnedToolCalls[index];
@@ -1950,6 +1951,13 @@ export class AiSdkBackend implements AgentBackend {
               ) {
                 this.handleAgentGraphYieldToolResult(scope, settlement.result);
               }
+              backgroundCompletionSubscribed ||= isBackgroundCompletionSubscriptionResult(
+                settlement.result,
+              );
+            }
+            if (backgroundCompletionSubscribed) {
+              scope.loopStopReason = 'background_task_wait';
+              scope.loopStopRequested = true;
             }
             await queue.waitUntilConsumedThroughCurrent();
             for (let index = 0; index < returnedToolCalls.length; index += 1) {
@@ -3612,6 +3620,16 @@ function isPlanToolResult(output: unknown): output is PlanToolResult {
     'plan_execution_completed',
     'plan_execution_cancelled',
   ].includes(String((output as { kind?: unknown }).kind));
+}
+
+function isBackgroundCompletionSubscriptionResult(output: unknown): boolean {
+  if (output === null || typeof output !== 'object' || Array.isArray(output)) return false;
+  const result = output as Record<string, unknown>;
+  return (
+    result.kind === 'shell_run' &&
+    result.notifyOnComplete === true &&
+    (result.status === 'starting' || result.status === 'running')
+  );
 }
 
 function isAgentGraphYieldToolResult(output: unknown): output is YieldAgentGraphToolResult {

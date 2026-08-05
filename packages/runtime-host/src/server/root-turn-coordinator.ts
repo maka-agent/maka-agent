@@ -260,6 +260,13 @@ interface AgentGraphRootReservation extends RootTurnReservation {
   readonly input: UserMessageInput;
 }
 
+interface ShellRunCompletionRootReservation extends RootTurnReservation {
+  readonly turnId: string;
+  readonly runId: string;
+  readonly userMessageId: string;
+  readonly message: UserMessageInput;
+}
+
 interface HostedRootReservationOptions {
   readonly label: string;
   readonly unavailableReason: string;
@@ -884,6 +891,58 @@ export class RootTurnCoordinator {
     });
   }
 
+  async runShellRunCompletionTurn(
+    sessionId: string,
+    input: UserMessageInput,
+    abortSignal: AbortSignal,
+  ): Promise<GoalTurnOutcome> {
+    if (input.origin?.kind !== 'shell_run_completion') {
+      throw new RuntimeMessageAuthorityInvariantError(
+        'ShellRun completion Turn requires the host-authored ShellRun origin',
+      );
+    }
+
+    let reservation: ShellRunCompletionRootReservation;
+    for (;;) {
+      throwIfAborted(abortSignal);
+      if (this.#draining) {
+        return goalErrorOutcome(input.turnId, 'Runtime Host root authority is draining.');
+      }
+      const active = this.#activeBySession.get(sessionId);
+      const pending = this.#reservationsBySession.get(sessionId);
+      const whenIdle = active?.done ?? pending?.whenIdle.promise;
+      if (whenIdle) {
+        await waitForRootIdleOrAbort(whenIdle, abortSignal);
+        continue;
+      }
+      reservation = {
+        kind: 'pending',
+        sessionId,
+        turnId: input.turnId,
+        runId: randomUUID(),
+        userMessageId: randomUUID(),
+        message: input,
+        whenIdle: deferred(),
+        admissionSettled: deferred(),
+        admissionPhase: 'prepared',
+      };
+      this.#reservationsBySession.set(sessionId, reservation);
+      break;
+    }
+    return this.#runHostedRootReservation(reservation, {
+      label: 'ShellRun completion continuation',
+      unavailableReason: 'ShellRun completion continuation is unavailable for this Session.',
+      revokedReason: 'ShellRun completion continuation reservation was revoked.',
+      execution: {
+        kind: 'shell_run_completion_wake',
+        shellRunId: input.origin.shellRunId,
+      },
+      normalizedInput: normalizeMessageContent(input),
+      isAvailable: () => true,
+      abortSignal,
+    });
+  }
+
   async recoverAgentGraphSupervisorContextOverflow(
     sessionId: string,
     compactTurnId: string,
@@ -1070,7 +1129,14 @@ export class RootTurnCoordinator {
     },
   ): Promise<AgentGraphSupervisorTurnOutcome>;
   async #runHostedRootReservation(
-    reservation: GoalRootReservation | AgentGraphRootReservation,
+    reservation: ShellRunCompletionRootReservation,
+    options: HostedRootReservationOptions & { isCurrent?: undefined },
+  ): Promise<GoalTurnOutcome>;
+  async #runHostedRootReservation(
+    reservation:
+      | GoalRootReservation
+      | AgentGraphRootReservation
+      | ShellRunCompletionRootReservation,
     options: HostedRootReservationOptions,
   ): Promise<AgentGraphSupervisorTurnOutcome> {
     try {
@@ -1172,7 +1238,10 @@ export class RootTurnCoordinator {
   }
 
   async #awaitHostedRootOutcome(
-    reservation: GoalRootReservation | AgentGraphRootReservation,
+    reservation:
+      | GoalRootReservation
+      | AgentGraphRootReservation
+      | ShellRunCompletionRootReservation,
     active: ActiveRootTurn,
     abortSignal?: AbortSignal,
   ): Promise<GoalTurnOutcome> {
@@ -3115,6 +3184,7 @@ function assertRunMatchesExecution(
     case 'context_compact':
     case 'automation':
     case 'goal':
+    case 'shell_run_completion_wake':
     case 'agent_graph_supervisor_wake':
     case 'safe_boundary_continuation':
       if (agentRunMatchesHostedRootExecution(run, execution)) return;
@@ -3156,6 +3226,7 @@ function assertTrustedAgentIdentity(
         | 'context_compact'
         | 'automation'
         | 'goal'
+        | 'shell_run_completion_wake'
         | 'agent_graph_supervisor_wake'
         | 'safe_boundary_continuation';
     }
@@ -3203,6 +3274,12 @@ function recoveryExecutionContract(
         pendingWithoutRun: 'root_replay',
       };
     case 'goal':
+      return {
+        allowsQueueSources: false,
+        requiresUserMessage: true,
+        pendingWithoutRun: 'host_recovery_closure',
+      };
+    case 'shell_run_completion_wake':
       return {
         allowsQueueSources: false,
         requiresUserMessage: true,
@@ -3273,6 +3350,8 @@ function rootExecutionMessageOrigin(execution: RootExecutionDescriptor) {
       };
     case 'goal':
       return { kind: 'goal' as const, goalId: execution.goalId };
+    case 'shell_run_completion_wake':
+      return { kind: 'shell_run_completion' as const, shellRunId: execution.shellRunId };
     case 'agent_graph_supervisor_wake':
       return {
         kind: 'agent_graph' as const,
