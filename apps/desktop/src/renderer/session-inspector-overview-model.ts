@@ -71,8 +71,12 @@ export interface InspectorCompositionTool extends InspectorCompositionRow {
 }
 
 export interface InspectorComposition {
+  /**
+   * The whole serialized request. Carried as the measured fact, not rendered:
+   * the parts are what a reader acts on, and a fourth total beside them would
+   * only invite subtracting one from the other across two different units.
+   */
   totalBytes: number;
-  estimatedTotalTokens: number;
   parts: readonly InspectorCompositionPart[];
   /** The largest tool schemas, largest first — the ones worth removing. */
   tools: readonly InspectorCompositionTool[];
@@ -235,7 +239,6 @@ function compositionState(
     status: 'available',
     composition: {
       totalBytes: composition.totalBytes,
-      estimatedTotalTokens: estimateTokens(composition.totalBytes),
       parts: composition.parts.map((part) => ({
         key: part.kind,
         kind: part.kind,

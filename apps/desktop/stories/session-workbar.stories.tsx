@@ -369,6 +369,41 @@ const nearLimitTrace: SessionTrace = {
   ),
 };
 
+/**
+ * A ledger written before tool schemas carried a name: the same session, with
+ * the composition's tool bytes present and unattributed. Derived rather than
+ * forked for the same reason as `nearLimitTrace`.
+ */
+const unnamedToolsTrace: SessionTrace = {
+  ...populatedTrace,
+  turns: populatedTrace.turns.map((turn, index) =>
+    index !== populatedTrace.turns.length - 1
+      ? turn
+      : {
+          ...turn,
+          steps: turn.steps.map((step) =>
+            step.kind !== 'model_call'
+              ? step
+              : {
+                  ...step,
+                  attempts: step.attempts.map((attempt) =>
+                    attempt.promptComposition === undefined
+                      ? attempt
+                      : {
+                          ...attempt,
+                          promptComposition: {
+                            totalBytes: attempt.promptComposition.totalBytes,
+                            parts: attempt.promptComposition.parts,
+                            unlabelledToolBytes: 42_000,
+                          },
+                        },
+                  ),
+                },
+          ),
+        },
+  ),
+};
+
 const emptyTrace: SessionTrace = {
   schemaVersion: 1,
   sessionId: SESSION_ID,
@@ -508,6 +543,16 @@ export const Trace: Story = {
 // for. Same session as Trace, sized differently, so the two read side by side.
 export const TraceContextNearLimit: Story = {
   decorators: [bridge({ trace: nearLimitTrace })],
+  render: () => <Workbar tab="inspector" />,
+};
+
+// Real path: 会话工作栏 → 追踪 on a session recorded before tool schemas carried
+// a name — the shape of every ledger written prior to #2323. The composition
+// block still has to show those bytes, as unnamed tools rather than as a
+// missing category, which is what gating the tool list on the NAMED rows alone
+// silently broke.
+export const TraceUnnamedTools: Story = {
+  decorators: [bridge({ trace: unnamedToolsTrace })],
   render: () => <Workbar tab="inspector" />,
 };
 

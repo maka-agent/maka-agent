@@ -1,5 +1,20 @@
 import type { PromptComposition, PromptCompositionPart } from '@maka/core/session-trace';
-import type { PreparedRequestSegment, PreparedRequestSegmentKind } from './request-shape.js';
+import type { PreparedRequestSegmentKind } from './request-shape.js';
+
+/**
+ * The three fields a fold needs, and no more.
+ *
+ * `PreparedRequestSegment` satisfies this structurally, so a live capture folds
+ * without conversion — but a decoder reading one back off the ledger does not
+ * have to invent an `index` or a `hash` it never uses just to produce the wider
+ * type. A fabricated field is a silent wrong answer waiting for the first
+ * caller that reads it.
+ */
+export interface SizedRequestSegment {
+  kind: PreparedRequestSegmentKind;
+  bytes: number;
+  label?: string;
+}
 
 /**
  * Folds one request's captured segments into "what was this prompt made of"
@@ -20,7 +35,7 @@ import type { PreparedRequestSegment, PreparedRequestSegmentKind } from './reque
  * here, where messages arrive already serialized.
  */
 export function foldPromptComposition(
-  segments: readonly PreparedRequestSegment[],
+  segments: readonly SizedRequestSegment[],
   requestBytes: number,
 ): PromptComposition | undefined {
   if (segments.length === 0) return undefined;
@@ -36,10 +51,13 @@ export function foldPromptComposition(
     else byTool.set(segment.label, (byTool.get(segment.label) ?? 0) + segment.bytes);
   }
 
+  // A zero-byte kind is dropped rather than shown as `≈0`, the same way
+  // `/context` folds it — a part nothing contributed to is not a part.
   const parts: PromptCompositionPart[] = KIND_ORDER.flatMap((kind) => {
-    const bytes = byKind.get(kind);
-    return bytes === undefined ? [] : [{ kind: PART_KINDS[kind], bytes }];
+    const bytes = byKind.get(kind) ?? 0;
+    return bytes > 0 ? [{ kind: PART_KINDS[kind], bytes }] : [];
   });
+  if (parts.length === 0) return undefined;
 
   // Sorted by size because the question the list answers is "what is big
   // enough to be worth removing", and ties by name so a reader comparing two
@@ -87,7 +105,7 @@ export function readPromptCompositionEvent(event: {
   if (typeof attemptId !== 'string' || attemptId.length === 0) return undefined;
   if (!isNonNegativeInteger(requestBytes) || !Array.isArray(data.segments)) return undefined;
 
-  const segments: PreparedRequestSegment[] = [];
+  const segments: SizedRequestSegment[] = [];
   for (const value of data.segments) {
     const segment = readSegment(value);
     // One unreadable segment makes every share of this request wrong, so the
@@ -100,7 +118,7 @@ export function readPromptCompositionEvent(event: {
   return composition ? { attemptId, composition } : undefined;
 }
 
-function readSegment(value: unknown): PreparedRequestSegment | undefined {
+function readSegment(value: unknown): SizedRequestSegment | undefined {
   if (!isRecord(value)) return undefined;
   const kind = value.kind;
   if (!KIND_ORDER.includes(kind as PreparedRequestSegmentKind)) return undefined;
@@ -108,9 +126,6 @@ function readSegment(value: unknown): PreparedRequestSegment | undefined {
   if (value.label !== undefined && typeof value.label !== 'string') return undefined;
   return {
     kind: kind as PreparedRequestSegmentKind,
-    index: isNonNegativeInteger(value.index) ? value.index : 0,
-    cacheable: value.cacheable === true,
-    hash: typeof value.hash === 'string' ? value.hash : '',
     bytes: value.bytes,
     ...(typeof value.label === 'string' ? { label: value.label } : {}),
   };

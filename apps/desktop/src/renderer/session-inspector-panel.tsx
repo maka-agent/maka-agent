@@ -415,7 +415,10 @@ function InspectorCompositionSection(props: {
             ))}
           </dl>
 
-          {state.composition.tools.length > 0 && (
+          {/* Gated on either, not on the named list alone: a session recorded
+              before tools carried a name has bytes and no names, and that is
+              exactly when the unnamed row is the only thing to show. */}
+          {(state.composition.tools.length > 0 || state.composition.unlabelledTools) && (
             <>
               <Heading level={4} className="maka-inspector-section-subtitle">
                 {labels.tools}

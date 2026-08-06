@@ -10,17 +10,11 @@ import {
   readPromptCompositionEvent,
   PROVIDER_REQUEST_ATTEMPT_EVENT_TYPE,
 } from '../prompt-composition.js';
-import type { PreparedRequestSegment } from '../request-shape.js';
+import type { SizedRequestSegment } from '../prompt-composition.js';
+import { capturePreparedProviderRequest } from '../request-shape.js';
 
-function segment(overrides: Partial<PreparedRequestSegment> = {}): PreparedRequestSegment {
-  return {
-    kind: 'message',
-    index: 0,
-    cacheable: true,
-    hash: 'sha256:x',
-    bytes: 10,
-    ...overrides,
-  };
+function segment(overrides: Partial<SizedRequestSegment> = {}): SizedRequestSegment {
+  return { kind: 'message', bytes: 10, ...overrides };
 }
 
 describe('foldPromptComposition', () => {
@@ -46,9 +40,9 @@ describe('foldPromptComposition', () => {
   test('sizes each tool on its own, largest first', () => {
     const composition = foldPromptComposition(
       [
-        segment({ kind: 'tool_schema', index: 0, bytes: 300, label: 'Read' }),
-        segment({ kind: 'tool_schema', index: 1, bytes: 900, label: 'Bash' }),
-        segment({ kind: 'tool_schema', index: 2, bytes: 300, label: 'Edit' }),
+        segment({ kind: 'tool_schema', bytes: 300, label: 'Read' }),
+        segment({ kind: 'tool_schema', bytes: 900, label: 'Bash' }),
+        segment({ kind: 'tool_schema', bytes: 300, label: 'Edit' }),
       ],
       1500,
     );
@@ -65,8 +59,8 @@ describe('foldPromptComposition', () => {
   test('counts unnamed tool schemas without inventing a name for them', () => {
     const composition = foldPromptComposition(
       [
-        segment({ kind: 'tool_schema', index: 0, bytes: 500, label: 'Bash' }),
-        segment({ kind: 'tool_schema', index: 1, bytes: 250 }),
+        segment({ kind: 'tool_schema', bytes: 500, label: 'Bash' }),
+        segment({ kind: 'tool_schema', bytes: 250 }),
       ],
       750,
     );
@@ -96,6 +90,50 @@ describe('foldPromptComposition', () => {
 
     assert.equal(composition?.tools, undefined);
     assert.equal(composition?.unlabelledToolBytes, undefined);
+  });
+});
+
+describe('a real capture folds without a hand-written fixture in between', () => {
+  test('the names the capture writes are the names the fold reads', () => {
+    // Every other test here builds its own segments, so a field renamed on one
+    // side and not the other would pass all of them. This is the one test that
+    // runs the actual capture into the actual fold.
+    const capture = capturePreparedProviderRequest({
+      providerId: 'anthropic',
+      modelId: 'claude-test',
+      instructions: 'you are a helpful assistant',
+      messages: [{ role: 'user', content: 'hello' }],
+      tools: [
+        { name: 'Bash', description: 'Run a command', inputSchema: { type: 'object' } },
+        { name: 'Read', inputSchema: { type: 'object' } },
+      ],
+      providerOptions: { anthropic: { thinking: { type: 'enabled' } } },
+    });
+
+    const composition = foldPromptComposition(capture.segments, capture.requestBytes);
+
+    assert.deepEqual(
+      composition?.tools?.map((tool) => tool.name),
+      ['Bash', 'Read'],
+      'the tool names survive capture, storage shape and fold',
+    );
+    assert.equal(composition?.unlabelledToolBytes, undefined, 'both tools were named');
+    assert.deepEqual(
+      composition?.parts.map((part) => part.kind),
+      ['system_instructions', 'tool_definitions', 'messages', 'other'],
+    );
+    // The parts measure the segments; the total measures the whole request,
+    // which also carries parameters no segment describes.
+    const partBytes = composition!.parts.reduce((carry, part) => carry + part.bytes, 0);
+    assert.ok(
+      partBytes < composition!.totalBytes,
+      'the request envelope is reported, never distributed into the parts',
+    );
+    assert.equal(
+      composition?.parts.find((part) => part.kind === 'tool_definitions')?.bytes,
+      composition!.tools!.reduce((carry, tool) => carry + tool.bytes, 0),
+      'the per-tool rows sum to the tool total above them',
+    );
   });
 });
 

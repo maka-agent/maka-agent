@@ -381,6 +381,38 @@ describe('inspector overview model', () => {
     assert.equal(model.composition.composition.remainingTools?.bytes, 600);
   });
 
+  it('keeps unnamed tool bytes when no tool was named at all', () => {
+    // Every session recorded before tool schemas carried a name looks exactly
+    // like this: bytes, no names. The unnamed row is then the only tool row
+    // there is, so nothing may gate it on the named list being non-empty.
+    const model = deriveInspectorOverviewModel(
+      trace({
+        turns: [
+          turn([
+            modelCall({
+              attempts: [
+                attempt({
+                  inputTokens: 10,
+                  contextWindow: 1_000,
+                  promptComposition: {
+                    totalBytes: 2_000,
+                    parts: [{ kind: 'tool_definitions', bytes: 1_600 }],
+                    unlabelledToolBytes: 1_600,
+                  },
+                }),
+              ],
+            }),
+          ]),
+        ],
+      }),
+    );
+
+    assert.equal(model.composition?.status, 'available');
+    if (model.composition?.status !== 'available') return;
+    assert.deepEqual(model.composition.composition.tools, []);
+    assert.equal(model.composition.composition.unlabelledTools?.estimatedTokens, 400);
+  });
+
   it('states a metered call with no capture as unrecorded, not as an empty prompt', () => {
     const model = deriveInspectorOverviewModel(
       trace({
