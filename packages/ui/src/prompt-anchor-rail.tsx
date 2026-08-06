@@ -188,7 +188,7 @@ export const PromptAnchorRail = memo(function PromptAnchorRail({ turns, scrollRe
     const tickBox = tick.getBoundingClientRect();
     if (tickBox.top < railBox.top) rail.scrollTop -= railBox.top - tickBox.top;
     else if (tickBox.bottom > railBox.bottom) rail.scrollTop += tickBox.bottom - railBox.bottom;
-  }, [activeTurnId]);
+  }, [activeTurnId, safeArea]);
 
   function jumpTo(turnId: string): void {
     const el = scrollRef.current?.querySelector(`[data-turn-id="${CSS.escape(turnId)}"]`);

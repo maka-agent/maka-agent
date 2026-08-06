@@ -74,6 +74,7 @@ import {
   usePlanModeState,
 } from './plan-mode-panel';
 import { McpPage } from './mcp-page';
+import { BrowserWorkflowPage } from './browser-workflow-page';
 import { getOnboardingActivationCandidate, useOnboardingSnapshot } from './use-onboarding-snapshot';
 import type { AppUpdateStatus, OnboardingSnapshot } from '../preload/bridge-contract.js';
 import {
@@ -193,7 +194,7 @@ const SETTLE_FALLBACK_GRACE_MS = 1000;
  * `data-agents-view`; the toolbar now lives in the window titlebar, which is not
  * a descendant of the detail panel, so the condition belongs here.
  */
-const VIEWS_WITHOUT_WORKSPACE_ACTIONS = new Set(['skills', 'cron', 'daily-review']);
+const VIEWS_WITHOUT_WORKSPACE_ACTIONS = new Set(['skills', 'cron', 'daily-review', 'browser-workflows']);
 
 type AppShellProps = {
   /** Pre-mount snapshot prefetched by main.tsx — see prefetchOnboardingSnapshot. */
@@ -2198,6 +2199,18 @@ function AppShellContent({
                   onSnooze={(id) => snoozePlanReminder(id)}
                   onClearRunHistory={(id) => clearPlanReminderRunHistory(id)}
                   onDelete={(id) => deletePlanReminder(id)}
+                />
+              ) : navSelection.section === 'automations' && navSelection.module === 'browser-workflows' ? (
+                <BrowserWorkflowPage
+                  hubHeader={automationsHubHeader}
+                  activeSessionId={activeId ?? null}
+                  onRun={async (workflowId, sensitiveValues) => {
+                    if (!activeId) throw new Error('No active browser session.');
+                    setNavSelection({ section: 'sessions', filter: 'chats' });
+                    setWorkbarCollapsed(false);
+                    setWorkbarTab('browser');
+                    await window.maka.browser.workflows.run(workflowId, activeId, sensitiveValues);
+                  }}
                 />
               ) : navSelection.section === 'automations' && navSelection.module === 'daily-review' ? (
                 <DailyReviewPage

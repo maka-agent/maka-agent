@@ -349,6 +349,29 @@ test('the active tick stays visible once the rail overflows', async ({ overflowi
   expect(atStart.railScrollTop, back).toBeLessThan(atEnd.railScrollTop);
 });
 
+test('the active tick stays reachable when the available rail height shrinks', async ({
+  overflowingRailWindow: page,
+}) => {
+  await page.setViewportSize({ width: 1240, height: 900 });
+  await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(900);
+  await settled(page, 90);
+  await scrollToRatio(page, 1);
+  await expect(page.locator('.maka-prompt-rail-tick').last()).toHaveAttribute('aria-current', 'true');
+
+  const before = await activeTickVisibility(page);
+  expect(before.fullyInsideRail, JSON.stringify(before)).toBe(true);
+
+  await page.setViewportSize({ width: 1240, height: 500 });
+  await expect.poll(() => page.evaluate(() => window.innerHeight)).toBe(500);
+  await expect
+    .poll(async () => (await activeTickVisibility(page)).railClientHeight)
+    .toBeLessThan(before.railClientHeight);
+
+  const after = await activeTickVisibility(page);
+  expect(after.fullyInsideRail, JSON.stringify({ before, after })).toBe(true);
+  expect(after.hitsActiveTick, JSON.stringify({ before, after })).toBe(true);
+});
+
 /**
  * The highlight for the prompt being read is one bar that travels, anchored to
  * the active tick with CSS anchor positioning. That fails silently — an

@@ -189,13 +189,13 @@ test('session heading stays singular and the default list has no redundant headi
 
 test('scheduled-task hub restores the last selected child module', async ({ window: page }) => {
   const sidebar = await expandedSidebar(page);
-  const scheduledTasks = sidebar.getByRole('button', { name: '定时任务', exact: true });
+  const scheduledTasks = sidebar.getByRole('button', { name: '自动任务', exact: true });
   await scheduledTasks.click();
 
   const selector = page.locator('.maka-module-hub-selector');
-  await expect(selector).toHaveAccessibleName('定时任务内容：计划提醒');
+  await expect(selector).toHaveAccessibleName('自动任务内容：计划提醒');
   await selector.getByRole('button', { name: '每日回顾' }).click();
-  await expect(selector).toHaveAccessibleName('定时任务内容：每日回顾');
+  await expect(selector).toHaveAccessibleName('自动任务内容：每日回顾');
   await expect(page.getByRole('radiogroup', { name: '时间范围切换' })).toBeVisible();
   await expect(page.getByRole('button', { name: '生成分析' })).toBeVisible();
   await expect(page.getByText('模型使用', { exact: true })).toHaveCount(0);
@@ -203,5 +203,5 @@ test('scheduled-task hub restores the last selected child module', async ({ wind
 
   await sidebar.getByRole('button', { name: '扩展', exact: true }).click();
   await scheduledTasks.click();
-  await expect(selector).toHaveAccessibleName('定时任务内容：每日回顾');
+  await expect(selector).toHaveAccessibleName('自动任务内容：每日回顾');
 });

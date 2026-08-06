@@ -51,6 +51,14 @@ const ALLOW = new Map([
     'Runtime Host reconnect exhaustion is fatal before the Desktop can present an in-app error; no credentials or provider payloads.',
   ],
   [
+    'apps/desktop/src/main/browser/workflow-recorder.ts',
+    'authenticated isolated-world workflow recorder protocol; sensitive field values are removed before the console event is emitted.',
+  ],
+  [
+    'apps/desktop/e2e/browser-workflow.spec.ts',
+    'loopback E2E fixture protocol uses console.debug to exercise recorder-message authentication; values are synthetic test data.',
+  ],
+  [
     'apps/desktop/src/main/startup-step.ts',
     'names a startup step that has not come back, before any window exists to show it in; a step name and no secrets.',
   ],

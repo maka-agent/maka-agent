@@ -33,7 +33,7 @@ function isExtensionModule(value: unknown): value is ExtensionModule {
 }
 
 function isAutomationModule(value: unknown): value is AutomationModule {
-  return value === 'plan-reminders' || value === 'daily-review';
+  return value === 'plan-reminders' || value === 'daily-review' || value === 'browser-workflows';
 }
 
 function parseSelection(value: unknown): NavSelection | null {

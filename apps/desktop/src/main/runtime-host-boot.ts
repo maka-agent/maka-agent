@@ -23,6 +23,7 @@ import {
   createMcpConfigStore,
   createProjectCatalog,
   createSqlitePlanReminderStore,
+  createBrowserWorkflowStore,
 } from "@maka/storage";
 import { registerAppIpc } from "./app-ipc-main.js";
 import { createAppQuitCoordinator } from "./app-quit-coordinator.js";
@@ -96,6 +97,7 @@ const buildInfo = resolveBuildInfo(app.isPackaged, app.getAppPath());
 const userDataDir = app.getPath("userData");
 const workspaceRoot = join(userDataDir, "workspaces", "default");
 const settingsStore = createSettingsStore(workspaceRoot);
+const browserWorkflowStore = createBrowserWorkflowStore(workspaceRoot);
 const projectCatalog = createProjectCatalog(workspaceRoot, {
   onLegacyImportFailure: (error) =>
     console.error("[projects] projects.json could not be imported:", error),
@@ -235,7 +237,7 @@ mcpManager.onChange(() => {
 });
 
 registerPersistentClientIpc();
-registerBrowserIpc({ mainWindowController });
+registerBrowserIpc({ mainWindowController, browserWorkflowStore });
 registerNotificationsIpc({
   ipcMain,
   settingsStore,

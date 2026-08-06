@@ -40,7 +40,7 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
     navigation: {
       mainLabel: '主导航',
       newTask: '新任务',
-      automations: '定时任务',
+      automations: '自动任务',
       extensions: '扩展',
       settings: '设置',
       updateDownloaded: (version: string) => `新版本 ${version} 已下载，重启后安装`,
@@ -71,7 +71,7 @@ const SHELL_CONTROLS_COPY_BY_LOCALE = {
     navigation: {
       mainLabel: 'Main navigation',
       newTask: 'New task',
-      automations: 'Scheduled tasks',
+      automations: 'Automations',
       extensions: 'Extensions',
       settings: 'Settings',
       updateDownloaded: (version: string) => `Update ${version} downloaded. Restart to install.`,

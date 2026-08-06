@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Tab, TabList } from '@astryxdesign/core';
 import type { AutomationModule, ExtensionModule } from './nav-selection.js';
 import { useUiLocale } from './locale-context.js';
-import { Blocks, CalendarCheck, Plug, Sun } from './icons.js';
+import { Blocks, CalendarCheck, Plug, Sun, Workflow } from './icons.js';
 import { getSharedUiCopy } from './shared-ui-copy.js';
 
 export type ModuleHubHeader = {
@@ -66,6 +66,7 @@ export function ModuleHubSelector(props: ModuleHubSelectorProps) {
   const options = [
     ['plan-reminders', copy.automations.planReminders, <CalendarCheck key="plan-reminders" size={16} aria-hidden="true" />],
     ['daily-review', copy.automations.dailyReview, <Sun key="daily-review" size={16} aria-hidden="true" />],
+    ['browser-workflows', copy.automations.browserWorkflows, <Workflow key="browser-workflows" size={16} aria-hidden="true" />],
   ] as const;
   const selectedLabel = options.find(([value]) => value === props.value)?.[1] ?? copy.automations.planReminders;
   return (

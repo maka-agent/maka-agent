@@ -1,6 +1,6 @@
 export type SessionFilter = 'chats' | 'flagged' | 'archived';
 export type ExtensionModule = 'skills' | 'mcp';
-export type AutomationModule = 'plan-reminders' | 'daily-review';
+export type AutomationModule = 'plan-reminders' | 'daily-review' | 'browser-workflows';
 
 export type NavSelection =
   | { section: 'sessions'; filter: SessionFilter }

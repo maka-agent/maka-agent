@@ -14,8 +14,13 @@
  * ordinary chat reserves no space.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Globe, RotateCw, X } from '@maka/ui/icons';
-import { normalizeBrowserAddressInput, type BrowserState } from '@maka/core';
+import { ChevronLeft, ChevronRight, Globe, Plus, RotateCw, Save, Workflow, X } from '@maka/ui/icons';
+import {
+  normalizeBrowserAddressInput,
+  type BrowserState,
+  type BrowserWorkflowAction,
+  type BrowserWorkflowProgress,
+} from '@maka/core';
 import {
   IconButton,
   TextInput,
@@ -23,6 +28,7 @@ import {
   useToast,
   useUiLocale,
 } from '@maka/ui';
+import { SegmentedControl, SegmentedControlItem } from '@astryxdesign/core/SegmentedControl';
 import { EmptyState } from '@astryxdesign/core/EmptyState';
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { getBrowserCopy, type BrowserCopy } from './locales/browser-copy';
@@ -57,6 +63,17 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
   // is not mid-edit (tracked by focus) so typing is never clobbered by a
   // did-navigate state push.
   const [address, setAddress] = useState('');
+  const [recordingId, setRecordingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{
+    draftId: string;
+    actionCount: number;
+    sensitiveActionIds: string[];
+    actions: BrowserWorkflowAction[];
+  } | null>(null);
+  const [draftName, setDraftName] = useState(copy.defaultWorkflowName);
+  const [waitKind, setWaitKind] = useState<'selector' | 'text'>('selector');
+  const [waitValue, setWaitValue] = useState('');
+  const [workflowProgress, setWorkflowProgress] = useState<BrowserWorkflowProgress | null>(null);
   const editingRef = useRef(false);
   const browserPanelMountedRef = useMountedRef();
   const browserPanelSessionIdRef = useRef(sessionId);
@@ -90,6 +107,53 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
       off();
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    const off = window.maka.browser.workflows.onProgress((payload) => {
+      if (payload.sessionId !== sessionId) return;
+      if (payload.workflowId === 'recording' && payload.status === 'canceled') setRecordingId(null);
+      setWorkflowProgress(payload);
+    });
+    return off;
+  }, [sessionId]);
+
+  const startRecording = useCallback(() => {
+    void window.maka.browser.workflows.startRecording(sessionId)
+      .then((handle) => {
+        setRecordingId(handle.recordingId);
+        setDraft(null);
+      })
+      .catch(() => toast.error(copy.startRecording, copy.navigationFailedDetail));
+  }, [copy.navigationFailedDetail, copy.startRecording, sessionId, toast]);
+
+  const stopRecording = useCallback(() => {
+    void window.maka.browser.workflows.stopRecording(sessionId)
+      .then((result) => {
+        setRecordingId(null);
+        setDraft(result);
+        setDraftName(copy.defaultWorkflowName);
+      })
+      .catch((error: unknown) => toast.error(copy.stopRecording, error instanceof Error ? error.message : String(error)));
+  }, [copy.defaultWorkflowName, copy.stopRecording, sessionId, toast]);
+
+  const saveRecording = useCallback(() => {
+    if (!draft) return;
+    void window.maka.browser.workflows.saveRecording(draft.draftId, draftName)
+      .then(() => {
+        setDraft(null);
+        toast.success(copy.recordingSaved);
+      })
+      .catch((error: unknown) => toast.error(copy.saveRecording, error instanceof Error ? error.message : String(error)));
+  }, [copy.recordingSaved, copy.saveRecording, draft, draftName, toast]);
+
+  const addWaitCondition = useCallback(() => {
+    const value = waitValue.trim();
+    if (!recordingId || !value) return;
+    void window.maka.browser.workflows
+      .addWaitCondition(sessionId, { kind: waitKind, value, timeoutMs: 15_000 })
+      .then(() => setWaitValue(''))
+      .catch((error: unknown) => toast.error(copy.recordWaitCondition, error instanceof Error ? error.message : String(error)));
+  }, [copy.recordWaitCondition, recordingId, sessionId, toast, waitKind, waitValue]);
 
   // Mirror the strip's on-screen rect to main every animation frame while it is
   // showable. Position shifts on window resize and sidebar drags even when the
@@ -212,6 +276,105 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
           />
         </Tooltip>
       </div>
+      <div className="maka-browser-workflow-controls" role="group" aria-label={copy.startRecording}>
+        <Tooltip content={recordingId ? copy.stopRecording : copy.startRecording}>
+          <IconButton
+            label={recordingId ? copy.stopRecordingAria : copy.startRecordingAria}
+            icon={recordingId ? <X size={16} aria-hidden /> : <Workflow size={16} aria-hidden />}
+            variant={recordingId ? 'primary' : 'ghost'}
+            size="sm"
+            isDisabled={!state.hasPage && !recordingId}
+            onClick={recordingId ? stopRecording : startRecording}
+          />
+        </Tooltip>
+        {draft && (
+          <>
+            <div className="maka-browser-workflow-name-field">
+              <TextInput
+                type="text"
+                label={copy.recordingName}
+                isLabelHidden
+                width="100%"
+                value={draftName}
+                onChange={setDraftName}
+                placeholder={copy.recordingName}
+              />
+            </div>
+            <Tooltip content={copy.saveRecording}>
+              <IconButton
+                label={copy.saveRecordingAria}
+                icon={<Save size={16} aria-hidden />}
+                variant="ghost"
+                size="sm"
+                isDisabled={!draftName.trim()}
+                onClick={saveRecording}
+              />
+            </Tooltip>
+          </>
+        )}
+        {workflowProgress && workflowProgress.status === 'running' && (
+          <>
+            <span className="maka-browser-workflow-progress" role="status">
+              {copy.recordingProgress(workflowProgress.current, workflowProgress.total)}
+            </span>
+            {workflowProgress.total > 0 && (
+              <Tooltip content={copy.cancelReplay}>
+                <IconButton
+                  label={copy.cancelReplay}
+                  icon={<X size={16} aria-hidden />}
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => window.maka.browser.workflows.cancel(workflowProgress.runId)}
+                />
+              </Tooltip>
+            )}
+          </>
+        )}
+      </div>
+      {recordingId && (
+        <div className="maka-browser-workflow-wait-editor" role="group" aria-label={copy.waitConditionGroup}>
+          <SegmentedControl
+            value={waitKind}
+            onChange={(value) => setWaitKind(value as 'selector' | 'text')}
+            label={copy.waitConditionGroup}
+            size="sm"
+          >
+            <SegmentedControlItem value="selector" label={copy.waitSelectorMode} />
+            <SegmentedControlItem value="text" label={copy.waitTextMode} />
+          </SegmentedControl>
+          <TextInput
+            type="text"
+            label={waitKind === 'selector' ? copy.waitSelectorLabel : copy.waitTextLabel}
+            isLabelHidden
+            width="100%"
+            value={waitValue}
+            onChange={setWaitValue}
+          />
+          <Tooltip content={copy.recordWaitCondition}>
+            <IconButton
+              label={copy.recordWaitConditionAria}
+              icon={<Plus size={16} aria-hidden />}
+              variant="ghost"
+              size="sm"
+              isDisabled={!waitValue.trim()}
+              onClick={addWaitCondition}
+            />
+          </Tooltip>
+        </div>
+      )}
+      {draft && (
+        <div className="maka-browser-workflow-review" role="group" aria-label={copy.reviewRecording}>
+          <span className="maka-browser-workflow-review-title">{copy.reviewRecording}</span>
+          <ol>
+            {draft.actions.map((action) => (
+              <li key={action.id}>
+                <span>{workflowActionLabel(action, copy)}</span>
+                <code>{workflowActionDetail(action)}</code>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
       <div className="maka-browser-strip" ref={stripRef}>
         {!state.hasPage && (
           <EmptyState
@@ -225,4 +388,36 @@ export function BrowserPanel(props: { sessionId: string; hidden: boolean }) {
       </div>
     </div>
   );
+}
+
+function workflowActionLabel(
+  action: BrowserWorkflowAction,
+  copy: BrowserCopy,
+): string {
+  switch (action.kind) {
+    case 'navigate':
+      return copy.actionNavigate;
+    case 'click':
+      return copy.actionClick;
+    case 'type':
+      return action.sensitive ? copy.actionSensitiveType : copy.actionType;
+    case 'wait':
+      return action.url
+        ? copy.actionWaitNavigation
+        : action.selector
+          ? copy.actionWaitSelector
+          : copy.actionWaitText;
+  }
+}
+
+function workflowActionDetail(action: BrowserWorkflowAction): string {
+  switch (action.kind) {
+    case 'navigate':
+      return action.url;
+    case 'click':
+    case 'type':
+      return `${action.locator.kind}: ${action.locator.value}`;
+    case 'wait':
+      return action.url ?? action.selector ?? action.text ?? '';
+  }
 }

@@ -72,6 +72,10 @@ import type {
   WebSearchResponse,
   BrowserState,
   BrowserViewRect,
+  BrowserWorkflow,
+  BrowserWorkflowAction,
+  BrowserWorkflowProgress,
+  BrowserWorkflowWaitConditionInput,
   ThemePreference,
   Task,
   TaskLedgerChangedEvent,
@@ -787,5 +791,22 @@ export interface MakaBridge {
     getState(sessionId: string): Promise<BrowserState | null>;
     onState(handler: (payload: { sessionId: string; state: BrowserState }) => void): () => void;
     onLive(handler: (payload: { sessionIds: string[] }) => void): () => void;
+    workflows: {
+      list(): Promise<BrowserWorkflow[]>;
+      startRecording(sessionId: string): Promise<{ recordingId: string; sessionId: string }>;
+      stopRecording(sessionId: string): Promise<{
+        draftId: string;
+        actionCount: number;
+        sensitiveActionIds: string[];
+        actions: BrowserWorkflowAction[];
+      }>;
+      addWaitCondition(sessionId: string, input: BrowserWorkflowWaitConditionInput): Promise<string>;
+      saveRecording(draftId: string, name: string): Promise<BrowserWorkflow>;
+      run(workflowId: string, sessionId: string, sensitiveValues?: Record<string, string>): Promise<void>;
+      cancel(runId: string): void;
+      rename(workflowId: string, name: string): Promise<BrowserWorkflow>;
+      delete(workflowId: string): Promise<void>;
+      onProgress(handler: (payload: BrowserWorkflowProgress) => void): () => void;
+    };
   };
 }

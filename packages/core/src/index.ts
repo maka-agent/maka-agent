@@ -550,6 +550,33 @@ export type {
 } from './browser.js';
 export { normalizeBrowserAddressInput } from './browser.js';
 
+// browser-workflow.ts
+export type {
+  BrowserWorkflow,
+  BrowserWorkflowAction,
+  BrowserWorkflowClickAction,
+  BrowserWorkflowDraft,
+  BrowserWorkflowLocator,
+  BrowserWorkflowLocatorKind,
+  BrowserWorkflowNavigateAction,
+  BrowserWorkflowProgress,
+  BrowserWorkflowRunStatus,
+  BrowserWorkflowTypeAction,
+  BrowserWorkflowWaitConditionInput,
+  BrowserWorkflowWaitAction,
+} from './browser-workflow.js';
+export {
+  BROWSER_WORKFLOW_REDACTED_VALUE,
+  BROWSER_WORKFLOW_SCHEMA_VERSION,
+  BROWSER_WORKFLOW_SENSITIVE_FIELD_PATTERN,
+  isBrowserWorkflow,
+  isBrowserWorkflowAction,
+  isBrowserWorkflowWaitConditionInput,
+  isSensitiveBrowserInput,
+  isStableBrowserWorkflowLocator,
+  validateBrowserWorkflow,
+} from './browser-workflow.js';
+
 // session-event-health.ts
 export type {
   SessionEventStreamSnapshot,

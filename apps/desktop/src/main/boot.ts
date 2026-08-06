@@ -78,6 +78,7 @@ import {
   createSqliteModelCallLedger,
   createSqliteTelemetryRepo,
   resetIncompatibleOperationalStateDatabase,
+  createBrowserWorkflowStore,
 } from '@maka/storage';
 import { createAgentGraphControlStore } from '@maka/storage/agent-graph-control-store';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
@@ -266,6 +267,7 @@ async function confirmDesktopStorageRootRepair(): Promise<boolean> {
 // process, so quit needs no special teardown.
 const keepSystemAwake = createKeepSystemAwakeController(powerSaveBlocker);
 const store = createSessionStore(workspaceRoot);
+const browserWorkflowStore = createBrowserWorkflowStore(workspaceRoot);
 const agentGraphControlStore = createAgentGraphControlStore(workspaceRoot);
 const projectCatalog = createProjectCatalog(workspaceRoot, {
   onLegacyImportFailure: (error) =>
@@ -1212,7 +1214,7 @@ function registerIpc(): void {
     emitConnectionListChanged,
   });
   registerWebSearchIpc({ settingsStore, getWorkspacePrivacyContext });
-  registerBrowserIpc({ mainWindowController });
+  registerBrowserIpc({ mainWindowController, browserWorkflowStore });
   registerConnectionsIpc({
     ipcMain,
     connectionStore,

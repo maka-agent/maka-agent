@@ -86,6 +86,10 @@ import type {
   WebSearchResponse,
   BrowserState,
   BrowserViewRect,
+  BrowserWorkflow,
+  BrowserWorkflowAction,
+  BrowserWorkflowProgress,
+  BrowserWorkflowWaitConditionInput,
   ThemePreference,
   Task,
   TaskLedgerChangedEvent,
@@ -1244,6 +1248,45 @@ const makaBridge = {
       const listener = (_event: Electron.IpcRendererEvent, payload: { sessionIds: string[] }) => handler(payload);
       ipcRenderer.on('browser:live', listener);
       return () => ipcRenderer.off('browser:live', listener);
+    },
+    workflows: {
+      list(): Promise<BrowserWorkflow[]> {
+        return ipcRenderer.invoke('browser:workflow-list');
+      },
+      startRecording(sessionId: string): Promise<{ recordingId: string; sessionId: string }> {
+        return ipcRenderer.invoke('browser:workflow-start-recording', sessionId);
+      },
+      stopRecording(sessionId: string): Promise<{
+        draftId: string;
+        actionCount: number;
+        sensitiveActionIds: string[];
+        actions: BrowserWorkflowAction[];
+      }> {
+        return ipcRenderer.invoke('browser:workflow-stop-recording', sessionId);
+      },
+      addWaitCondition(sessionId: string, input: BrowserWorkflowWaitConditionInput): Promise<string> {
+        return ipcRenderer.invoke('browser:workflow-add-wait', sessionId, input);
+      },
+      saveRecording(draftId: string, name: string): Promise<BrowserWorkflow> {
+        return ipcRenderer.invoke('browser:workflow-save-recording', draftId, name);
+      },
+      run(workflowId: string, sessionId: string, sensitiveValues?: Record<string, string>): Promise<void> {
+        return ipcRenderer.invoke('browser:workflow-run', workflowId, sessionId, sensitiveValues ?? {});
+      },
+      cancel(runId: string): void {
+        ipcRenderer.send('browser:workflow-cancel', runId);
+      },
+      rename(workflowId: string, name: string): Promise<BrowserWorkflow> {
+        return ipcRenderer.invoke('browser:workflow-rename', workflowId, name);
+      },
+      delete(workflowId: string): Promise<void> {
+        return ipcRenderer.invoke('browser:workflow-delete', workflowId);
+      },
+      onProgress(handler: (payload: BrowserWorkflowProgress) => void): () => void {
+        const listener = (_event: Electron.IpcRendererEvent, payload: BrowserWorkflowProgress) => handler(payload);
+        ipcRenderer.on('browser:workflow-progress', listener);
+        return () => ipcRenderer.off('browser:workflow-progress', listener);
+      },
     },
   },
 } satisfies MakaBridge;
