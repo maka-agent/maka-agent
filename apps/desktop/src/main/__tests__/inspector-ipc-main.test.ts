@@ -126,6 +126,65 @@ describe('inspector trace read', () => {
     assert.equal(trace.coverage.modelCalls, 'partial', 'an unreadable record is a known gap');
   });
 
+  it('reads the prompt composition off the same walk as the metering record', async () => {
+    const trace = await readSessionTrace(
+      {
+        readSessionRuntimeEvents: async () => [],
+        listSessionRuns: async () => [{ runId: 'run-1' }],
+        readRunEvents: async () => [
+          { type: MODEL_CALL_ATTEMPT_EVENT_TYPE, data: attempt({ attemptId: 'a-0' }) },
+          {
+            type: 'provider_request_attempt_recorded',
+            data: {
+              attemptId: 'a-0',
+              requestBytes: 4_000,
+              segments: [
+                {
+                  kind: 'tool_schema',
+                  index: 0,
+                  cacheable: true,
+                  hash: 'h',
+                  bytes: 3_000,
+                  label: 'Bash',
+                },
+                { kind: 'message', index: 0, cacheable: true, hash: 'h', bytes: 900 },
+              ],
+            },
+          },
+        ],
+      },
+      'session-1',
+    );
+
+    const step = trace.turns[0]?.steps[0];
+    assert.equal(step?.kind, 'model_call');
+    if (step?.kind !== 'model_call') return;
+    assert.deepEqual(step.attempts[0]?.promptComposition?.tools, [{ name: 'Bash', bytes: 3_000 }]);
+  });
+
+  it('does not count a missing composition as unreadable spend', async () => {
+    // `unreadableRecords` is about spend the trace cannot show. A capture that
+    // never landed loses no spend — it loses an explanation, which the panel
+    // states on the attempt itself.
+    const trace = await readSessionTrace(
+      {
+        readSessionRuntimeEvents: async () => [],
+        listSessionRuns: async () => [{ runId: 'run-1' }],
+        readRunEvents: async () => [
+          { type: MODEL_CALL_ATTEMPT_EVENT_TYPE, data: attempt({ attemptId: 'a-0' }) },
+          // Present but undecodable: dropped, and still not counted as spend.
+          { type: 'provider_request_attempt_recorded', data: { attemptId: 'a-0', segments: 'no' } },
+        ],
+      },
+      'session-1',
+    );
+
+    const step = trace.turns[0]?.steps[0];
+    assert.equal(step?.kind === 'model_call' && step.attempts[0]?.promptComposition, undefined);
+    assert.equal(trace.coverage.unreadableRecords, 0);
+    assert.equal(trace.coverage.modelCalls, 'no_known_gap');
+  });
+
   it('ignores AgentRun events that are not canonical model calls', async () => {
     const trace = await readSessionTrace(
       {

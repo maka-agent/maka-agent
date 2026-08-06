@@ -284,6 +284,118 @@ describe('inspector overview model', () => {
     assert.equal(model.context?.segments.find((segment) => segment.kind === 'cacheRead')?.tokens, 100);
   });
 
+  it('explains the same call the bar measures, in labelled estimates', () => {
+    const model = deriveInspectorOverviewModel(
+      trace({
+        turns: [
+          turn([
+            // An earlier call with its own composition: if the panel read the
+            // latest capture rather than the measured attempt, the breakdown
+            // under the bar would belong to a different request.
+            modelCall({
+              attempts: [
+                attempt({
+                  completedAt: NOW + 1_000,
+                  inputTokens: 10,
+                  contextWindow: 1_000,
+                  promptComposition: { totalBytes: 40, parts: [{ kind: 'messages', bytes: 40 }] },
+                }),
+              ],
+            }),
+            modelCall({
+              id: 'call-2',
+              step: 1,
+              attempts: [
+                attempt({
+                  attemptId: 'attempt-2',
+                  completedAt: NOW + 3_000,
+                  inputTokens: 20,
+                  contextWindow: 1_000,
+                  promptComposition: {
+                    totalBytes: 4_000,
+                    parts: [
+                      { kind: 'tool_definitions', bytes: 3_000 },
+                      { kind: 'messages', bytes: 800 },
+                    ],
+                    tools: [
+                      { name: 'Bash', bytes: 2_000 },
+                      { name: 'Read', bytes: 1_000 },
+                    ],
+                  },
+                }),
+              ],
+            }),
+          ]),
+        ],
+      }),
+    );
+
+    assert.equal(model.composition?.status, 'available');
+    if (model.composition?.status !== 'available') return;
+    assert.deepEqual(
+      model.composition.composition.parts.map((part) => [part.kind, part.estimatedTokens]),
+      [
+        ['tool_definitions', 750],
+        ['messages', 200],
+      ],
+    );
+    assert.deepEqual(
+      model.composition.composition.tools.map((tool) => tool.name),
+      ['Bash', 'Read'],
+      'the tool a reader would remove is named, not folded into a category',
+    );
+  });
+
+  it('folds the tools below the visible rows instead of dropping them', () => {
+    const tools = Array.from({ length: 8 }, (_, index) => ({
+      name: `tool-${index}`,
+      bytes: (8 - index) * 100,
+    }));
+    const model = deriveInspectorOverviewModel(
+      trace({
+        turns: [
+          turn([
+            modelCall({
+              attempts: [
+                attempt({
+                  inputTokens: 10,
+                  contextWindow: 1_000,
+                  promptComposition: {
+                    totalBytes: 3_600,
+                    parts: [{ kind: 'tool_definitions', bytes: 3_600 }],
+                    tools,
+                  },
+                }),
+              ],
+            }),
+          ]),
+        ],
+      }),
+    );
+
+    assert.equal(model.composition?.status, 'available');
+    if (model.composition?.status !== 'available') return;
+    assert.equal(model.composition.composition.tools.length, 5);
+    assert.equal(model.composition.composition.remainingTools?.count, 3);
+    // 300 + 200 + 100, so the folded row keeps the rows summing to the total.
+    assert.equal(model.composition.composition.remainingTools?.bytes, 600);
+  });
+
+  it('states a metered call with no capture as unrecorded, not as an empty prompt', () => {
+    const model = deriveInspectorOverviewModel(
+      trace({
+        turns: [turn([modelCall({ attempts: [attempt({ inputTokens: 10, contextWindow: 1_000 })] })])],
+      }),
+    );
+
+    assert.equal(model.composition?.status, 'unrecorded');
+    assert.ok(model.context, 'the bar still measures what it can');
+  });
+
+  it('asks about no composition when there is no metered call to ask about', () => {
+    assert.equal(deriveInspectorOverviewModel(trace()).composition, undefined);
+  });
+
   it('drops the free band when the prompt overran its own window', () => {
     const model = deriveInspectorOverviewModel(
       trace({

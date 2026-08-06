@@ -2,9 +2,9 @@ import type { IpcMain } from 'electron';
 import { decodeModelCallAttempt, type ModelCallAttempt } from '@maka/core/model-call-attempt';
 import { MODEL_CALL_ATTEMPT_EVENT_TYPE } from '@maka/core/model-call-attempt';
 import type { RuntimeEvent } from '@maka/core/runtime-event';
-import type { SessionTrace } from '@maka/core/session-trace';
+import type { PromptComposition, SessionTrace } from '@maka/core/session-trace';
 import { tryResult } from '@maka/core/result';
-import { projectSessionTrace } from '@maka/runtime';
+import { projectSessionTrace, readPromptCompositionEvent } from '@maka/runtime';
 
 /**
  * Read-only projection of one session's causal trace for the Inspector (#1625).
@@ -67,17 +67,30 @@ export async function readSessionTrace(
       }
     }),
   );
+  // Composition rides the same walk as metering: both live on this stream, and
+  // recognising a second event type costs one branch rather than a second read
+  // path with its own traversal (#2323). It is deliberately NOT counted into
+  // `unreadableRecords` — that number is about spend the trace cannot show, and
+  // a missing composition loses no spend. It shows as an attempt without a
+  // breakdown, which the panel states as a gap.
+  const promptCompositions = new Map<string, PromptComposition>();
   for (const events of runEvents) {
     for (const event of events) {
-      if (event.type !== MODEL_CALL_ATTEMPT_EVENT_TYPE) continue;
-      try {
-        modelCallAttempts.push(decodeModelCallAttempt(event.data));
-      } catch {
-        // A record that will not decode is spend this trace cannot show.
-        // Counted so the gap is visible; dropping it silently is the failure
-        // this projection exists to avoid.
-        unreadableRecords += 1;
+      if (event.type === MODEL_CALL_ATTEMPT_EVENT_TYPE) {
+        try {
+          modelCallAttempts.push(decodeModelCallAttempt(event.data));
+        } catch {
+          // A record that will not decode is spend this trace cannot show.
+          // Counted so the gap is visible; dropping it silently is the failure
+          // this projection exists to avoid.
+          unreadableRecords += 1;
+        }
+        continue;
       }
+      const composition = readPromptCompositionEvent(event);
+      // Later wins: an attempt is captured once, but a stream read has no
+      // dedupe, and the last append is the one the metering record settled on.
+      if (composition) promptCompositions.set(composition.attemptId, composition.composition);
     }
   }
 
@@ -85,6 +98,7 @@ export async function readSessionTrace(
     sessionId,
     runtimeEvents,
     modelCallAttempts,
+    ...(promptCompositions.size > 0 ? { promptCompositions } : {}),
     ...(unreadableRecords > 0 ? { unreadableRecords } : {}),
   });
 }

@@ -125,6 +125,32 @@ export interface DesktopConversationCopy {
       cacheHit: string;
       /** Heading over the causal record. */
       timelineTab: string;
+      /**
+       * What filled the context, under the bar that says how full it is.
+       *
+       * Kept verbally separate from the bar on purpose: these are estimates
+       * over serialized bytes and do not sum to the provider-reported prompt
+       * (#2323), so the heading says estimate and every figure carries a `≈`.
+       */
+      composition: {
+        title: string;
+        /** States the unit and its authority, once, under the heading. */
+        basis: string;
+        part: {
+          system_instructions: string;
+          tool_definitions: string;
+          messages: string;
+          other: string;
+        };
+        /** Heading over the per-tool rows. */
+        tools: string;
+        /** The tools below the visible rows, folded into one. */
+        remainingTools: (count: number) => string;
+        /** Tool schemas the payload never named. */
+        unlabelled: string;
+        /** The metered call carried no capture — a gap, not an empty prompt. */
+        unrecorded: string;
+      };
     };
   };
   quoteCompanion: {
@@ -311,6 +337,20 @@ const COPY = {
         },
         cacheHit: '缓存命中率',
         timelineTab: '时间轴',
+        composition: {
+          title: '构成估算',
+          basis: '按请求字节估算，非模型报告的 token',
+          part: {
+            system_instructions: '系统提示',
+            tool_definitions: '工具定义',
+            messages: '对话记录',
+            other: '其他参数',
+          },
+          tools: '按工具',
+          remainingTools: (count) => `其余 ${count} 个工具`,
+          unlabelled: '未命名的工具',
+          unrecorded: '这次调用没有留下构成记录',
+        },
       },
     },
     quoteCompanion: {
@@ -415,6 +455,20 @@ const COPY = {
         },
         cacheHit: 'Cache hit rate',
         timelineTab: 'Timeline',
+        composition: {
+          title: 'Estimated composition',
+          basis: 'Estimated from request bytes, not provider-reported tokens',
+          part: {
+            system_instructions: 'System instructions',
+            tool_definitions: 'Tool definitions',
+            messages: 'Messages',
+            other: 'Other options',
+          },
+          tools: 'By tool',
+          remainingTools: (count) => `${count} more tool${count === 1 ? '' : 's'}`,
+          unlabelled: 'Unnamed tools',
+          unrecorded: 'This call left no composition on record',
+        },
       },
     },
     quoteCompanion: {

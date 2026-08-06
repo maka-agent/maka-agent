@@ -1,0 +1,144 @@
+import type { PromptComposition, PromptCompositionPart } from '@maka/core/session-trace';
+import type { PreparedRequestSegment, PreparedRequestSegmentKind } from './request-shape.js';
+
+/**
+ * Folds one request's captured segments into "what was this prompt made of"
+ * (#2323).
+ *
+ * The bar above this in the Inspector answers how full the context is, from
+ * provider-reported tokens. This answers what filled it, and the two are not
+ * views of one number: composition is measured in **bytes of serialized
+ * request**, sums to `requestBytes`, and never sums to the reported
+ * `inputTokens`. Nothing here estimates tokens — a byte count is the fact this
+ * layer holds, and turning it into a token figure is a display decision that
+ * has to be labelled as an estimate where it is made (#1679).
+ *
+ * `tool_schema` folds per tool rather than into one total, because that is the
+ * only breakdown a reader can act on: "tool definitions are 40%" names nothing
+ * to remove. Every other kind folds whole — one system prompt, one history, one
+ * options blob — and splitting `message` by what produced it is not knowable
+ * here, where messages arrive already serialized.
+ */
+export function foldPromptComposition(
+  segments: readonly PreparedRequestSegment[],
+  requestBytes: number,
+): PromptComposition | undefined {
+  if (segments.length === 0) return undefined;
+
+  const byKind = new Map<PreparedRequestSegmentKind, number>();
+  const byTool = new Map<string, number>();
+  let unlabelledToolBytes = 0;
+
+  for (const segment of segments) {
+    byKind.set(segment.kind, (byKind.get(segment.kind) ?? 0) + segment.bytes);
+    if (segment.kind !== 'tool_schema') continue;
+    if (segment.label === undefined) unlabelledToolBytes += segment.bytes;
+    else byTool.set(segment.label, (byTool.get(segment.label) ?? 0) + segment.bytes);
+  }
+
+  const parts: PromptCompositionPart[] = KIND_ORDER.flatMap((kind) => {
+    const bytes = byKind.get(kind);
+    return bytes === undefined ? [] : [{ kind: PART_KINDS[kind], bytes }];
+  });
+
+  // Sorted by size because the question the list answers is "what is big
+  // enough to be worth removing", and ties by name so a reader comparing two
+  // reads of the same session sees the same order.
+  const tools = [...byTool.entries()]
+    .map(([name, bytes]) => ({ name, bytes }))
+    .sort((left, right) => right.bytes - left.bytes || left.name.localeCompare(right.name));
+
+  return {
+    // The serialized request is larger than its parts — the envelope around
+    // them is real bytes that belong to no segment. Reported rather than
+    // distributed, so the parts stay measurements and the remainder stays
+    // visible as what it is.
+    totalBytes: requestBytes,
+    parts,
+    ...(tools.length > 0 ? { tools } : {}),
+    ...(unlabelledToolBytes > 0 ? { unlabelledToolBytes } : {}),
+  };
+}
+
+/**
+ * The diagnostic append that carries the segments, alongside the durable
+ * metering record on the same run stream.
+ */
+export const PROVIDER_REQUEST_ATTEMPT_EVENT_TYPE = 'provider_request_attempt_recorded';
+
+/**
+ * Reads one run event into the composition of the request it describes.
+ *
+ * Returns undefined for every event that is not a decodable capture, so a
+ * caller walking the run stream can recognise this alongside the metering
+ * record without a second read. Absence is the honest outcome: this append is
+ * best-effort, and a record that will not decode is a composition the reader
+ * does not have — not a prompt made of nothing.
+ */
+export function readPromptCompositionEvent(event: {
+  readonly type: string;
+  readonly data?: unknown;
+}): { attemptId: string; composition: PromptComposition } | undefined {
+  if (event.type !== PROVIDER_REQUEST_ATTEMPT_EVENT_TYPE) return undefined;
+  const data = event.data;
+  if (!isRecord(data)) return undefined;
+  const attemptId = data.attemptId;
+  const requestBytes = data.requestBytes;
+  if (typeof attemptId !== 'string' || attemptId.length === 0) return undefined;
+  if (!isNonNegativeInteger(requestBytes) || !Array.isArray(data.segments)) return undefined;
+
+  const segments: PreparedRequestSegment[] = [];
+  for (const value of data.segments) {
+    const segment = readSegment(value);
+    // One unreadable segment makes every share of this request wrong, so the
+    // whole composition is dropped rather than silently under-counted.
+    if (!segment) return undefined;
+    segments.push(segment);
+  }
+
+  const composition = foldPromptComposition(segments, requestBytes);
+  return composition ? { attemptId, composition } : undefined;
+}
+
+function readSegment(value: unknown): PreparedRequestSegment | undefined {
+  if (!isRecord(value)) return undefined;
+  const kind = value.kind;
+  if (!KIND_ORDER.includes(kind as PreparedRequestSegmentKind)) return undefined;
+  if (!isNonNegativeInteger(value.bytes)) return undefined;
+  if (value.label !== undefined && typeof value.label !== 'string') return undefined;
+  return {
+    kind: kind as PreparedRequestSegmentKind,
+    index: isNonNegativeInteger(value.index) ? value.index : 0,
+    cacheable: value.cacheable === true,
+    hash: typeof value.hash === 'string' ? value.hash : '',
+    bytes: value.bytes,
+    ...(typeof value.label === 'string' ? { label: value.label } : {}),
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+const KIND_ORDER: readonly PreparedRequestSegmentKind[] = [
+  'system_prompt',
+  'tool_schema',
+  'message',
+  'provider_options',
+];
+
+/**
+ * The CLI's `/context` vocabulary, reused rather than re-invented: the same
+ * four buckets already fold the same segments for `readLatestContextDiagnostics`
+ * (#1580), and two names for one fact is how two surfaces start disagreeing.
+ */
+const PART_KINDS: Record<PreparedRequestSegmentKind, PromptCompositionPart['kind']> = {
+  system_prompt: 'system_instructions',
+  tool_schema: 'tool_definitions',
+  message: 'messages',
+  provider_options: 'other',
+};
