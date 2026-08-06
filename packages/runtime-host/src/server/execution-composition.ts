@@ -52,6 +52,7 @@ import { openInteractiveUsageStoresForWrite } from '@maka/storage/usage-stores';
 import { resolveWorkspaceIdentity } from '@maka/storage/workspace-identity';
 import {
   openManagedWorkspaceOwner,
+  type ManagedDependencyEnvironmentProducer,
   type ManagedWorkspaceFilesystemWorker,
   type ManagedWorkspaceOwner,
   type VerifiedGitRuntimeInput,
@@ -130,6 +131,7 @@ export interface ExecutionRuntimeHostComposition extends RuntimeHostComposition 
 
 export interface CreateExecutionRuntimeHostCompositionOptions {
   readonly managedWorkspaceGitRuntime?: VerifiedGitRuntimeInput;
+  readonly managedWorkspaceDependencyProducer?: ManagedDependencyEnvironmentProducer;
 }
 
 export function runtimeHostFilesystemWorkerRuntime(versions: {
@@ -247,6 +249,9 @@ export async function createExecutionRuntimeHostComposition(
         rootOwner: context.owner,
         gitRuntime: options.managedWorkspaceGitRuntime,
         filesystemWorker: managedFilesystemWorker,
+        ...(options.managedWorkspaceDependencyProducer
+          ? { dependencyEnvironmentProducer: options.managedWorkspaceDependencyProducer }
+          : {}),
       });
     }
     workspaceExecution = createRuntimeHostWorkspaceExecutionComposition({

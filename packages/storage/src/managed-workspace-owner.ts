@@ -28,6 +28,14 @@ import {
   type ManagedWorkspaceReadOnlyResult,
   type ManagedWorkspaceWorkerBridgeInternal,
 } from './managed-workspace-worker-bridge-internal.js';
+import {
+  computeManagedDependencyEnvironmentIdentity,
+  createManagedDependencyEnvironmentProducerCapability,
+  createManagedDependencyEnvironmentAuthority,
+  type ManagedDependencyEnvironmentAuthority,
+  type ManagedDependencyEnvironmentProducer,
+  type ManagedDependencyEnvironmentProducerInput,
+} from './managed-dependency-environment.js';
 import type { RuntimeWorkspaceVersionAuthorityStore, WorkspaceHeadRecordV1 } from '@maka/core';
 import {
   assertInteractiveRootOwner,
@@ -54,6 +62,9 @@ export type ManagedWorkspaceOwnerErrorCode =
   | 'managed_workspace_owner_closing'
   | 'managed_workspace_owner_reentrant_close'
   | 'managed_workspace_worker_unavailable'
+  | 'managed_dependency_producer_unavailable'
+  | 'managed_dependency_manifest_unsupported'
+  | 'managed_dependency_provision_failed'
   | 'managed_workspace_quarantined'
   | 'managed_workspace_execution_handle_invalid';
 
@@ -73,6 +84,7 @@ export interface OpenManagedWorkspaceOwnerInput {
   readonly gitRuntime: VerifiedGitRuntimeInput;
   readonly failpoint?: (point: ManagedWorkspaceOwnerFailpoint) => void | Promise<void>;
   readonly filesystemWorker?: ManagedWorkspaceFilesystemWorker;
+  readonly dependencyEnvironmentProducer?: ManagedDependencyEnvironmentProducer;
 }
 
 export type ManagedWorkspaceOwnerFailpoint =
@@ -90,6 +102,10 @@ export interface OpenManagedWorkspaceBaselineResult {
   readonly executionHandle: ManagedWorkspaceExecutionHandle;
 }
 
+export interface ManagedWorkspaceExecutionOptions {
+  readonly provisioning?: 'canonical_tree_only_v1' | 'dependency_environment_v1';
+}
+
 export interface ManagedWorkspaceOwner {
   readonly state: 'ready' | 'closing' | 'closed';
   openManagedWorkspaceBaseline(
@@ -99,6 +115,7 @@ export interface ManagedWorkspaceOwner {
   withManagedWorkspaceExecution<T>(
     handle: ManagedWorkspaceExecutionHandle,
     operation: (scope: ManagedWorkspaceExecutionScope) => Promise<T>,
+    options?: ManagedWorkspaceExecutionOptions,
   ): Promise<T>;
   executeReadOnlyFilesystemOperation(
     scope: ManagedWorkspaceExecutionScope,
@@ -109,6 +126,8 @@ export interface ManagedWorkspaceOwner {
 }
 
 export type {
+  ManagedDependencyEnvironmentProducer,
+  ManagedDependencyEnvironmentProducerInput,
   ManagedWorkspaceExecutionHandle,
   ManagedWorkspaceExecutionScope,
   ManagedWorkspaceFilesystemWorker,
@@ -116,6 +135,8 @@ export type {
   ManagedWorkspaceReadOnlyResult,
   VerifiedGitRuntimeInput,
 };
+
+export { createManagedDependencyEnvironmentProducerCapability };
 
 const owners = new WeakMap<InteractiveRootOwner, object>();
 
@@ -146,12 +167,20 @@ export async function openManagedWorkspaceOwner(
     // flight. Revalidate after the lease-bound operation so a stale lifecycle
     // owner is never published as ready.
     await assertInteractiveRootOwner(rootOwner);
+    const dependencyAuthority = input.dependencyEnvironmentProducer
+      ? await createManagedDependencyEnvironmentAuthority({
+          storageRoot: rootOwner.capability.canonicalPath,
+          producer: input.dependencyEnvironmentProducer,
+        })
+      : undefined;
     const owner = new ManagedWorkspaceOwnerImpl(
       rootOwner,
       service,
       requireManagedBaselineReceiptAuthorityInternal(service),
       input.failpoint,
       input.filesystemWorker,
+      input.dependencyEnvironmentProducer,
+      dependencyAuthority,
     );
     owners.set(rootOwner, owner);
     return owner;
@@ -182,6 +211,8 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
     private readonly receiptAuthority: ManagedBaselineReceiptAuthorityInternal,
     private readonly failpoint?: (point: ManagedWorkspaceOwnerFailpoint) => void | Promise<void>,
     filesystemWorker?: ManagedWorkspaceFilesystemWorker,
+    private readonly dependencyProducer?: ManagedDependencyEnvironmentProducer,
+    private readonly dependencyAuthority?: ManagedDependencyEnvironmentAuthority,
   ) {
     // Capture the identity guard while the lease is active. Unlike a fresh
     // admission check, this guard remains valid for an already-admitted
@@ -296,6 +327,7 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
   async withManagedWorkspaceExecution<T>(
     handle: ManagedWorkspaceExecutionHandle,
     operation: (scope: ManagedWorkspaceExecutionScope) => Promise<T>,
+    options: ManagedWorkspaceExecutionOptions = {},
   ): Promise<T> {
     return this.#run(async () => {
       let accepted;
@@ -311,6 +343,15 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
           { cause: error },
         );
       }
+      if (
+        options.provisioning === 'dependency_environment_v1' &&
+        (!this.dependencyProducer || !this.dependencyAuthority)
+      ) {
+        throw new ManagedWorkspaceOwnerError(
+          'managed_dependency_producer_unavailable',
+          'Managed dependency provisioning requires an explicitly configured producer',
+        );
+      }
       assertExecutionCrossPlaneIdentity(accepted.binding, accepted.receipt, accepted.head);
       // Test builds with a failpoint retain a preliminary proof so crash tests
       // can stop after a real, completed artifact verification. The ordinary
@@ -320,46 +361,56 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
         await this.failpoint('after_execution_artifact_verification');
       }
 
-      // The root write lease excludes cooperating Maka writers across this
-      // proof bundle. Verify the durable Git artifact first, then make the
-      // immutable workspace head the final durable reread before scope issue.
-      await this.#assertCurrentRootIdentity();
-      await this.#verifyExecutionArtifactOrQuarantine(accepted.binding, accepted.receipt);
-      const currentHead = await readWorkspaceHeadInternal(
-        accepted.store,
-        accepted.binding.workspaceId,
-        accepted.binding.workspaceEpochId,
-      );
-      // Rebind only after the head read. This catches a database pathname
-      // detach at the admission boundary without putting a mutable DB guard
-      // ahead of the durable head evidence it protects.
-      await assertWorkspaceBaselineAuthorityStoreRootInternal(
-        accepted.store,
-        this.rootOwner.capability.canonicalPath,
-      );
-      bindWorkspaceBaselineAuthorityStoreRootInternal(
-        accepted.store,
-        this.rootOwner.capability.rootId,
-      );
-      if (!currentHead || !sameWorkspaceHead(currentHead, accepted.head)) {
-        throw new ManagedWorkspaceOwnerError(
-          'managed_workspace_owner_unavailable',
-          'Managed workspace execution handle no longer matches the canonical workspace head',
-        );
-      }
-      assertExecutionCrossPlaneIdentity(accepted.binding, accepted.receipt, currentHead);
       const binding = accepted.binding;
-      const scope = issueManagedWorkspaceExecutionScopeInternal(this.#executionOwnerToken, {
-        provisioning: 'canonical_tree_only_v1',
-        workspaceEffect: 'none',
-        cwd: binding.worktreePath,
-        binding: Object.freeze({ ...binding }),
-        head: freezeWorkspaceHead(currentHead),
-      });
+      const provisioning = options.provisioning ?? 'canonical_tree_only_v1';
+      const dependencyLease =
+        provisioning === 'dependency_environment_v1'
+          ? await this.#acquireDependencyEnvironment(binding)
+          : undefined;
       try {
-        return await this.#executionContext.run(this.#executionOwnerToken, () => operation(scope));
+        // Provisioning can take minutes. The root write lease excludes
+        // cooperating Maka writers, but not an editor or other external
+        // process, so the durable Git artifact and workspace head must be the
+        // final proof bundle immediately before scope issue.
+        await this.#assertCurrentRootIdentity();
+        await this.#verifyExecutionArtifactOrQuarantine(accepted.binding, accepted.receipt);
+        const currentHead = await readWorkspaceHeadInternal(
+          accepted.store,
+          accepted.binding.workspaceId,
+          accepted.binding.workspaceEpochId,
+        );
+        await assertWorkspaceBaselineAuthorityStoreRootInternal(
+          accepted.store,
+          this.rootOwner.capability.canonicalPath,
+        );
+        bindWorkspaceBaselineAuthorityStoreRootInternal(
+          accepted.store,
+          this.rootOwner.capability.rootId,
+        );
+        if (!currentHead || !sameWorkspaceHead(currentHead, accepted.head)) {
+          throw new ManagedWorkspaceOwnerError(
+            'managed_workspace_owner_unavailable',
+            'Managed workspace execution handle no longer matches the canonical workspace head',
+          );
+        }
+        assertExecutionCrossPlaneIdentity(accepted.binding, accepted.receipt, currentHead);
+        const scope = issueManagedWorkspaceExecutionScopeInternal(this.#executionOwnerToken, {
+          provisioning,
+          workspaceEffect: 'none',
+          cwd: binding.worktreePath,
+          ...(dependencyLease ? { dependencyRoot: dependencyLease.dependencyRoot } : {}),
+          binding: Object.freeze({ ...binding }),
+          head: freezeWorkspaceHead(currentHead),
+        });
+        try {
+          return await this.#executionContext.run(this.#executionOwnerToken, () =>
+            operation(scope),
+          );
+        } finally {
+          revokeManagedWorkspaceExecutionScopeInternal(this.#executionOwnerToken, scope);
+        }
       } finally {
-        revokeManagedWorkspaceExecutionScopeInternal(this.#executionOwnerToken, scope);
+        await dependencyLease?.release();
       }
     });
   }
@@ -390,6 +441,7 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
     this.#closeTask ??= (async () => {
       this.#state = 'closing';
       await this.#waitForDrain();
+      await this.dependencyAuthority?.close();
       this.#state = 'closed';
     })();
     return this.#closeTask;
@@ -482,6 +534,88 @@ class ManagedWorkspaceOwnerImpl implements ManagedWorkspaceOwner {
       );
     }
   }
+
+  async #acquireDependencyEnvironment(binding: ManagedWorkspaceBinding) {
+    if (!this.dependencyProducer || !this.dependencyAuthority) {
+      throw new ManagedWorkspaceOwnerError(
+        'managed_dependency_producer_unavailable',
+        'Managed dependency provisioning requires an explicitly configured producer',
+      );
+    }
+    try {
+      if (await this.service.hasManagedWorkspaceBaselinePath(binding, 'node_modules')) {
+        throw new ManagedWorkspaceOwnerError(
+          'managed_dependency_manifest_unsupported',
+          'Managed dependency provisioning requires node_modules to be absent from the canonical tree',
+        );
+      }
+      const [manifestBytes, lockfileBytes] = await Promise.all([
+        this.service.readManagedWorkspaceBaselineFile(binding, 'package.json'),
+        this.service.readManagedWorkspaceBaselineFile(binding, 'package-lock.json'),
+      ]);
+      const packageManager = readExactPackageManager(manifestBytes);
+      if (
+        packageManager.name !== this.dependencyProducer.packageManagerName ||
+        packageManager.version !== this.dependencyProducer.packageManagerVersion
+      ) {
+        throw new ManagedWorkspaceOwnerError(
+          'managed_dependency_manifest_unsupported',
+          'Managed dependency producer does not match the exact packageManager declaration',
+        );
+      }
+      const identity = computeManagedDependencyEnvironmentIdentity({
+        manifestPath: 'package.json',
+        manifestBytes,
+        lockfilePath: 'package-lock.json',
+        lockfileBytes,
+        packageManagerName: packageManager.name,
+        packageManagerVersion: packageManager.version,
+        nodeVersion: this.dependencyProducer.nodeRuntime.version,
+        nodeAbi: this.dependencyProducer.nodeRuntime.abi,
+        platform: this.dependencyProducer.nodeRuntime.platform,
+        arch: this.dependencyProducer.nodeRuntime.arch,
+        producerRuntimeIdentitySha256: this.dependencyProducer.capability.runtimeIdentitySha256,
+        producerPolicyIdentitySha256: this.dependencyProducer.capability.policyIdentitySha256,
+        policyVersion: 'managed_dependency_environment_v1',
+      });
+      return await this.dependencyAuthority.acquire(identity, { manifestBytes, lockfileBytes });
+    } catch (error) {
+      if (error instanceof ManagedWorkspaceOwnerError) throw error;
+      throw new ManagedWorkspaceOwnerError(
+        'managed_dependency_provision_failed',
+        'Unable to provision the managed dependency environment',
+        { cause: error },
+      );
+    }
+  }
+}
+
+function readExactPackageManager(bytes: Uint8Array): {
+  readonly name: 'npm';
+  readonly version: string;
+} {
+  let value: unknown;
+  try {
+    value = JSON.parse(Buffer.from(bytes).toString('utf8'));
+  } catch (error) {
+    throw new ManagedWorkspaceOwnerError(
+      'managed_dependency_manifest_unsupported',
+      'Managed dependency package.json is not valid JSON',
+      { cause: error },
+    );
+  }
+  const packageManager =
+    value && typeof value === 'object'
+      ? (value as { packageManager?: unknown }).packageManager
+      : undefined;
+  const match = typeof packageManager === 'string' ? /^npm@([^\s]+)$/u.exec(packageManager) : null;
+  if (!match?.[1]) {
+    throw new ManagedWorkspaceOwnerError(
+      'managed_dependency_manifest_unsupported',
+      'Managed dependency v1 requires an exact npm packageManager declaration',
+    );
+  }
+  return Object.freeze({ name: 'npm', version: match[1] });
 }
 
 function sameWorkspaceHead(left: WorkspaceHeadRecordV1, right: WorkspaceHeadRecordV1): boolean {
