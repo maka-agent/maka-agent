@@ -539,6 +539,50 @@ describe('session trace projection', () => {
     assert.equal(trace.coverage.modelCalls, 'partial', 'records nobody can read are a gap');
   });
 
+  test('joins a prompt composition to the attempt that sent it', () => {
+    const trace = projectSessionTrace({
+      sessionId: 'session-1',
+      runtimeEvents: [],
+      modelCallAttempts: [attempt({ attemptId: 'a-0' })],
+      promptCompositions: new Map([
+        [
+          'a-0',
+          {
+            totalBytes: 900,
+            parts: [{ kind: 'tool_definitions' as const, bytes: 800 }],
+            tools: [{ name: 'Bash', bytes: 800 }],
+          },
+        ],
+      ]),
+    });
+
+    const step = trace.turns[0]!.steps[0]!;
+    assert.equal(step.kind, 'model_call');
+    assert.deepEqual(step.kind === 'model_call' ? step.attempts[0]?.promptComposition?.tools : [], [
+      { name: 'Bash', bytes: 800 },
+    ]);
+  });
+
+  test('an attempt with no composition on record carries none, not an empty one', () => {
+    // The metering append is durable and the capture that carries the segments
+    // is best-effort, so "metered, but no composition" is reachable — and it is
+    // a gap, not a prompt made of nothing (#2323).
+    const trace = projectSessionTrace({
+      sessionId: 'session-1',
+      runtimeEvents: [],
+      modelCallAttempts: [attempt({ attemptId: 'a-0' }), attempt({ attemptId: 'a-1', attempt: 1 })],
+      promptCompositions: new Map([
+        ['a-0', { totalBytes: 10, parts: [{ kind: 'messages' as const, bytes: 10 }] }],
+      ]),
+    });
+
+    const step = trace.turns[0]!.steps[0]!;
+    assert.equal(step.kind, 'model_call');
+    if (step.kind !== 'model_call') return;
+    assert.ok(step.attempts[0]?.promptComposition);
+    assert.equal(step.attempts[1]?.promptComposition, undefined);
+  });
+
   test('a session that is only unreadable records is still a covered session', () => {
     const trace = projectSessionTrace({
       sessionId: 'session-1',

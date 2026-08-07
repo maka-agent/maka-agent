@@ -42,6 +42,52 @@ export const SESSION_TRACE_SCHEMA_VERSION = 1 as const;
  */
 export type TraceStepKind = 'model_call' | 'tool' | 'permission' | 'compaction' | 'error';
 
+/**
+ * What one request's prompt was made of, in bytes of serialized request
+ * (#2323).
+ *
+ * **Not a decomposition of the metered prompt.** The token figures on the
+ * attempt are provider-reported and sum to `inputTokens`; this sums to
+ * `totalBytes`, the size of the request as it was serialized at the seam. The
+ * two answer "how full" and "full of what" over the same request, in different
+ * units, and a surface that stacks them into one bar makes an estimate read as
+ * a reported number — which is the rule #1679 exists to hold.
+ *
+ * Bytes rather than tokens on purpose: a byte count is measured, a token count
+ * here would be `bytes / 4`, and an estimate that has been rounded into the
+ * contract can no longer be labelled as one where it is shown.
+ */
+export type PromptCompositionPartKind =
+  | 'system_instructions'
+  | 'tool_definitions'
+  | 'messages'
+  | 'other';
+
+export interface PromptCompositionPart {
+  kind: PromptCompositionPartKind;
+  bytes: number;
+}
+
+/** One tool's schema, sized on its own, so a reader knows which to remove. */
+export interface PromptCompositionTool {
+  name: string;
+  bytes: number;
+}
+
+export interface PromptComposition {
+  /**
+   * The whole serialized request. Larger than the parts sum to: the envelope
+   * around them belongs to no segment, and is left visible as a remainder
+   * rather than distributed into the parts.
+   */
+  totalBytes: number;
+  parts: PromptCompositionPart[];
+  /** Present when the payload named its tools; sorted largest first. */
+  tools?: PromptCompositionTool[];
+  /** Tool schemas the payload did not name, so their bytes are still counted. */
+  unlabelledToolBytes?: number;
+}
+
 /** One physical provider request, as metered. */
 export interface TraceModelAttempt {
   attemptId: string;
@@ -74,6 +120,17 @@ export interface TraceModelAttempt {
   costBasis: 'priced' | 'unpriced';
   /** Whether the tokens above were reported by the provider or are partial. */
   usageBasis: 'reported' | 'partial' | 'missing';
+  /**
+   * What this request's prompt was made of, when the capture that describes it
+   * is on record.
+   *
+   * Absent is a state the reader must be able to see: the metering record is
+   * durable, the capture that carries the segments is appended best-effort, and
+   * a backend outside canonical accounting emits neither. "Metered, but no
+   * composition" is therefore reachable, and it is a gap — never an empty
+   * breakdown, which would read as a prompt made of nothing.
+   */
+  promptComposition?: PromptComposition;
 }
 
 /**
@@ -345,8 +402,27 @@ const MODEL_ATTEMPT_SHAPE = defineObjectShape<TraceModelAttempt>()(
     'reasoningTokens',
     'contextWindow',
     'costUsd',
+    'promptComposition',
   ],
 );
+const PROMPT_COMPOSITION_SHAPE = defineObjectShape<PromptComposition>()(
+  ['totalBytes', 'parts'],
+  ['tools', 'unlabelledToolBytes'],
+);
+const PROMPT_COMPOSITION_PART_SHAPE = defineObjectShape<PromptCompositionPart>()(
+  ['kind', 'bytes'],
+  [],
+);
+const PROMPT_COMPOSITION_TOOL_SHAPE = defineObjectShape<PromptCompositionTool>()(
+  ['name', 'bytes'],
+  [],
+);
+const PROMPT_COMPOSITION_PART_KINDS: readonly PromptCompositionPartKind[] = [
+  'system_instructions',
+  'tool_definitions',
+  'messages',
+  'other',
+];
 const TOOL_STEP_SHAPE = defineObjectShape<TraceToolStep>()(
   ['kind', 'id', 'turnId', 'runId', 'startedAt', 'toolName', 'status'],
   ['endedAt', 'durationMs', 'toolCallId', 'operationId', 'recoveryPolicy', 'recovered'],
@@ -505,7 +581,39 @@ function isModelAttempt(value: unknown): value is TraceModelAttempt {
     isOptionalString(value.finishReason) &&
     isOptionalString(value.errorClass) &&
     MODEL_CALL_COST_BASES.includes(value.costBasis as TraceModelAttempt['costBasis']) &&
-    MODEL_CALL_USAGE_BASES.includes(value.usageBasis as TraceModelAttempt['usageBasis'])
+    MODEL_CALL_USAGE_BASES.includes(value.usageBasis as TraceModelAttempt['usageBasis']) &&
+    (value.promptComposition === undefined || isPromptComposition(value.promptComposition))
+  );
+}
+
+function isPromptComposition(value: unknown): value is PromptComposition {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, PROMPT_COMPOSITION_SHAPE) &&
+    isNonnegativeInteger(value.totalBytes) &&
+    Array.isArray(value.parts) &&
+    value.parts.every(isPromptCompositionPart) &&
+    (value.tools === undefined ||
+      (Array.isArray(value.tools) && value.tools.every(isPromptCompositionTool))) &&
+    (value.unlabelledToolBytes === undefined || isNonnegativeInteger(value.unlabelledToolBytes))
+  );
+}
+
+function isPromptCompositionPart(value: unknown): value is PromptCompositionPart {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, PROMPT_COMPOSITION_PART_SHAPE) &&
+    PROMPT_COMPOSITION_PART_KINDS.includes(value.kind as PromptCompositionPartKind) &&
+    isNonnegativeInteger(value.bytes)
+  );
+}
+
+function isPromptCompositionTool(value: unknown): value is PromptCompositionTool {
+  return (
+    isRecord(value) &&
+    hasExactShape(value, PROMPT_COMPOSITION_TOOL_SHAPE) &&
+    typeof value.name === 'string' &&
+    isNonnegativeInteger(value.bytes)
   );
 }
 

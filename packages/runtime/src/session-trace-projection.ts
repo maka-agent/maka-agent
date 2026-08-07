@@ -11,6 +11,7 @@ import {
   type SessionTrace,
   type SessionTraceCoverage,
   type TraceFailureAttribution,
+  type PromptComposition,
   type TraceModelAttempt,
   type TraceModelCallStep,
   type TraceStep,
@@ -38,6 +39,17 @@ export interface SessionTraceInput {
   /** Canonical metering, from the AgentRun stream's `model_call_attempt_recorded`. */
   modelCallAttempts: readonly ModelCallAttempt[];
   /**
+   * What each request's prompt was made of, keyed by `attemptId` (#2323).
+   *
+   * A second map rather than a field on the metering record because the two are
+   * written by different appends with different durability: metering is durable
+   * because lost spend is unreconstructable, the capture that carries the
+   * segments is best-effort. An attempt with no entry here is metered with no
+   * composition on record, and stays that way through the projection instead of
+   * being folded into an empty breakdown.
+   */
+  promptCompositions?: ReadonlyMap<string, PromptComposition>;
+  /**
    * Records the caller could not read or decode. Carried through to coverage so
    * unreadable spend is visible instead of silently absent; the caller decides
    * the unit, and a whole unreadable run counting as one is a floor.
@@ -64,7 +76,7 @@ export function projectSessionTrace(input: SessionTraceInput): SessionTrace {
   for (const turnId of turnIds) {
     const turnEvents = eventsByTurn.get(turnId) ?? [];
     const turnAttempts = attemptsByTurn.get(turnId) ?? [];
-    const turn = projectTurn(turnId, turnEvents, turnAttempts);
+    const turn = projectTurn(turnId, turnEvents, turnAttempts, input.promptCompositions);
     if (!turn) continue;
     turns.push(turn);
 
@@ -164,12 +176,14 @@ function projectTurn(
   turnId: string,
   events: readonly RuntimeEvent[],
   attempts: readonly ModelCallAttempt[],
+  compositions: ReadonlyMap<string, PromptComposition> | undefined,
 ): TurnTrace | undefined {
   if (events.length === 0 && attempts.length === 0) return undefined;
   const runId = events[0]?.runId ?? attempts[0]?.runId ?? '';
-  const steps = [...projectModelCallSteps(attempts), ...projectEventSteps(events)].sort(
-    (left, right) => left.startedAt - right.startedAt,
-  );
+  const steps = [
+    ...projectModelCallSteps(attempts, compositions),
+    ...projectEventSteps(events),
+  ].sort((left, right) => left.startedAt - right.startedAt);
 
   // Bounds come from the ledger facts, not from the steps that happen to be
   // visible: a usage-only or text-only turn projects no steps at all, and
@@ -205,7 +219,10 @@ function projectTurn(
  * than a heuristic — the reason that field is explicit on the record instead of
  * reconstructed from `(traceId, step)` by every consumer.
  */
-function projectModelCallSteps(attempts: readonly ModelCallAttempt[]): TraceModelCallStep[] {
+function projectModelCallSteps(
+  attempts: readonly ModelCallAttempt[],
+  compositions: ReadonlyMap<string, PromptComposition> | undefined,
+): TraceModelCallStep[] {
   const steps: TraceModelCallStep[] = [];
 
   for (const { logicalCallId, attempts: group } of groupModelCallAttempts(attempts)) {
@@ -229,7 +246,9 @@ function projectModelCallSteps(attempts: readonly ModelCallAttempt[]): TraceMode
       modelId: first.modelId,
       ...(first.connectionSlug !== undefined ? { connectionSlug: first.connectionSlug } : {}),
       step: first.step,
-      attempts: ordered.map(toTraceAttempt),
+      attempts: ordered.map((attempt) =>
+        toTraceAttempt(attempt, compositions?.get(attempt.attemptId)),
+      ),
       status: last.status,
       // Absent rather than zero when nothing in the group was priced: the sum of
       // no prices is not a price (#1679).
@@ -242,7 +261,10 @@ function projectModelCallSteps(attempts: readonly ModelCallAttempt[]): TraceMode
   return steps;
 }
 
-function toTraceAttempt(attempt: ModelCallAttempt): TraceModelAttempt {
+function toTraceAttempt(
+  attempt: ModelCallAttempt,
+  composition: PromptComposition | undefined,
+): TraceModelAttempt {
   return {
     attemptId: attempt.attemptId,
     attempt: attempt.attempt,
@@ -265,6 +287,7 @@ function toTraceAttempt(attempt: ModelCallAttempt): TraceModelAttempt {
     ...(attempt.costUsd !== undefined ? { costUsd: attempt.costUsd } : {}),
     costBasis: attempt.costBasis,
     usageBasis: attempt.usageBasis,
+    ...(composition !== undefined ? { promptComposition: composition } : {}),
   };
 }
 

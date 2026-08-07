@@ -290,6 +290,28 @@ const populatedTrace: SessionTrace = {
               costUsd: 0.0061,
               costBasis: 'priced',
               usageBasis: 'reported',
+              // What the bar above is full OF (#2323). Bytes of serialized
+              // request, so these deliberately do not sum to the 18,900
+              // provider-reported prompt tokens beside them.
+              promptComposition: {
+                totalBytes: 76_400,
+                parts: [
+                  { kind: 'system_instructions', bytes: 12_000 },
+                  { kind: 'tool_definitions', bytes: 42_000 },
+                  { kind: 'messages', bytes: 21_800 },
+                  { kind: 'other', bytes: 400 },
+                ],
+                tools: [
+                  { name: 'Bash', bytes: 9_400 },
+                  { name: 'Read', bytes: 7_100 },
+                  { name: 'Edit', bytes: 6_300 },
+                  { name: 'Grep', bytes: 5_200 },
+                  { name: 'mcp__Claude_Browser__computer', bytes: 4_800 },
+                  { name: 'WebFetch', bytes: 3_900 },
+                  { name: 'Write', bytes: 3_100 },
+                  { name: 'Glob', bytes: 2_200 },
+                ],
+              },
             },
           ],
         },
@@ -346,6 +368,41 @@ const nearLimitTrace: SessionTrace = {
                     inputTokens: 186_400,
                     cacheReadInputTokens: 151_800,
                   })),
+                },
+          ),
+        },
+  ),
+};
+
+/**
+ * A ledger written before tool schemas carried a name: the same session, with
+ * the composition's tool bytes present and unattributed. Derived rather than
+ * forked for the same reason as `nearLimitTrace`.
+ */
+const unnamedToolsTrace: SessionTrace = {
+  ...populatedTrace,
+  turns: populatedTrace.turns.map((turn, index) =>
+    index !== populatedTrace.turns.length - 1
+      ? turn
+      : {
+          ...turn,
+          steps: turn.steps.map((step) =>
+            step.kind !== 'model_call'
+              ? step
+              : {
+                  ...step,
+                  attempts: step.attempts.map((attempt) =>
+                    attempt.promptComposition === undefined
+                      ? attempt
+                      : {
+                          ...attempt,
+                          promptComposition: {
+                            totalBytes: attempt.promptComposition.totalBytes,
+                            parts: attempt.promptComposition.parts,
+                            unlabelledToolBytes: 42_000,
+                          },
+                        },
+                  ),
                 },
           ),
         },
@@ -504,6 +561,16 @@ export const Trace: Story = {
 // for. Same session as Trace, sized differently, so the two read side by side.
 export const TraceContextNearLimit: Story = {
   decorators: [bridge({ trace: nearLimitTrace })],
+  render: () => <Workbar tab="inspector" />,
+};
+
+// Real path: 会话工作栏 → 追踪 on a session recorded before tool schemas carried
+// a name — the shape of every ledger written prior to #2323. The composition
+// block still has to show those bytes, as unnamed tools rather than as a
+// missing category, which is what gating the tool list on the NAMED rows alone
+// silently broke.
+export const TraceUnnamedTools: Story = {
+  decorators: [bridge({ trace: unnamedToolsTrace })],
   render: () => <Workbar tab="inspector" />,
 };
 

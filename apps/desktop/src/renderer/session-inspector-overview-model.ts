@@ -1,4 +1,6 @@
 import type {
+  PromptComposition,
+  PromptCompositionPartKind,
   SessionTrace,
   TraceModelAttempt,
   TraceModelCallStep,
@@ -44,9 +46,72 @@ export interface InspectorContextBudget {
   segments: readonly InspectorContextSegment[];
 }
 
+/**
+ * One row of "what was this prompt made of", sized in bytes and estimated in
+ * tokens (#2323).
+ *
+ * The estimate is made HERE, at the display layer, and never enters the trace:
+ * `bytes / 4` is a rule of thumb over serialized JSON, and a figure that has
+ * been rounded into the contract can no longer be labelled as an estimate where
+ * it is shown. The panel prints every one of these with a `≈`.
+ */
+export interface InspectorCompositionRow {
+  /** Stable key: a part kind, or a tool name. */
+  key: string;
+  bytes: number;
+  estimatedTokens: number;
+}
+
+export interface InspectorCompositionPart extends InspectorCompositionRow {
+  kind: PromptCompositionPartKind;
+}
+
+export interface InspectorCompositionTool extends InspectorCompositionRow {
+  name: string;
+}
+
+export interface InspectorComposition {
+  /**
+   * The whole serialized request. Carried as the measured fact, not rendered:
+   * the parts are what a reader acts on, and a fourth total beside them would
+   * only invite subtracting one from the other across two different units.
+   */
+  totalBytes: number;
+  parts: readonly InspectorCompositionPart[];
+  /** The largest tool schemas, largest first — the ones worth removing. */
+  tools: readonly InspectorCompositionTool[];
+  /** Everything below the visible tools, folded so the total still adds up. */
+  remainingTools?: { count: number; bytes: number; estimatedTokens: number };
+  /** Tool schemas the payload did not name; counted, never attributed. */
+  unlabelledTools?: { bytes: number; estimatedTokens: number };
+}
+
+/**
+ * Composition of the same request the bar measures, or the reason there is
+ * none.
+ *
+ * `unrecorded` is a real answer, not an empty one: metering is durable and the
+ * capture carrying the segments is best-effort, so a metered call with no
+ * breakdown on record happens, and rendering it as a prompt made of nothing
+ * would be the fabrication the ledger rules exist to prevent (#1679).
+ */
+export type InspectorCompositionState =
+  | { status: 'available'; composition: InspectorComposition }
+  | { status: 'unrecorded' };
+
 export interface InspectorOverviewModel {
   /** Absent when no completed main call reported both usage and a window. */
   context?: InspectorContextBudget;
+  /**
+   * What filled the context above. Absent only when there is no call to ask
+   * about; present-but-`unrecorded` when there is one and it carried no
+   * capture.
+   *
+   * Deliberately read off the SAME attempt as `context`, never the latest
+   * capture on the session: a breakdown of one request under a bar measuring a
+   * different one would be two facts wearing one heading.
+   */
+  composition?: InspectorCompositionState;
   /**
    * cacheRead / input over the attempts that reported input, session-wide.
    * Absent when no input was metered at all — a rate over nothing is not
@@ -64,10 +129,13 @@ export function deriveInspectorOverviewModel(trace: SessionTrace | undefined): I
 
   const modelSteps = trace.turns.flatMap(modelCallSteps);
   const cacheHitRate = sessionCacheHitRate(modelSteps.flatMap((step) => step.attempts));
-  const context = contextBudget(modelSteps);
+  const latest = latestMeteredMainAttempt(modelSteps);
+  const context = latest ? contextBudget(latest) : undefined;
+  const composition = latest ? compositionState(latest.promptComposition) : undefined;
 
   return {
     ...(context ? { context } : {}),
+    ...(composition ? { composition } : {}),
     ...(cacheHitRate !== undefined ? { cacheHitRate } : {}),
   };
 }
@@ -101,7 +169,9 @@ function sessionCacheHitRate(attempts: readonly TraceModelAttempt[]): number | u
  * now" — is answered by the most recent completed call whose provider counted
  * a prompt: its input total IS the context size the next call builds on.
  */
-function contextBudget(steps: readonly TraceModelCallStep[]): InspectorContextBudget | undefined {
+function latestMeteredMainAttempt(
+  steps: readonly TraceModelCallStep[],
+): TraceModelAttempt | undefined {
   const candidates = steps
     .filter((step) => step.callKind === 'main')
     .flatMap((step) => step.attempts)
@@ -112,11 +182,13 @@ function contextBudget(steps: readonly TraceModelCallStep[]): InspectorContextBu
         attempt.contextWindow !== undefined &&
         attempt.contextWindow > 0,
     );
-  const latest = candidates.reduce<TraceModelAttempt | undefined>(
+  return candidates.reduce<TraceModelAttempt | undefined>(
     (carry, attempt) => (carry === undefined || attempt.completedAt >= carry.completedAt ? attempt : carry),
     undefined,
   );
-  if (!latest) return undefined;
+}
+
+function contextBudget(latest: TraceModelAttempt): InspectorContextBudget {
   const usedTokens = latest.inputTokens!;
   const windowTokens = latest.contextWindow!;
   // A cache figure larger than the prompt it belongs to is not a fact about
@@ -141,6 +213,73 @@ function contextBudget(steps: readonly TraceModelCallStep[]): InspectorContextBu
       { kind: 'free' as const, tokens: Math.max(0, windowTokens - usedTokens) },
     ].filter((segment) => segment.tokens > 0),
   };
+}
+
+/**
+ * How many tool rows are worth showing.
+ *
+ * The list exists so a reader can name a tool to remove, and that decision is
+ * made off the biggest few; a full registry printed at 4pt is a table, not an
+ * answer. What falls below the cut is folded into one row rather than dropped,
+ * so the parts still add up to the tool total above them.
+ */
+const VISIBLE_TOOL_ROWS = 5;
+
+function compositionState(
+  composition: PromptComposition | undefined,
+): InspectorCompositionState {
+  if (!composition) return { status: 'unrecorded' };
+
+  const tools = composition.tools ?? [];
+  const visible = tools.slice(0, VISIBLE_TOOL_ROWS);
+  const remaining = tools.slice(VISIBLE_TOOL_ROWS);
+  const remainingBytes = remaining.reduce((carry, tool) => carry + tool.bytes, 0);
+
+  return {
+    status: 'available',
+    composition: {
+      totalBytes: composition.totalBytes,
+      parts: composition.parts.map((part) => ({
+        key: part.kind,
+        kind: part.kind,
+        bytes: part.bytes,
+        estimatedTokens: estimateTokens(part.bytes),
+      })),
+      tools: visible.map((tool) => ({
+        key: tool.name,
+        name: tool.name,
+        bytes: tool.bytes,
+        estimatedTokens: estimateTokens(tool.bytes),
+      })),
+      ...(remaining.length > 0
+        ? {
+            remainingTools: {
+              count: remaining.length,
+              bytes: remainingBytes,
+              estimatedTokens: estimateTokens(remainingBytes),
+            },
+          }
+        : {}),
+      ...(composition.unlabelledToolBytes !== undefined
+        ? {
+            unlabelledTools: {
+              bytes: composition.unlabelledToolBytes,
+              estimatedTokens: estimateTokens(composition.unlabelledToolBytes),
+            },
+          }
+        : {}),
+    },
+  };
+}
+
+/**
+ * The same four-bytes-per-token rule of thumb `/context` prints, kept at the
+ * display layer and rendered with a `≈` everywhere it appears. It is not a
+ * count: the bytes it divides are serialized JSON, and an attachment's base64
+ * makes it wrong in a direction nobody can correct for here.
+ */
+function estimateTokens(bytes: number): number {
+  return Math.ceil(bytes / 4);
 }
 
 function sum(attempts: readonly TraceModelAttempt[], pick: (attempt: TraceModelAttempt) => number | undefined): number {

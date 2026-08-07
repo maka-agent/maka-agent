@@ -1291,6 +1291,12 @@ export type {
 export { projectSessionTrace, attributeTurnFailure } from './session-trace-projection.js';
 export type { SessionTraceInput } from './session-trace-projection.js';
 
+// prompt-composition.ts — what one request's prompt was made of (#2323).
+export {
+  foldPromptComposition,
+  readPromptCompositionEvent,
+} from './prompt-composition.js';
+
 // runtime-event-read-model.ts — side-by-side RuntimeEvent read projection.
 export {
   projectRuntimeEventsToStoredMessages,

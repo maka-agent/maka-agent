@@ -498,7 +498,8 @@ function segmentsEqual(
         segment.cacheable === other.cacheable &&
         segment.hash === other.hash &&
         segment.bytes === other.bytes &&
-        segment.role === other.role
+        segment.role === other.role &&
+        segment.label === other.label
       );
     })
   );
@@ -515,7 +516,8 @@ function segmentFromValue(value: unknown): PreparedRequestSegment | undefined {
     typeof segment.cacheable !== 'boolean' ||
     typeof segment.hash !== 'string' ||
     !isNonNegativeInteger(segment.bytes) ||
-    (segment.role !== undefined && typeof segment.role !== 'string')
+    (segment.role !== undefined && typeof segment.role !== 'string') ||
+    (segment.label !== undefined && typeof segment.label !== 'string')
   ) {
     return undefined;
   }
