@@ -107,13 +107,6 @@ class OperationalStateDatabaseOwner {
       // so a newer later scope cannot leave an older earlier scope half-upgraded.
       assertOperationalSchemaCanMigrate(this.database);
       configureSqliteRuntimeDatabase(this.database);
-      migrateSqliteRuntimeDatabase(this.database);
-      migrateSqliteSessionMetadataDatabase(this.database);
-      migrateSqliteCoreExecutionDatabase(this.database);
-      migrateSqliteWorkflowDatabase(this.database);
-      migrateSqliteUsageDatabase(this.database);
-      migrateSqliteArtifactDatabase(this.database);
-      migrateSqliteAutomationDatabase(this.database);
       migrateOperationalStateDatabase(this.database, options.now ?? Date.now);
     } catch (error) {
       this.database.close();
@@ -249,6 +242,13 @@ function hasTable(database: DatabaseSync, name: string): boolean {
 function migrateOperationalStateDatabase(db: DatabaseSync, now: () => number): void {
   db.exec('BEGIN IMMEDIATE');
   try {
+    migrateSqliteRuntimeDatabase(db, { transaction: 'caller' });
+    migrateSqliteSessionMetadataDatabase(db, { transaction: 'caller' });
+    migrateSqliteCoreExecutionDatabase(db);
+    migrateSqliteWorkflowDatabase(db);
+    migrateSqliteUsageDatabase(db);
+    migrateSqliteArtifactDatabase(db);
+    migrateSqliteAutomationDatabase(db);
     db.exec(`
       CREATE TABLE IF NOT EXISTS operational_schema_migrations (
         scope TEXT PRIMARY KEY,

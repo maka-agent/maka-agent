@@ -111,6 +111,54 @@ test('migrates older operational state without losing sessions or messages', asy
   }
 });
 
+test('rolls back every scope when operational migration publication fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    rewindRuntimeSchema(database);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database.exec(`
+      CREATE TRIGGER reject_runtime_registry_upgrade
+      BEFORE UPDATE OF version ON operational_schema_migrations
+      WHEN OLD.scope = 'runtime' AND NEW.version > OLD.version
+      BEGIN
+        SELECT RAISE(ABORT, 'registry publication failed');
+      END;
+    `);
+    database.close();
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /registry publication failed/);
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
+        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+      );
+      assert.equal(
+        (
+          preserved
+            .prepare(
+              `SELECT COUNT(*) AS count FROM sqlite_master
+               WHERE type = 'table' AND name = 'runtime_session_event_ordinals'`,
+            )
+            .get() as { count: number }
+        ).count,
+        0,
+      );
+    } finally {
+      preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rejects a newer scope before migrating an older scope', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-mixed-version-'));
   const databasePath = join(root, 'runtime.sqlite');
