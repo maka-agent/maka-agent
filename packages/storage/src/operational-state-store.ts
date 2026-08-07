@@ -31,6 +31,12 @@ import {
   migrateSqliteAutomationDatabase,
   SQLITE_AUTOMATION_SCHEMA_VERSION,
 } from './sqlite-automation-schema.js';
+import {
+  operationalStateMigrationBlockedError,
+  type OperationalStateSchemaLock,
+  tryAcquireOperationalStateMigrationLock,
+  waitForOperationalStateSchemaUseLock,
+} from './operational-state-schema-lock.js';
 
 export const OPERATIONAL_STATE_DATABASE_NAME = 'runtime.sqlite';
 export const OPERATIONAL_STATE_SCHEMA_VERSION = 1;
@@ -88,6 +94,7 @@ export function acquireOperationalStateDatabase(
 
 class OperationalStateDatabaseOwner {
   readonly database: DatabaseSync;
+  readonly #schemaLock: OperationalStateSchemaLock;
   private references = 0;
   private closed = false;
   private transactionDepth = 0;
@@ -96,23 +103,9 @@ class OperationalStateDatabaseOwner {
     readonly databasePath: string,
     options: OperationalStateDatabaseOptions,
   ) {
-    mkdirSync(dirname(databasePath), { recursive: true });
-    const Database = loadDatabaseSync();
-    this.database = new Database(databasePath);
-    try {
-      // Preflight reads must wait for another opener's WAL transition, but this
-      // connection-only pragma keeps rejected databases byte-for-byte intact.
-      configureSqliteRuntimeLockWait(this.database);
-      // Reject every unsupported authority before the first migration commits,
-      // so a newer later scope cannot leave an older earlier scope half-upgraded.
-      assertOperationalSchemaCanMigrate(this.database);
-      configureSqliteRuntimeDatabase(this.database);
-      migrateOperationalStateDatabase(this.database, options.now ?? Date.now);
-    } catch (error) {
-      this.database.close();
-      this.closed = true;
-      throw error;
-    }
+    const opened = openOperationalStateDatabase(databasePath, options.now ?? Date.now);
+    this.database = opened.database;
+    this.#schemaLock = opened.schemaLock;
   }
 
   acquire(): OperationalStateDatabaseLease {
@@ -158,7 +151,11 @@ class OperationalStateDatabaseOwner {
     if (this.references !== 0) return;
     this.closed = true;
     owners.delete(this.databasePath);
-    this.database.close();
+    closeOperationalStateResources(
+      this.database,
+      this.#schemaLock,
+      'Unable to close the operational state database owner',
+    );
   }
 
   private transaction<T>(mode: 'read' | 'write', operation: () => T): T {
@@ -179,24 +176,96 @@ class OperationalStateDatabaseOwner {
   }
 }
 
-function assertOperationalSchemaCanMigrate(database: DatabaseSync): void {
-  assertSupportedOperationalSchemaVersion(
-    'runtime',
-    readUserVersion(database),
-    SQLITE_RUNTIME_SCHEMA_VERSION,
-  );
-  if (hasTable(database, 'session_metadata_schema')) {
-    assertSupportedOperationalSchemaVersion(
-      'session_metadata',
-      readSqliteSessionMetadataSchemaVersion(database),
-      SQLITE_SESSION_METADATA_SCHEMA_VERSION,
+function openOperationalStateDatabase(
+  databasePath: string,
+  now: () => number,
+): { database: DatabaseSync; schemaLock: OperationalStateSchemaLock } {
+  mkdirSync(dirname(databasePath), { recursive: true });
+  if (existsSync(databasePath)) {
+    const opened = openCurrentOperationalStateDatabase(databasePath);
+    if (opened) return opened;
+  }
+
+  const workspaceRoot = dirname(databasePath);
+  const migrationLock = tryAcquireOperationalStateMigrationLock(workspaceRoot);
+  if (!migrationLock) {
+    const opened = openCurrentOperationalStateDatabase(databasePath);
+    if (opened) return opened;
+    throw operationalStateMigrationBlockedError();
+  }
+  let migrationDatabase: DatabaseSync | undefined;
+  try {
+    const Database = loadDatabaseSync();
+    migrationDatabase = new Database(databasePath);
+    configureSqliteRuntimeLockWait(migrationDatabase);
+    if (inspectOperationalSchema(migrationDatabase) === 'needs_migration') {
+      configureSqliteRuntimeDatabase(migrationDatabase);
+      migrateOperationalStateDatabase(migrationDatabase, now);
+    }
+  } finally {
+    closeOperationalStateResources(
+      migrationDatabase,
+      migrationLock,
+      'Unable to close the operational schema migration owner',
     );
   }
 
-  if (!hasTable(database, 'operational_schema_migrations')) return;
+  const opened = openCurrentOperationalStateDatabase(databasePath);
+  if (!opened) throw new Error('Operational schema migration did not reach the current version');
+  return opened;
+}
+
+function openCurrentOperationalStateDatabase(
+  databasePath: string,
+): { database: DatabaseSync; schemaLock: OperationalStateSchemaLock } | undefined {
+  const schemaLock = waitForOperationalStateSchemaUseLock(dirname(databasePath));
+  let database: DatabaseSync | undefined;
+  try {
+    const Database = loadDatabaseSync();
+    database = new Database(databasePath);
+    // This connection-only pragma lets preflight wait without changing a rejected database.
+    configureSqliteRuntimeLockWait(database);
+    if (inspectOperationalSchema(database) === 'needs_migration') {
+      database.close();
+      database = undefined;
+      schemaLock.close();
+      return undefined;
+    }
+    configureSqliteRuntimeDatabase(database);
+    return { database, schemaLock };
+  } catch (error) {
+    try {
+      database?.close();
+    } finally {
+      schemaLock.close();
+    }
+    throw error;
+  }
+}
+
+function inspectOperationalSchema(database: DatabaseSync): 'current' | 'needs_migration' {
+  let needsMigration = false;
+  const runtimeVersion = readUserVersion(database);
+  assertSupportedOperationalSchemaVersion('runtime', runtimeVersion, SQLITE_RUNTIME_SCHEMA_VERSION);
+  needsMigration ||= runtimeVersion < SQLITE_RUNTIME_SCHEMA_VERSION;
+
+  if (hasTable(database, 'session_metadata_schema')) {
+    const sessionMetadataVersion = readSqliteSessionMetadataSchemaVersion(database);
+    assertSupportedOperationalSchemaVersion(
+      'session_metadata',
+      sessionMetadataVersion,
+      SQLITE_SESSION_METADATA_SCHEMA_VERSION,
+    );
+    needsMigration ||= sessionMetadataVersion < SQLITE_SESSION_METADATA_SCHEMA_VERSION;
+  } else {
+    needsMigration = true;
+  }
+
+  if (!hasTable(database, 'operational_schema_migrations')) return 'needs_migration';
   const rows = database
     .prepare('SELECT scope, version FROM operational_schema_migrations')
     .all() as Array<{ scope?: unknown; version?: unknown }>;
+  const registered = new Map<string, number>();
   for (const { scope, version } of rows) {
     if (typeof scope !== 'string') continue;
     const supportedVersion = OPERATIONAL_SCHEMA_VERSIONS.get(scope);
@@ -213,7 +282,12 @@ function assertOperationalSchemaCanMigrate(database: DatabaseSync): void {
       );
     }
     assertSupportedOperationalSchemaVersion(scope, version, supportedVersion);
+    registered.set(scope, version);
   }
+  for (const [scope, version] of OPERATIONAL_SCHEMA_VERSIONS) {
+    needsMigration ||= (registered.get(scope) ?? -1) < version;
+  }
+  return needsMigration ? 'needs_migration' : 'current';
 }
 
 function assertSupportedOperationalSchemaVersion(
@@ -295,6 +369,22 @@ function registerSchema(db: DatabaseSync, scope: string, version: number, applie
         ELSE excluded.applied_at
       END
   `).run(scope, version, appliedAt);
+}
+
+function closeOperationalStateResources(
+  database: DatabaseSync | undefined,
+  schemaLock: OperationalStateSchemaLock,
+  message: string,
+): void {
+  const errors: unknown[] = [];
+  for (const close of [() => database?.close(), () => schemaLock.close()]) {
+    try {
+      close();
+    } catch (error) {
+      errors.push(error);
+    }
+  }
+  if (errors.length > 0) throw new AggregateError(errors, message);
 }
 
 function loadDatabaseSync(): typeof import('node:sqlite').DatabaseSync {
