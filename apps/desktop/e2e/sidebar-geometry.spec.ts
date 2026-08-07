@@ -259,19 +259,24 @@ test('keyboard resize survives a collapse round trip', async ({
  * two columns are one surface and the transparent titlebar band above them
  * reads as one band across the window.
  *
- * Collapsing must not re-material the rail. Product CSS used to repaint it
- * --color-background-surface at 48px so the traffic lights would not straddle a
- * column edge narrower than they are; by the time the content column was moved
- * onto --agents-layout-bg that override was the only thing splitting the band,
- * and in dark mode it landed the rail on a third tone (L 0.205 against the
- * canvas's 0.18) that ran to the window top past the plate's 4px gutter.
+ * EXPANDED, collapsing must not re-material the rail: it keeps wearing its
+ * column's material. (Product CSS once repainted it --color-background-surface
+ * at 48px so the traffic lights would not straddle a column edge narrower than
+ * they are; that landed the rail on a third tone in dark mode — #2187 removed
+ * it. The expanded half of this test is that removal's regression lock.)
  *
- * A screenshot cannot lock this — the bug is a state-dependent token mapping,
- * invisible in light mode because --color-background-surface happens to equal
- * the plate's fill there. Read the resolved colors instead, in both collapse
- * states, and compare the rail against the column it must match rather than
- * against a literal: the contract is "same material", not "this exact gray", so
- * it survives a palette or theme change.
+ * COLLAPSED, the rail deliberately puts on the PLATE's material and the plate
+ * docks flush under the titlebar (top margin and top corners to zero): the
+ * traffic-light cluster is ~54px wide against a 48px rail, so no position fits
+ * it inside the rail — instead the seam is removed from under it (shell-layout
+ * "Codex-style top-left fusion"). Wearing the plate's OWN token (not
+ * --color-background-surface) is what keeps dark mode a single surface too.
+ *
+ * A screenshot cannot lock either half — the bug class is a state-dependent
+ * token mapping, invisible in light mode whenever two tokens happen to match.
+ * Read the resolved colors instead and compare the rail against the material
+ * it must match in each state, never against a literal: the contract is "same
+ * material", not "this exact gray", so it survives a palette or theme change.
  *
  * Colors are compared as painted RGBA bytes, not as computed-style strings:
  * Chromium serializes the same color differently depending on how it was
@@ -281,23 +286,28 @@ test('keyboard resize survives a collapse round trip', async ({
  * The read must SETTLE before it is asserted, which is why this takes two
  * agreeing samples rather than one read or a plain poll-until-equal. A
  * re-materialing rule reaches its new color through an ease, so immediately
- * after the toggle the rail still reports its old value — the collapsed
- * material it is supposed to keep. Both a single fast read and a poll that
- * stops at its first match would accept exactly the frame the bug flies
- * through; measured against the pre-fix rule, poll-until-equal passed.
+ * after the toggle the rail still reports its old value. Both a single fast
+ * read and a poll that stops at its first match would accept exactly the frame
+ * the transition flies through.
  */
 interface RailMaterial {
   rail: string;
   column: string;
+  plate: string;
   railEdge: string;
   railEdgeWidth: string;
+  plateMarginTop: string;
+  plateTopLeftRadius: string;
+  plateTopRightRadius: string;
 }
 
 async function readRailMaterial(page: Page): Promise<RailMaterial | null> {
   return page.evaluate(() => {
     const rail = document.querySelector('.astryx-app-shell-sidenav');
     const column = document.querySelector('.astryx-layout-content');
-    if (!rail || !column) return null;
+    const plate = document.querySelector('.mainColumn');
+    const panel = document.querySelector('.maka-panel-detail');
+    if (!rail || !column || !plate || !panel) return null;
     const canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 1;
@@ -312,8 +322,12 @@ async function readRailMaterial(page: Page): Promise<RailMaterial | null> {
     return {
       rail: bytes(getComputedStyle(rail).backgroundColor),
       column: bytes(getComputedStyle(column).backgroundColor),
+      plate: bytes(getComputedStyle(plate).backgroundColor),
       railEdge: bytes(getComputedStyle(rail).borderInlineEndColor),
       railEdgeWidth: getComputedStyle(rail).borderInlineEndWidth,
+      plateMarginTop: getComputedStyle(panel).marginTop,
+      plateTopLeftRadius: getComputedStyle(plate).borderStartStartRadius,
+      plateTopRightRadius: getComputedStyle(plate).borderStartEndRadius,
     };
   });
 }
@@ -343,7 +357,7 @@ async function settledRailMaterial(page: Page): Promise<RailMaterial | null> {
 const TRANSPARENT = '0,0,0,0';
 const NO_EDGE = '0px';
 
-test('the rail wears its column material in both collapse states', async ({
+test('the rail wears its column material expanded and fuses with the plate collapsed', async ({
   sidebarLongSessionsWindow: page,
 }) => {
   const shell = page.locator('.appFrame');
@@ -359,16 +373,25 @@ test('the rail wears its column material in both collapse states', async ({
   // the titlebar breadcrumb could not align to the seam it opens at.
   expect(expanded?.railEdge, JSON.stringify(expanded)).toBe(TRANSPARENT);
   expect(expanded?.railEdgeWidth, JSON.stringify(expanded)).toBe(NO_EDGE);
+  // Expanded keeps the floating plate: the 4px top gutter and the 12px top
+  // corners are the design this fusion must not touch.
+  expect(expanded?.plateMarginTop, JSON.stringify(expanded)).toBe('4px');
+  expect(expanded?.plateTopLeftRadius, JSON.stringify(expanded)).toBe('12px');
+  expect(expanded?.plateTopRightRadius, JSON.stringify(expanded)).toBe('12px');
 
   await page.getByRole('button', { name: '收起侧边栏' }).click();
   await expect(shell).toHaveAttribute('data-sidebar-state', 'collapsed');
   const collapsed = await settledRailMaterial(page);
-  // Collapsing is a width change, not a material change: the rail keeps wearing
-  // its column's material, and the column's material has not moved either.
-  expect(collapsed, JSON.stringify({ expanded, collapsed })).toEqual({
-    rail: expanded?.column,
-    column: expanded?.column,
-    railEdge: TRANSPARENT,
-    railEdgeWidth: NO_EDGE,
-  });
+  // Collapsing IS a material change now — deliberately. The traffic-light
+  // cluster is wider than the 48px rail, so the rail puts on the plate's
+  // material and the plate docks flush: one continuous surface where the
+  // lights sit, no seam to straddle. Compare rail against the PLATE, not the
+  // column, and keep the edge assertions — fusion removes a tonal seam, not
+  // the hairline discipline.
+  expect(collapsed?.rail, JSON.stringify({ expanded, collapsed })).toBe(collapsed?.plate);
+  expect(collapsed?.railEdge, JSON.stringify({ expanded, collapsed })).toBe(TRANSPARENT);
+  expect(collapsed?.railEdgeWidth, JSON.stringify({ expanded, collapsed })).toBe(NO_EDGE);
+  expect(collapsed?.plateMarginTop, JSON.stringify({ expanded, collapsed })).toBe('0px');
+  expect(collapsed?.plateTopLeftRadius, JSON.stringify({ expanded, collapsed })).toBe('0px');
+  expect(collapsed?.plateTopRightRadius, JSON.stringify({ expanded, collapsed })).toBe('0px');
 });
