@@ -299,6 +299,18 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       ),
       event_id
     FROM runtime_events;
+
+    CREATE TRIGGER runtime_events_assign_session_ordinal
+    AFTER INSERT ON runtime_events
+    BEGIN
+      INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
+      SELECT
+        NEW.session_id,
+        COALESCE(MAX(ordinal), 0) + 1,
+        NEW.event_id
+      FROM runtime_session_event_ordinals
+      WHERE session_id = NEW.session_id;
+    END;
   `,
   ],
 ]);

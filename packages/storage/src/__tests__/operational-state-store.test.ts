@@ -394,6 +394,7 @@ test('rejects an invalid registered schema version before migrating', async () =
 });
 
 function rewindRuntimeSchema(database: DatabaseSync): void {
+  database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
   database.exec('DROP TABLE runtime_session_event_ordinals');
   database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
 }

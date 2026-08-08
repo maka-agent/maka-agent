@@ -154,6 +154,7 @@ test('an operational opener waits for an in-progress migration turn', async () =
 function rewindRuntimeSchema(databasePath: string): void {
   const database = new DatabaseSync(databasePath);
   try {
+    database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
     database.exec('DROP TABLE runtime_session_event_ordinals');
     database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
     database

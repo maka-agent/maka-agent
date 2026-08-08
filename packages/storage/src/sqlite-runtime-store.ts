@@ -2559,23 +2559,6 @@ export class SqliteRuntimeStore
         encoding.json,
         committedAt,
       );
-    const ordinalRow = this.db
-      .prepare(`
-        SELECT COALESCE(MAX(ordinal), 0) + 1 AS next_ordinal
-        FROM runtime_session_event_ordinals
-        WHERE session_id = ?
-      `)
-      .get(canonicalEvent.sessionId) as { next_ordinal?: unknown };
-    const ordinal = ordinalRow.next_ordinal;
-    if (typeof ordinal !== 'number' || !Number.isSafeInteger(ordinal) || ordinal < 1) {
-      throw new Error(`Invalid next RuntimeEvent Session ordinal for ${canonicalEvent.sessionId}`);
-    }
-    this.db
-      .prepare(`
-        INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
-        VALUES (?, ?, ?)
-      `)
-      .run(canonicalEvent.sessionId, ordinal, canonicalEvent.id);
     this.deleteCompletedPartialSnapshot(canonicalEvent);
     return next;
   }
