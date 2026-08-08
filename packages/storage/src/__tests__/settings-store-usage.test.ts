@@ -36,9 +36,7 @@ describe('SettingsStore.usageStats request logs', () => {
 
       const database = new DatabaseSync(databasePath);
       database
-        .prepare(
-          `UPDATE session_metadata_schema SET version = 21 WHERE scope = 'session_metadata'`,
-        )
+        .prepare(`UPDATE session_metadata_schema SET version = 21 WHERE scope = 'session_metadata'`)
         .run();
       database
         .prepare(
