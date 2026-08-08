@@ -24,6 +24,7 @@ const MIGRATION_WAIT_TIMEOUT_MESSAGE =
   'Timed out waiting for another Maka process to finish opening or upgrading operational state; retry after it completes.';
 
 export interface OperationalStateSchemaLock {
+  readonly identity: { readonly dev: string; readonly ino: string };
   assertCurrentDatabasePath(): void;
   close(): void;
 }
@@ -103,12 +104,16 @@ function tryAcquireOperationalStateSchemaLock(
       closeSync(databaseFd);
       return undefined;
     }
-    assertStableRegularFile(lockFd, lockPath);
+    const lockIdentity = assertStableRegularFile(lockFd, lockPath);
     assertStableRegularFile(databaseFd, canonicalDatabasePath);
     const acquiredLockFd = lockFd;
 
     let closed = false;
     return Object.freeze({
+      identity: Object.freeze({
+        dev: lockIdentity.dev.toString(),
+        ino: lockIdentity.ino.toString(),
+      }),
       assertCurrentDatabasePath: () => {
         if (closed) throw new Error('Operational schema lock is closed');
         assertStableRegularFile(databaseFd, canonicalDatabasePath);
@@ -144,6 +149,16 @@ function resolveOperationalStateLockPath(
   return join(lockDirectory, `${identity}${suffix}.lock`);
 }
 
+export function resolveOperationalStateSchemaLockPath(
+  databasePath: string,
+  role: 'owner' | 'migration-turn',
+): string {
+  const identity = lstatSync(resolve(databasePath), { bigint: true });
+  if (!identity.isFile())
+    throw new Error(`Operational state is not a regular file: ${databasePath}`);
+  return resolveOperationalStateLockPath(identity.dev, identity.ino, role);
+}
+
 function resolveOperationalStateSchemaLockDirectory(): string {
   const accountHome = userInfo().homedir;
   if (!isAbsolute(accountHome)) throw new Error('OS account home must be an absolute path');
@@ -153,10 +168,7 @@ function resolveOperationalStateSchemaLockDirectory(): string {
   if (process.platform === 'win32') {
     return join(accountHome, 'AppData', 'Local', 'Maka', 'operational-schema-locks');
   }
-  const stateHome = process.env.XDG_STATE_HOME;
-  const persistentRoot =
-    stateHome && isAbsolute(stateHome) ? stateHome : join(accountHome, '.local', 'state');
-  return join(persistentRoot, 'maka', 'operational-schema-locks');
+  return join(accountHome, '.local', 'state', 'maka', 'operational-schema-locks');
 }
 
 function assertPrivateDirectory(path: string): void {

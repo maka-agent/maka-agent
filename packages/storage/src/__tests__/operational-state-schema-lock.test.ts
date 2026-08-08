@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { link, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { acquireOperationalStateDatabase } from '../operational-state-store.js';
-import { resolveRootControlNamespace } from '../root-authority.js';
+import { resolveOperationalStateSchemaLockPath } from '../operational-state-schema-lock.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 
 test('a live operational database lease excludes schema migration', async () => {
@@ -43,7 +42,7 @@ test('a live operational database lease excludes schema migration', async () => 
     acquireOperationalStateDatabase(root).close();
     assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION);
   } finally {
-    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await stopChild(holder);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -80,15 +79,16 @@ test('replacing the workspace root cannot detach a live owner from its database 
     );
     assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
   } finally {
-    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await stopChild(holder);
     await rm(root, { recursive: true, force: true });
     await rm(movedRoot, { recursive: true, force: true });
   }
 });
 
-test('clearing runtime-host cache cannot detach a live operational schema owner', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'maka-operational-cache-clear-'));
+test('replacing the active owner lock cannot detach a live operational schema owner', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-replacement-'));
   const databasePath = join(root, 'runtime.sqlite');
+  let movedLockPath: string | undefined;
   let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
@@ -99,13 +99,9 @@ test('clearing runtime-host cache cannot detach a live operational schema owner'
     );
     await waitForReady(holder);
 
-    const identity = await stat(databasePath, { bigint: true });
-    const lockName = `${createHash('sha256')
-      .update(`${identity.dev.toString()}:${identity.ino.toString()}`)
-      .digest('hex')}.lock`;
-    await rm(join(resolveRootControlNamespace(), 'operational-schema-locks', lockName), {
-      force: true,
-    });
+    const lockPath = resolveOperationalStateSchemaLockPath(databasePath, 'owner');
+    movedLockPath = `${lockPath}.${process.pid}.moved`;
+    await rename(lockPath, movedLockPath);
 
     const database = new DatabaseSync(databasePath);
     database.exec('DROP TABLE runtime_session_event_ordinals');
@@ -115,13 +111,59 @@ test('clearing runtime-host cache cannot detach a live operational schema owner'
       .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
     database.close();
 
-    assert.throws(
-      () => acquireOperationalStateDatabase(root),
-      /close other Maka processes before retrying/i,
-    );
+    let unexpectedLease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
+    try {
+      assert.throws(() => {
+        unexpectedLease = acquireOperationalStateDatabase(root);
+      }, /lock authority/i);
+    } finally {
+      unexpectedLease?.close();
+    }
     assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
   } finally {
-    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await stopChild(holder);
+    if (movedLockPath) await rm(movedLockPath, { force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('different XDG state homes cannot split one operational lock domain', {
+  skip: process.platform !== 'linux',
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-xdg-lock-domain-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  let holder: ChildProcess | undefined;
+  try {
+    acquireOperationalStateDatabase(root).close();
+    holder = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      {
+        env: { ...process.env, XDG_STATE_HOME: join(root, 'different-xdg-state') },
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      },
+    );
+    await waitForReady(holder);
+
+    const database = new DatabaseSync(databasePath);
+    database.exec('DROP TABLE runtime_session_event_ordinals');
+    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database.close();
+
+    let unexpectedLease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
+    try {
+      assert.throws(() => {
+        unexpectedLease = acquireOperationalStateDatabase(root);
+      }, /close other Maka processes before retrying/i);
+    } finally {
+      unexpectedLease?.close();
+    }
+    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+  } finally {
+    await stopChild(holder);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -149,7 +191,7 @@ test('an operational opener waits for an in-progress migration turn', async () =
     );
     await waitForExit(holder);
   } finally {
-    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await stopChild(holder);
     await rm(root, { recursive: true, force: true });
   }
 });
@@ -192,4 +234,10 @@ function waitForExit(child: ChildProcess): Promise<void> {
       else reject(new Error(`operational lease holder failed: ${code ?? signal}`));
     });
   });
+}
+
+async function stopChild(child: ChildProcess | undefined): Promise<void> {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  child.kill('SIGKILL');
+  await waitForExit(child).catch(() => {});
 }
