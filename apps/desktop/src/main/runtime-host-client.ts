@@ -15,10 +15,7 @@ import type {
   RuntimePolicy,
   RuntimePolicyMutation,
 } from "@maka/core/runtime-policy";
-import {
-  canonicalPricingConfigsEqual,
-  comparePricingModelKeys,
-} from "@maka/core/usage-stats/pricing";
+import { comparePricingModelKeys } from "@maka/core/usage-stats/pricing";
 import type { PricingConfig } from "@maka/core/usage-stats/types";
 import {
   isSessionTrace,
@@ -95,6 +92,20 @@ import {
   type TurnMessageSubmitInput,
   type TurnMessageSubmitResult,
 } from "@maka/runtime-host/protocol";
+import type {
+  DesktopPricingMutationInput,
+  DesktopPricingMutationOutcome,
+  DesktopPricingSnapshot,
+  PricingReconciliationTarget,
+} from "../shared/runtime-host-pricing.js";
+import { pricingTargetMatchesSnapshot } from "../shared/runtime-host-pricing.js";
+
+export type {
+  DesktopPricingMutationInput,
+  DesktopPricingMutationOutcome,
+  DesktopPricingSettingsPort,
+  DesktopPricingSnapshot,
+} from "../shared/runtime-host-pricing.js";
 
 const MAX_OPTIMISTIC_ATTEMPTS = 3;
 const MAX_PRICING_SNAPSHOT_ATTEMPTS = 3;
@@ -129,52 +140,11 @@ export interface DesktopRuntimeHostSession {
   close(): Promise<void>;
 }
 
-export interface DesktopPricingSnapshot {
-  readonly hostEpoch: string;
-  readonly connectionId: string;
-  readonly revision: number;
-  readonly entries: readonly EffectivePricingEntry[];
-}
-
 export interface DesktopSkillCatalogSnapshot {
   readonly revision: SkillCatalogRevision;
   readonly view: SkillCatalogView;
   readonly items: readonly SkillCatalogPageItem[];
 }
-
-export interface DesktopPricingMutationInput {
-  readonly base: DesktopPricingSnapshot;
-  readonly mutation: PricingMutation;
-}
-
-export type DesktopPricingMutationOutcome =
-  | {
-      readonly kind: "saved";
-      readonly disposition: "committed" | "unchanged";
-      readonly snapshot: DesktopPricingSnapshot;
-    }
-  | {
-      readonly kind: "saved_refresh_failed";
-      readonly disposition: "committed" | "unchanged";
-    }
-  | {
-      readonly kind: "synchronized" | "review_required";
-      readonly reason: "revision_conflict" | "outcome_unknown";
-      readonly snapshot: DesktopPricingSnapshot;
-    }
-  | {
-      readonly kind: "reconciliation_unavailable";
-      readonly reason: "revision_conflict" | "outcome_unknown";
-    };
-
-type PricingReconciliationTarget =
-  | { readonly kind: "upsert"; readonly pricing: Readonly<PricingConfig> }
-  | {
-      readonly kind: "delete";
-      readonly modelKey: string;
-      readonly expected: "builtin" | "unpriced" | "no_override";
-    };
-
 export class DesktopRuntimeHostClient {
   readonly #sessions = new Set<DesktopSessionHandle>();
   #closeTask: Promise<void> | undefined;
@@ -1576,33 +1546,6 @@ function createPricingReconciliationTarget(
         : "unpriced"
       : "no_override";
   return { kind: "delete", modelKey: mutation.modelKey, expected };
-}
-
-function pricingTargetMatchesSnapshot(
-  target: PricingReconciliationTarget,
-  snapshot: DesktopPricingSnapshot,
-): boolean {
-  const current = snapshot.entries.find(
-    ({ pricing }) => pricing.modelKey === pricingTargetModelKey(target),
-  );
-  if (target.kind === "upsert") {
-    return (
-      current?.source === "custom" &&
-      canonicalPricingConfigsEqual(current.pricing, target.pricing)
-    );
-  }
-  switch (target.expected) {
-    case "builtin":
-      return current?.source === "builtin";
-    case "unpriced":
-      return current === undefined;
-    case "no_override":
-      return current === undefined || current.source === "builtin";
-  }
-}
-
-function pricingTargetModelKey(target: PricingReconciliationTarget): string {
-  return target.kind === "upsert" ? target.pricing.modelKey : target.modelKey;
 }
 
 function pricingEntriesAreCanonical(
