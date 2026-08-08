@@ -190,11 +190,6 @@ function openOperationalStateDatabase(
   now: () => number,
 ): { database: DatabaseSync; schemaLock: OperationalStateSchemaLock } {
   mkdirSync(dirname(databasePath), { recursive: true });
-  if (existsSync(databasePath)) {
-    const opened = openCurrentOperationalStateDatabase(databasePath);
-    if (opened) return opened;
-  }
-
   const migrationTurn = waitForOperationalStateMigrationTurn(databasePath);
   try {
     const current = openCurrentOperationalStateDatabase(databasePath);
