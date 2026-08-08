@@ -272,11 +272,12 @@ export function reconcileConnectionAfterModelFetch(
     typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '',
     live,
   );
-  // Every downstream use funnels through connectionEnabledModelIds, which
-  // dedupes — so mapping two ids onto one alias here is safe.
-  const previousEnabled = connectionEnabledModelIds(connection).map((id) =>
-    supersededModelId(id, live),
-  );
+  // Dedupe after mapping, not before: a connection holding both forms of one
+  // model collapses onto a single id here, and one of the returns below hands
+  // this list straight back without passing it through connectionEnabledModelIds.
+  const previousEnabled = [
+    ...new Set(connectionEnabledModelIds(connection).map((id) => supersededModelId(id, live))),
+  ];
 
   if (liveIds.length === 0) {
     const defaultModel = previousDefault;

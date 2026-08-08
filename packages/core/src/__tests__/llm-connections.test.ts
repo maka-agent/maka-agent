@@ -250,6 +250,20 @@ test('a superseded model id migrates to the inventory that still offers it', () 
     ),
     { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
   );
+  // Same collapse with no default set. This return hands its list back without
+  // the dedupe every other path inherits from connectionEnabledModelIds, so it
+  // needs its own coverage.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: '',
+        enabledModelIds: ['claude-haiku-4-5', 'claude-haiku-4-5-20251001'],
+        hasModelInventory: true,
+      },
+      [{ id: 'claude-haiku-4-5' }, { id: 'claude-opus-5' }],
+    ),
+    { defaultModel: '', enabledModelIds: ['claude-haiku-4-5'] },
+  );
   // An id the alias table does not claim is still repaired against the live
   // list — retirement and renaming must not be conflated.
   assert.deepEqual(
