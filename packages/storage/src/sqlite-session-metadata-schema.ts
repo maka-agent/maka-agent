@@ -848,6 +848,20 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
           messages.session_id = session_metadata.session_id
           AND messages.message_type = 'user'
       );
+
+    CREATE TRIGGER session_messages_lock_connection
+    AFTER INSERT ON session_messages
+    WHEN NEW.message_type = 'user'
+    BEGIN
+      UPDATE session_metadata
+      SET
+        payload_json = json_set(payload_json, '$.connectionLocked', json('true')),
+        metadata_version = metadata_version + 1,
+        committed_at = MAX(committed_at, NEW.message_ts)
+      WHERE
+        session_id = NEW.session_id
+        AND json_extract(payload_json, '$.connectionLocked') = 0;
+    END;
   `,
   ],
 ]);
