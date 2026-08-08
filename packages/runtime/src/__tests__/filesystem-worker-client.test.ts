@@ -135,6 +135,42 @@ describe('filesystem worker client permission snapshots', () => {
     assert.equal(requests.length, 0);
   });
 
+  test('preflights every ApplyPatch mutation before launching a worker', async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-patch-workspace-');
+    const outside = await temporaryDirectory('maka-worker-client-patch-outside-');
+    const first = join(outside, 'first.txt');
+    const second = join(outside, 'second.txt');
+    await writeFile(first, 'first', 'utf8');
+    await writeFile(second, 'second', 'utf8');
+    const { client, requests } = fakeClient();
+
+    await assert.rejects(
+      client.preflightApplyPatchWrites({
+        intents: [
+          { path: first, access: 'write' },
+          { path: second, access: 'delete' },
+        ],
+        cwd: workspace,
+        executionBoundary: createManagedExecutionBoundary(createReadOnlyPermissionProfile(), 1),
+        mode: 'ask',
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof FilesystemWorkerClientError);
+        assert.equal(error.reason, 'sandbox_boundary_required');
+        assert.deepEqual(error.requiredExpansion, {
+          filesystem: {
+            entries: [
+              { path: first, access: 'write', scope: 'exact' },
+              { path: second, access: 'write', scope: 'exact' },
+            ],
+          },
+        });
+        return true;
+      },
+    );
+    assert.equal(requests.length, 0);
+  });
+
   test('rejects a workspace write under an explicit read-only profile', async () => {
     const workspace = await temporaryDirectory('maka-worker-client-read-only-');
     const { client, requests } = fakeClient();

@@ -61,6 +61,11 @@ export interface FilesystemWorkerExecuteInput {
   abortSignal?: AbortSignal;
 }
 
+export interface FilesystemWorkerPatchPreflightInput
+  extends Omit<FilesystemWorkerExecuteInput, 'operation'> {
+  intents: readonly { access: 'write' | 'delete'; path: string }[];
+}
+
 export type FilesystemWorkerClientErrorReason =
   | 'invalid_operation'
   | 'invalid_request'
@@ -124,6 +129,75 @@ export class FilesystemWorkerClient {
     this.runProcess = input.runProcess ?? runFilesystemWorkerProcess;
     this.newId = input.newId ?? randomUUID;
     this.timeoutMs = input.timeoutMs ?? FILESYSTEM_WORKER_DEFAULT_TIMEOUT_MS;
+  }
+
+  async preflightApplyPatchWrites(input: FilesystemWorkerPatchPreflightInput): Promise<void> {
+    const requestId = this.newId();
+    const canonicalCwd = await realpath(input.cwd).catch(() => {
+      throw clientError(
+        'invalid_operation',
+        'validation',
+        requestId,
+        'Session cwd is unavailable.',
+      );
+    });
+    const compiled =
+      input.executionBoundary?.kind === 'managed'
+        ? { profile: input.executionBoundary.profile, workspaceRoots: [canonicalCwd] }
+        : input.permissionProfile
+          ? { profile: input.permissionProfile, workspaceRoots: [canonicalCwd] }
+          : compilePermissionProfile({ mode: input.mode ?? 'ask', cwd: canonicalCwd });
+    const platform = this.input.platform ?? process.platform;
+    const basePathContext = {
+      workspaceRoots: compiled.workspaceRoots,
+      tmpdir: await canonicalPath(tmpdir()),
+      slashTmp: await canonicalPath('/tmp'),
+    };
+    const denied = new Map<string, { path: string; access: 'write'; scope: 'exact' }>();
+    for (const intent of input.intents) {
+      const entryMode = intent.access === 'delete';
+      const target = await (entryMode
+        ? normalizeDirectoryEntryTarget({ path: intent.path, access: 'write', cwd: canonicalCwd })
+        : normalizeSandboxBoundaryPath({
+            path: intent.path,
+            access: 'write',
+            scope: 'exact',
+            cwd: canonicalCwd,
+          })
+      ).catch(() => {
+        throw clientError('invalid_operation', 'validation', requestId);
+      });
+      const runtimeWritableRoots = filesystemWorkerRuntimeWritableRoots({
+        platform,
+        access: 'write',
+        enforcementPath: target.enforcementPath,
+        targetType: target.targetType,
+        entryMode,
+      });
+      if (
+        !canWritePath(compiled.profile, target.enforcementPath, {
+          ...basePathContext,
+          ...(runtimeWritableRoots ? { runtimeWritableRoots } : {}),
+        })
+      ) {
+        denied.set(target.enforcementPath, {
+          path: target.enforcementPath,
+          access: 'write',
+          scope: 'exact',
+        });
+      }
+    }
+    if (denied.size === 0) return;
+    throw clientError(
+      input.executionBoundary?.kind === 'managed' ? 'sandbox_boundary_required' : 'path_denied',
+      'validation',
+      requestId,
+      undefined,
+      true,
+      input.executionBoundary?.kind === 'managed'
+        ? { requiredExpansion: { filesystem: { entries: [...denied.values()] } } }
+        : {},
+    );
   }
 
   async execute(input: FilesystemWorkerExecuteInput): Promise<FilesystemWorkerResult> {

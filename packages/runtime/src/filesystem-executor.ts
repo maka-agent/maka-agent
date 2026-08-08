@@ -14,6 +14,11 @@ import { randomUUID } from 'node:crypto';
 import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import type { ExecutionBoundary, PermissionMode, PermissionProfile } from '@maka/core';
+import {
+  executeApplyPatchWithAdapter,
+  type ApplyPatchEngineResult,
+  type ApplyPatchFsAdapter,
+} from './apply-patch-engine.js';
 import { computeEditedSource } from './edit-replace.js';
 import { createUnifiedDiff } from './unified-diff.js';
 import { withFileWriteLock } from './file-write-lock.js';
@@ -58,6 +63,14 @@ export interface FilesystemExecuteInput {
   abortSignal?: AbortSignal;
 }
 
+export interface FilesystemApplyPatchInput {
+  patch: string;
+  cwd: string;
+  executionBoundary?: ExecutionBoundary;
+  permissionMode?: PermissionMode;
+  abortSignal?: AbortSignal;
+}
+
 export interface FilesystemExecutor {
   /**
    * Run one operation under the authority of the boundary it carries. A mutating
@@ -65,6 +78,7 @@ export interface FilesystemExecutor {
    * no caller has to know that a lock exists or how its key is spelled.
    */
   execute(input: FilesystemExecuteInput): Promise<FilesystemResult>;
+  applyPatch(input: FilesystemApplyPatchInput): Promise<ApplyPatchEngineResult>;
 }
 
 /** The workspace primitives the host-local backend drives. */
@@ -74,7 +88,8 @@ export type FilesystemWorkspaceExecutor = WorkspaceWriteExecutor &
 
 export interface BoundaryFilesystemExecutorInput {
   workspace: FilesystemWorkspaceExecutor;
-  worker?: Pick<FilesystemWorkerClient, 'execute'>;
+  worker?: Pick<FilesystemWorkerClient, 'execute'> &
+    Partial<Pick<FilesystemWorkerClient, 'preflightApplyPatchWrites'>>;
   /** Explicit embedding policy handed to the worker instead of a mode default. */
   permissionProfile?: PermissionProfile;
 }
@@ -124,7 +139,10 @@ export function createBoundaryFilesystemExecutor(
   /** The worker that owns this boundary, or undefined when the workspace backend does. */
   const workerFor = (
     boundary: ExecutionBoundary | undefined,
-  ): Pick<FilesystemWorkerClient, 'execute'> | undefined => {
+  ):
+    | (Pick<FilesystemWorkerClient, 'execute'> &
+        Partial<Pick<FilesystemWorkerClient, 'preflightApplyPatchWrites'>>)
+    | undefined => {
     if (boundary?.kind === 'bypass' || boundary?.kind === 'external') return undefined;
     if (input.worker) return input.worker;
     if (boundary?.kind !== 'managed') return undefined;
@@ -163,6 +181,18 @@ export function createBoundaryFilesystemExecutor(
     }
     return result;
   }
+  async function directoryEntryLockKey(
+    path: string,
+    call: Omit<FilesystemApplyPatchInput, 'patch'>,
+  ): Promise<string> {
+    const worker = workerFor(call.executionBoundary);
+    return await resolveDirectoryEntryPath({
+      cwd: worker ? await canonicalExistingPath(call.cwd) : call.cwd,
+      path,
+      label: 'ApplyPatch lock',
+      scope: worker ? 'host' : pathScopeForBoundary(call.executionBoundary),
+    });
+  }
   return {
     async execute(call) {
       if (!mutates(call.operation)) return await run(call);
@@ -196,6 +226,66 @@ export function createBoundaryFilesystemExecutor(
             })
           : (await input.workspace.writeLockKey({ cwd: call.cwd, path: call.operation.path })).key;
       return await withFileWriteLock(key, () => run(call));
+    },
+    async applyPatch(call) {
+      const common = {
+        cwd: call.cwd,
+        ...(call.executionBoundary ? { executionBoundary: call.executionBoundary } : {}),
+        ...(call.permissionMode ? { permissionMode: call.permissionMode } : {}),
+        ...(call.abortSignal ? { abortSignal: call.abortSignal } : {}),
+      };
+      const adapter: ApplyPatchFsAdapter = {
+        lockKey: async (path) => await directoryEntryLockKey(path, common),
+        preflightPermissions: async (intents) => {
+          const worker = workerFor(call.executionBoundary);
+          if (!worker) return;
+          if (!worker.preflightApplyPatchWrites) {
+            throw new Error('Managed ApplyPatch preflight is unavailable.');
+          }
+          await worker.preflightApplyPatchWrites({
+            cwd: await canonicalExistingPath(call.cwd),
+            intents,
+            ...(call.executionBoundary ? { executionBoundary: call.executionBoundary } : {}),
+            mode: call.permissionMode ?? 'ask',
+            ...(input.permissionProfile ? { permissionProfile: input.permissionProfile } : {}),
+            ...(call.abortSignal ? { abortSignal: call.abortSignal } : {}),
+          });
+        },
+        snapshot: async (path) => {
+          const inspected = await run({ operation: { kind: 'lstat', path }, ...common });
+          if (inspected.kind !== 'lstat') throw new Error('ApplyPatch lstat result mismatch');
+          if (inspected.targetType !== 'file') {
+            return {
+              state: {
+                kind: inspected.targetType === 'directory' ? 'other' : inspected.targetType,
+              },
+              token: inspected.token,
+            };
+          }
+          const read = await run({ operation: { kind: 'read', path }, ...common });
+          if (read.kind !== 'read') throw new Error('ApplyPatch only supports UTF-8 text files');
+          return { state: { kind: 'file', content: read.content }, token: inspected.token };
+        },
+        writeText: async (path, content, mode, expectedToken) => {
+          const written = await run({
+            operation: { kind: 'write', path, content, mode, expectedToken },
+            ...common,
+          });
+          if (written.kind !== 'write' || !written.token) {
+            throw new Error('ApplyPatch write result mismatch');
+          }
+          return { path: written.path, bytes: written.bytes, token: written.token };
+        },
+        deletePath: async (path, expectedToken) => {
+          const deleted = await run({
+            operation: { kind: 'delete', path, expectedToken },
+            ...common,
+          });
+          if (deleted.kind !== 'delete') throw new Error('ApplyPatch delete result mismatch');
+          return { path: deleted.path };
+        },
+      };
+      return await executeApplyPatchWithAdapter(call.patch, adapter, withFileWriteLock);
     },
   };
 }
