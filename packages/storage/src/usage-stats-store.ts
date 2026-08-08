@@ -122,34 +122,30 @@ export async function readUsageStats(
 async function readStoredSessions(
   workspaceRoot: string,
 ): Promise<Array<{ header: UsageSessionHeader; messages: UsageMessage[] }>> {
+  const databaseLease = acquireOperationalStateDatabase(workspaceRoot);
+  const metadata = createSqliteSessionMetadataStore(
+    join(workspaceRoot, OPERATIONAL_STATE_DATABASE_NAME),
+    { databaseLease },
+  );
   try {
-    const databaseLease = acquireOperationalStateDatabase(workspaceRoot);
-    const metadata = createSqliteSessionMetadataStore(
-      join(workspaceRoot, OPERATIONAL_STATE_DATABASE_NAME),
-      { databaseLease },
-    );
-    try {
-      const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
-      for (const { header } of await metadata.list()) {
-        const messages = (await metadata.readMessages(header.id)).flatMap((value) => {
-          const message = normalizeUsageMessage(value);
-          return message ? [message] : [];
-        });
-        sessions.push({
-          header: {
-            id: header.id,
-            llmConnectionSlug: header.llmConnectionSlug,
-            model: header.model,
-          },
-          messages,
-        });
-      }
-      return sessions;
-    } finally {
-      metadata.close();
+    const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
+    for (const { header } of await metadata.list()) {
+      const messages = (await metadata.readMessages(header.id)).flatMap((value) => {
+        const message = normalizeUsageMessage(value);
+        return message ? [message] : [];
+      });
+      sessions.push({
+        header: {
+          id: header.id,
+          llmConnectionSlug: header.llmConnectionSlug,
+          model: header.model,
+        },
+        messages,
+      });
     }
-  } catch {
-    return [];
+    return sessions;
+  } finally {
+    metadata.close();
   }
 }
 

@@ -46,7 +46,10 @@ describe('SettingsStore.usageStats request logs', () => {
         .run();
       database.close();
 
-      await createSettingsStore(workspaceRoot).usageStats('all');
+      await assert.rejects(
+        () => createSettingsStore(workspaceRoot).usageStats('all'),
+        /Operational schema future_scope is unknown to this Maka build/,
+      );
 
       const preserved = new DatabaseSync(databasePath, { readOnly: true });
       try {
