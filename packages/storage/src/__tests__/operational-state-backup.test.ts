@@ -8,10 +8,13 @@ import { test } from 'node:test';
 import { createSqliteArtifactStore } from '../artifact-store.js';
 import { SQLITE_CORE_EXECUTION_SCHEMA_VERSION } from '../sqlite-core-execution-schema.js';
 import { createProjectCatalog } from '../project-catalog.js';
+import { resolveStorageRoot, type StorageRootKind } from '../root-authority.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
+import { createSqliteRuntimeStore } from '../sqlite-runtime-store.js';
 import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from '../sqlite-session-metadata-schema.js';
 import { createSessionStore } from '../session-store.js';
 import { SQLITE_WORKFLOW_SCHEMA_VERSION } from '../sqlite-workflow-schema.js';
+import { bindWorkspaceBaselineAuthorityStoreRootInternal } from '../workspace-version-authority-internal.js';
 import {
   createOperationalStateBackup,
   OPERATIONAL_BACKUP_MANIFEST_FILE,
@@ -28,6 +31,10 @@ test('backs up and restores runtime.sqlite plus artifact bytes', async () => {
   const restoreRoot = join(base, 'restore');
   const projectPath = join(base, 'project');
   await mkdir(projectPath);
+  const sourceCapability = await resolveStorageRoot({ path: stateRoot, kind: 'headless' });
+  const sourceRuntime = createSqliteRuntimeStore(join(stateRoot, 'runtime.sqlite'));
+  bindWorkspaceBaselineAuthorityStoreRootInternal(sourceRuntime, sourceCapability.rootId);
+  sourceRuntime.close();
   const sessions = createSessionStore(stateRoot);
   try {
     // The project catalog decides how every session is grouped, and its name,
@@ -72,7 +79,14 @@ test('backs up and restores runtime.sqlite plus artifact bytes', async () => {
 
     await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot, now: () => 10 });
     assert.equal((await validateOperationalStateBackup(backupRoot)).createdAt, 10);
-    await restoreOperationalStateBackup({ backupRoot, destinationRoot: restoreRoot });
+    await restoreOperationalStateBackup({
+      backupRoot,
+      destinationRoot: restoreRoot,
+      kind: 'headless',
+    });
+
+    const restoredCapability = await assertRestoredRootBinding(restoreRoot, 'headless');
+    assert.notEqual(restoredCapability.rootId, sourceCapability.rootId);
 
     const restored = createSessionStore(restoreRoot);
     const restoredCatalog = createProjectCatalog(restoreRoot);
@@ -134,7 +148,12 @@ test('restores a v0.1.6 backup as current operational state', async () => {
     await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
     await rewriteAsV016OperationalBackup(backupRoot);
 
-    await restoreOperationalStateBackup({ backupRoot, destinationRoot: restoreRoot });
+    await restoreOperationalStateBackup({
+      backupRoot,
+      destinationRoot: restoreRoot,
+      kind: 'interactive',
+    });
+    await assertRestoredRootBinding(restoreRoot, 'interactive');
 
     assert.deepEqual(readSchemaVersions(join(restoreRoot, 'runtime.sqlite')), {
       runtime: SQLITE_RUNTIME_SCHEMA_VERSION,
@@ -272,6 +291,19 @@ async function refreshDatabaseInventory(backupRoot: string): Promise<void> {
       : file,
   );
   await writeFile(manifestPath, `${JSON.stringify({ ...manifest, files }, null, 2)}\n`);
+}
+
+async function assertRestoredRootBinding(root: string, kind: StorageRootKind) {
+  const capability = await resolveStorageRoot({ path: root, kind });
+  const runtime = createSqliteRuntimeStore(join(root, 'runtime.sqlite'));
+  try {
+    assert.doesNotThrow(() =>
+      bindWorkspaceBaselineAuthorityStoreRootInternal(runtime, capability.rootId),
+    );
+  } finally {
+    runtime.close();
+  }
+  return capability;
 }
 
 function readSchemaVersions(databasePath: string): {

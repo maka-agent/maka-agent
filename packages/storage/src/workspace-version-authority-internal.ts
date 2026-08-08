@@ -7,12 +7,18 @@ import { lstatSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { basename, dirname, join, normalize, resolve } from 'node:path';
 import { OPERATIONAL_STATE_DATABASE_NAME } from './operational-state-store.js';
+import {
+  assertStorageRootCapability,
+  type StorageRootCapability,
+  type StorageRootKind,
+} from './root-authority.js';
 
 type WorkspaceBaselineAuthorityWriter = (
   input: WorkspaceBaselineAuthorityInput,
   rootId: string,
 ) => Promise<WorkspaceBaselineCommitResult>;
 type WorkspaceStorageRootBinder = (rootId: string) => void;
+type RestoredWorkspaceStorageRootAdopter = (rootId: string) => void;
 type WorkspaceHeadReader = (
   workspaceId: string,
   workspaceEpochId: string,
@@ -22,6 +28,7 @@ interface WorkspaceBaselineAuthorityRegistration {
   readonly writer: WorkspaceBaselineAuthorityWriter;
   readonly readHead: WorkspaceHeadReader;
   readonly bindStorageRoot: WorkspaceStorageRootBinder;
+  readonly adoptRestoredStorageRoot: RestoredWorkspaceStorageRootAdopter;
   readonly databasePath: string;
   readonly databaseFileIdentity?: string;
   boundRootId?: string;
@@ -37,6 +44,7 @@ export function registerWorkspaceBaselineAuthorityWriterInternal(
   databasePath: string,
   writer: WorkspaceBaselineAuthorityWriter,
   bindStorageRoot: WorkspaceStorageRootBinder,
+  adoptRestoredStorageRoot: RestoredWorkspaceStorageRootAdopter,
   readHead: WorkspaceHeadReader,
 ): void {
   if (workspaceBaselineAuthorityWriters.has(store)) {
@@ -47,9 +55,22 @@ export function registerWorkspaceBaselineAuthorityWriterInternal(
     writer,
     readHead,
     bindStorageRoot,
+    adoptRestoredStorageRoot,
     databasePath: resolvedDatabasePath,
     databaseFileIdentity: captureRegularFileIdentity(resolvedDatabasePath),
   });
+}
+
+export async function adoptRestoredWorkspaceAuthorityRootInternal<K extends StorageRootKind>(
+  store: object,
+  capability: StorageRootCapability<K>,
+): Promise<void> {
+  await assertStorageRootCapability(capability, capability.kind);
+  await assertWorkspaceBaselineAuthorityStoreRootInternal(store, capability.canonicalPath);
+  const registration = workspaceBaselineAuthorityWriters.get(store);
+  if (!registration) throw new Error('Workspace baseline authority writer is unavailable');
+  registration.adoptRestoredStorageRoot(capability.rootId);
+  registration.boundRootId = capability.rootId;
 }
 
 export function readWorkspaceHeadInternal(

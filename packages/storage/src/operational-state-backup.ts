@@ -18,6 +18,13 @@ import { decodeArtifactRecordJsons } from './artifact-metadata-codec.js';
 import { withArtifactWriterLock } from './artifact-writer-lock.js';
 import { decodeStoredMessageForRecovery } from './execution-record-codec.js';
 import {
+  resolveExistingStorageRoot,
+  resolveStorageRoot,
+  type StorageRootKind,
+} from './root-authority.js';
+import { createSqliteRuntimeStore } from './sqlite-runtime-store.js';
+import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version-authority-internal.js';
+import {
   acquireOperationalStateDatabase,
   inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
@@ -69,6 +76,7 @@ export interface CreateOperationalBackupInput {
 export interface RestoreOperationalBackupInput {
   readonly backupRoot: string;
   readonly destinationRoot: string;
+  readonly kind: StorageRootKind;
 }
 
 export async function createOperationalStateBackup(
@@ -162,6 +170,7 @@ export async function restoreOperationalStateBackup(
   await assertMissing(destinationRoot, 'restore destination');
   const manifest = await validateOperationalStateBackup(backupRoot);
   const stagingRoot = `${destinationRoot}.${process.pid}.${randomUUID()}.tmp`;
+  let published = false;
   try {
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
     for (const file of manifest.files) {
@@ -179,6 +188,17 @@ export async function restoreOperationalStateBackup(
     }
     const databasePath = resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME);
     migrateOperationalStateDatabaseCopy(databasePath);
+    const destinationCapability = await resolveStorageRoot({
+      path: stagingRoot,
+      kind: input.kind,
+    });
+    const databaseLease = acquireOperationalStateDatabase(stagingRoot);
+    const runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
+    try {
+      await adoptRestoredWorkspaceAuthorityRootInternal(runtimeStore, destinationCapability);
+    } finally {
+      runtimeStore.close();
+    }
     normalizeStandaloneSqliteSnapshot(databasePath);
     await chmod(databasePath, 0o600);
     await syncFile(databasePath);
@@ -186,10 +206,18 @@ export async function restoreOperationalStateBackup(
     await syncDirectoryChain(stagingRoot, stagingRoot);
     await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
+    published = true;
+    await resolveExistingStorageRoot({
+      path: destinationRoot,
+      kind: input.kind,
+      expectedRootId: destinationCapability.rootId,
+    });
     await syncDirectory(dirname(destinationRoot));
     return manifest;
   } catch (error) {
-    await rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
+    await rm(published ? destinationRoot : stagingRoot, { recursive: true, force: true }).catch(
+      () => {},
+    );
     throw error;
   }
 }

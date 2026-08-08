@@ -1024,8 +1024,24 @@ export class SqliteRuntimeStore
       databasePath,
       (input, rootId) => this.#commitWorkspaceBaseline(input, rootId),
       (rootId) => this.#bindWorkspaceStorageRoot(rootId),
+      (rootId) => this.#adoptRestoredWorkspaceStorageRoot(rootId),
       readWorkspaceHead,
     );
+  }
+
+  #adoptRestoredWorkspaceStorageRoot(rootId: string): void {
+    this.transaction(() => {
+      this.db
+        .prepare(`
+          INSERT INTO runtime_storage_root_binding(singleton, root_id, protocol_version)
+          VALUES (1, ?, 1)
+          ON CONFLICT(singleton) DO UPDATE SET
+            root_id = excluded.root_id,
+            protocol_version = excluded.protocol_version
+        `)
+        .run(rootId);
+      this.#assertWorkspaceStorageRootBinding(rootId);
+    });
   }
 
   #bindWorkspaceStorageRoot(rootId: string): void {
