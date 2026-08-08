@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
-import { link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { link, mkdir, mkdtemp, rename, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { acquireOperationalStateDatabase } from '../operational-state-store.js';
+import { resolveRootControlNamespace } from '../root-authority.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 
 test('a live operational database lease excludes schema migration', async () => {
@@ -81,6 +83,46 @@ test('replacing the workspace root cannot detach a live owner from its database 
     if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
     await rm(root, { recursive: true, force: true });
     await rm(movedRoot, { recursive: true, force: true });
+  }
+});
+
+test('clearing runtime-host cache cannot detach a live operational schema owner', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-cache-clear-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  let holder: ChildProcess | undefined;
+  try {
+    acquireOperationalStateDatabase(root).close();
+    holder = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    await waitForReady(holder);
+
+    const identity = await stat(databasePath, { bigint: true });
+    const lockName = `${createHash('sha256')
+      .update(`${identity.dev.toString()}:${identity.ino.toString()}`)
+      .digest('hex')}.lock`;
+    await rm(join(resolveRootControlNamespace(), 'operational-schema-locks', lockName), {
+      force: true,
+    });
+
+    const database = new DatabaseSync(databasePath);
+    database.exec('DROP TABLE runtime_session_event_ordinals');
+    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /close other Maka processes before retrying/i,
+    );
+    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+  } finally {
+    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await rm(root, { recursive: true, force: true });
   }
 });
 

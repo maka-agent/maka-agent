@@ -11,11 +11,10 @@ import {
   mkdirSync,
   openSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { userInfo } from 'node:os';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { tryLock, unlock } from 'fs-native-extensions';
-import { resolveRootControlNamespace } from './root-authority.js';
 
-const OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY = 'operational-schema-locks';
 const OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS = 60_000;
 const OPERATIONAL_STATE_SCHEMA_LOCK_RETRY_MS = 25;
 const schemaLockRetryGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
@@ -137,15 +136,27 @@ function resolveOperationalStateLockPath(
   ino: bigint,
   role: 'owner' | 'migration-turn',
 ): string {
-  const controlRoot = resolve(resolveRootControlNamespace());
-  const lockDirectory = join(controlRoot, OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY);
-  mkdirSync(controlRoot, { recursive: true, mode: 0o700 });
+  const lockDirectory = resolveOperationalStateSchemaLockDirectory();
   mkdirSync(lockDirectory, { recursive: true, mode: 0o700 });
-  assertPrivateDirectory(controlRoot);
   assertPrivateDirectory(lockDirectory);
   const identity = createHash('sha256').update(`${dev.toString()}:${ino.toString()}`).digest('hex');
   const suffix = role === 'owner' ? '' : '.migration-turn';
   return join(lockDirectory, `${identity}${suffix}.lock`);
+}
+
+function resolveOperationalStateSchemaLockDirectory(): string {
+  const accountHome = userInfo().homedir;
+  if (!isAbsolute(accountHome)) throw new Error('OS account home must be an absolute path');
+  if (process.platform === 'darwin') {
+    return join(accountHome, 'Library', 'Application Support', 'Maka', 'operational-schema-locks');
+  }
+  if (process.platform === 'win32') {
+    return join(accountHome, 'AppData', 'Local', 'Maka', 'operational-schema-locks');
+  }
+  const stateHome = process.env.XDG_STATE_HOME;
+  const persistentRoot =
+    stateHome && isAbsolute(stateHome) ? stateHome : join(accountHome, '.local', 'state');
+  return join(persistentRoot, 'maka', 'operational-schema-locks');
 }
 
 function assertPrivateDirectory(path: string): void {
