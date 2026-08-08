@@ -64,6 +64,7 @@ import {
   RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY_VERSION,
   RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY,
   RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY_VERSION,
+  RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY,
   SQLITE_RUNTIME_SCHEMA_VERSION,
 } from './sqlite-runtime-schema.js';
 import { registerWorkspaceBaselineAuthorityWriterInternal } from './workspace-version-authority-internal.js';
@@ -1040,6 +1041,7 @@ export class SqliteRuntimeStore
             protocol_version = excluded.protocol_version
         `)
         .run(rootId);
+      this.#consumeLegacyRootAdoption();
       this.#assertWorkspaceStorageRootBinding(rootId);
     });
   }
@@ -1055,7 +1057,8 @@ export class SqliteRuntimeStore
         }
         return;
       }
-      if (this.#databaseHasLogicalStateBeforeRootBinding()) {
+      const legacyAdoption = this.#hasLegacyRootAdoption();
+      if (!legacyAdoption && this.#databaseHasLogicalStateBeforeRootBinding()) {
         throw new Error('Unbound operational data require explicit storage-root adoption');
       }
       this.db
@@ -1064,7 +1067,24 @@ export class SqliteRuntimeStore
           VALUES (1, ?, 1)
         `)
         .run(rootId);
+      this.#consumeLegacyRootAdoption();
     });
+  }
+
+  #hasLegacyRootAdoption(): boolean {
+    const row = this.db
+      .prepare('SELECT version FROM runtime_capabilities WHERE capability = ?')
+      .get(RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY) as { version?: unknown } | undefined;
+    if (row && row.version !== 1) {
+      throw new Error('Legacy storage-root adoption authority is invalid');
+    }
+    return row !== undefined;
+  }
+
+  #consumeLegacyRootAdoption(): void {
+    this.db
+      .prepare('DELETE FROM runtime_capabilities WHERE capability = ?')
+      .run(RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY);
   }
 
   #assertWorkspaceStorageRootBinding(rootId: string): void {

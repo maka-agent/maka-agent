@@ -7,6 +7,7 @@ export const RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY = 'runtime_continuation_a
 export const RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY_VERSION = 1;
 export const RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY = 'runtime_workspace_version_authority';
 export const RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY_VERSION = 1;
+export const RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY = 'runtime_legacy_root_adoption';
 const SQLITE_INITIALIZATION_BUSY_TIMEOUT_MS = 5_000;
 const SQLITE_INITIALIZATION_RETRY_DELAY_MS = 10;
 const initializationRetryGate = new Int32Array(new SharedArrayBuffer(4));
@@ -378,6 +379,13 @@ export function migrateSqliteRuntimeDatabase(
       if (!sql) throw new Error(`Missing SQLite runtime migration ${version}`);
       db.exec(sql);
       db.exec(`PRAGMA user_version = ${version}`);
+    }
+    if (current > 0 && current < 9) {
+      db.prepare(`
+        INSERT INTO runtime_capabilities(capability, version)
+        VALUES (?, 1)
+        ON CONFLICT(capability) DO NOTHING
+      `).run(RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY);
     }
     if (ownsTransaction) db.exec('COMMIT');
   } catch (error) {
