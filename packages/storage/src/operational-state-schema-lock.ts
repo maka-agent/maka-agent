@@ -232,10 +232,13 @@ function canonicalizeProspectiveDatabasePath(databasePath: string): string {
     missingSegments.unshift(basename(ancestorPath));
     ancestorPath = parentPath;
   }
-  if (!lstatSync(ancestorPath).isDirectory()) {
-    throw new Error(`Operational state publication ancestor is not a directory: ${ancestorPath}`);
+  const canonicalAncestorPath = realpathSync(ancestorPath);
+  if (!lstatSync(canonicalAncestorPath).isDirectory()) {
+    throw new Error(
+      `Operational state publication ancestor is not a directory: ${canonicalAncestorPath}`,
+    );
   }
-  return join(realpathSync(ancestorPath), ...missingSegments);
+  return join(canonicalAncestorPath, ...missingSegments);
 }
 
 function resolveOperationalStateSchemaLockDirectory(): string {
