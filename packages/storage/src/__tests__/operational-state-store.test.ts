@@ -217,6 +217,48 @@ test('rejects current operational state with a changed required trigger', async 
   }
 });
 
+test('rolls back migration when an older schema occupies a reserved trigger name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-reserved-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      DROP TRIGGER workflow_quote_cleanup_fill_record;
+      CREATE TRIGGER workflow_quote_cleanup_fill_record
+      AFTER INSERT ON workflow_quote_companion_cleanup
+      BEGIN
+        SELECT 1;
+      END;
+      UPDATE operational_schema_migrations
+      SET version = ${MAIN_WORKFLOW_SCHEMA_VERSION}
+      WHERE scope = 'workflow';
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger definition changed: workflow_quote_cleanup_fill_record/i,
+    );
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (
+          preserved
+            .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'workflow'`)
+            .get() as { version: number }
+        ).version,
+        MAIN_WORKFLOW_SCHEMA_VERSION,
+      );
+    } finally {
+      preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rolls back all migrated scopes when operational migration publication fails', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
   const databasePath = join(root, 'runtime.sqlite');

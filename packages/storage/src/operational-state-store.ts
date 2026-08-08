@@ -457,6 +457,7 @@ function migrateOperationalStateDatabase(
     for (const [scope, version] of OPERATIONAL_SCHEMA_VERSIONS) {
       registerSchema(db, scope, version, appliedAt);
     }
+    assertRequiredSchemaTriggers(db, OPERATIONAL_SCHEMA_VERSIONS);
     db.exec('COMMIT');
   } catch (error) {
     rollback(db);
