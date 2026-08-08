@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
 import { closeSync, constants as fsConstants, openSync } from 'node:fs';
-import { link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
+import { access, link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -9,10 +9,25 @@ import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { tryLock, unlock } from 'fs-native-extensions';
 import { acquireOperationalStateDatabase } from '../operational-state-store.js';
-import { resolveOperationalStateSchemaLockPath } from '../operational-state-schema-lock.js';
+import {
+  resolveOperationalStateSchemaLockPath,
+  waitForOperationalStatePublicationLock,
+} from '../operational-state-schema-lock.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 
 const LEGACY_RUNTIME_SCHEMA_VERSION = 10;
+
+test('reserving a publication lock does not create the destination root', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'maka-operational-publication-lock-'));
+  const destinationRoot = join(parent, 'missing', 'destination');
+  const lock = waitForOperationalStatePublicationLock(join(destinationRoot, 'runtime.sqlite'));
+  try {
+    await assert.rejects(access(destinationRoot));
+  } finally {
+    lock.close();
+    await rm(parent, { recursive: true, force: true });
+  }
+});
 
 test('a live operational database lease excludes schema migration', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-schema-lock-'));

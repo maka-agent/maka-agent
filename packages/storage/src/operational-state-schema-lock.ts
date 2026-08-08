@@ -5,6 +5,7 @@ import {
   chmodSync,
   closeSync,
   constants as fsConstants,
+  existsSync,
   fchmodSync,
   fstatSync,
   lstatSync,
@@ -60,7 +61,7 @@ export function operationalStateMigrationBlockedError(): Error {
 export function waitForOperationalStatePublicationLock(
   databasePath: string,
 ): OperationalStatePublicationLock {
-  const canonicalDatabasePath = canonicalizeDatabasePath(databasePath);
+  const canonicalDatabasePath = canonicalizeProspectiveDatabasePath(databasePath);
   const lockPath = resolveOperationalStateLockPath(canonicalDatabasePath, 'owner');
   const deadline = Date.now() + OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS;
   while (true) {
@@ -217,6 +218,24 @@ function canonicalizeDatabasePath(databasePath: string): string {
   const parentPath = dirname(absolutePath);
   mkdirSync(parentPath, { recursive: true });
   return join(realpathSync(parentPath), basename(absolutePath));
+}
+
+function canonicalizeProspectiveDatabasePath(databasePath: string): string {
+  const absolutePath = resolve(databasePath);
+  const missingSegments = [basename(absolutePath)];
+  let ancestorPath = dirname(absolutePath);
+  while (!existsSync(ancestorPath)) {
+    const parentPath = dirname(ancestorPath);
+    if (parentPath === ancestorPath) {
+      throw new Error(`Operational state publication has no existing ancestor: ${databasePath}`);
+    }
+    missingSegments.unshift(basename(ancestorPath));
+    ancestorPath = parentPath;
+  }
+  if (!lstatSync(ancestorPath).isDirectory()) {
+    throw new Error(`Operational state publication ancestor is not a directory: ${ancestorPath}`);
+  }
+  return join(realpathSync(ancestorPath), ...missingSegments);
 }
 
 function resolveOperationalStateSchemaLockDirectory(): string {

@@ -211,6 +211,7 @@ export async function restoreOperationalStateBackup(
     try {
       runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
       await adoptRestoredWorkspaceAuthorityRootInternal(runtimeStore, destinationCapability);
+      await mkdir(dirname(destinationRoot), { recursive: true });
       publicationLock = databaseLease.prepareForPublication();
     } finally {
       if (runtimeStore) runtimeStore.close();
@@ -221,7 +222,6 @@ export async function restoreOperationalStateBackup(
     await syncFile(databasePath);
     validateSqlite(databasePath, await inventory(stagingRoot), 'current');
     await syncDirectoryChain(stagingRoot, stagingRoot);
-    await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
     published = true;
     await resolveExistingStorageRoot({

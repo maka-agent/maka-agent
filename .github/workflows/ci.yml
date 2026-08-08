@@ -153,6 +153,7 @@ jobs:
       - name: Run operational database lock gates
         run: >-
           node --test --test-concurrency=1
+          packages/storage/dist/__tests__/operational-state-backup.test.js
           packages/storage/dist/__tests__/operational-state-schema-lock.test.js
           packages/storage/dist/__tests__/operational-state-store.test.js
 
