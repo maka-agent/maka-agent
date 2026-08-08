@@ -544,6 +544,14 @@ describe('Provider error classification', () => {
     assert.equal(classifyError(permission), 'ProviderPermission');
     assert.deepEqual(providerRetryMetadata(permission), { retryable: false });
 
+    const directPermission = Object.assign(new Error('Request forbidden'), {
+      name: 'AI_APICallError',
+      statusCode: 403,
+      type: 'permission_denied',
+    });
+    assert.equal(classifyError(directPermission), 'ProviderPermission');
+    assert.deepEqual(providerRetryMetadata(directPermission), { retryable: false });
+
     assert.equal(classifyError(providerError(403, 'Request forbidden')), 'AI_APICallError');
 
     const throttle = providerError(429, 'Too many requests', {

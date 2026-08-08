@@ -181,6 +181,7 @@ function normalizeErrorEvidence(error: unknown): ProviderErrorEvidence | undefin
     const rawBody = (error as { responseBody?: unknown }).responseBody;
     const body = typeof rawBody === 'string' ? rawBody : '';
     const structuredCodes: string[] = [];
+    collectStructuredCodes(error, structuredCodes);
     collectStructuredCodes((error as { data?: unknown }).data, structuredCodes);
     if (structuredCodes.length === 0 && body) {
       // The failed-response handler keeps the raw body even when the provider
