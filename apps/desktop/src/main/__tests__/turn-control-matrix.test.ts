@@ -42,7 +42,6 @@ const FIXTURE_ERROR_CLASSES = [
   'timeout',
   'auth',
   '401',
-  '403',
   'provider_permission',
   'usage_limit',
   'rate_limit',
@@ -105,6 +104,19 @@ describe('turn-control-history matrix', () => {
       assert.equal(recovery.action, 'check_account');
       assert.match(recovery.label, /额度|套餐|恢复时间/);
       assert.doesNotMatch(recovery.label, /登录/);
+    });
+
+    it('does not reinterpret a bare 403 as authentication', () => {
+      assert.equal(describeTurnErrorClass('403'), '未知错误');
+      assert.equal(
+        deriveFailedTurnRecovery({
+          errorClass: '403',
+          partialOutputRetained: false,
+          toolActivityCount: 0,
+          erroredToolCount: 0,
+        }).action,
+        'retry',
+      );
     });
   });
 

@@ -121,7 +121,7 @@ export function describeTurnErrorClass(errorClass: string | undefined, locale: U
   // (#1612), and it must never fall through to the "permission"/"tool" catch-alls.
   if (lower === SANDBOX_BOUNDARY_RESTART_CLOSURE_CLASS) return copy.sandboxBoundaryClosed;
   if (lower === 'timeout' || lower.includes('timeout')) return copy.timeout;
-  if (lower === 'auth' || lower.includes('auth') || lower === '401' || lower === '403') return copy.auth;
+  if (lower === 'auth' || lower.includes('auth') || lower === '401') return copy.auth;
   if (lower === 'provider_permission') return copy.providerPermission;
   if (lower === 'usage_limit') return copy.usageLimit;
   if (lower === 'rate_limit' || lower.includes('rate')) return copy.rateLimit;
@@ -184,8 +184,7 @@ export function deriveFailedTurnRecovery(input: FailedTurnRecoveryInput, locale:
     lower === 'provider_permission' ||
     lower === 'auth' ||
     lower.includes('auth') ||
-    lower === '401' ||
-    lower === '403'
+    lower === '401'
   ) {
     return { action: 'check_connection', label: copy.connection };
   }
