@@ -10,7 +10,10 @@ if (!databasePath || !Number.isSafeInteger(holdMs) || holdMs < 0 || !process.sen
 
 const migrationTurn = waitForOperationalStateMigrationTurn(databasePath);
 process.send({ type: 'ready' });
-setTimeout(() => {
-  migrationTurn.close();
-  process.exit(0);
-}, holdMs);
+process.once('message', (message) => {
+  if (message !== 'start') throw new Error(`unexpected message: ${String(message)}`);
+  setTimeout(() => {
+    migrationTurn.close();
+    process.exit(0);
+  }, holdMs);
+});

@@ -139,6 +139,7 @@ test('an operational opener waits for an in-progress migration turn', async () =
     );
     await waitForReady(holder);
 
+    holder.send('start');
     const startedAt = performance.now();
     const lease = acquireOperationalStateDatabase(root);
     lease.close();
