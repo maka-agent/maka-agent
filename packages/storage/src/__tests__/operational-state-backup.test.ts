@@ -246,6 +246,35 @@ test('rejects a current backup missing a required runtime authority table', asyn
   }
 });
 
+test('rejects a v0.1.6 backup missing a table required by that release', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-legacy-table-'));
+  const stateRoot = join(base, 'state');
+  const backupRoot = join(base, 'backup');
+  try {
+    const sessions = createSessionStore(stateRoot);
+    await sessions.close?.();
+    await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
+    await rewriteAsV016OperationalBackup(backupRoot);
+    const database = new DatabaseSync(join(backupRoot, 'runtime.sqlite'));
+    try {
+      database.exec('DROP TABLE core_agent_runs');
+    } finally {
+      database.close();
+    }
+    await refreshDatabaseInventory(backupRoot);
+
+    await assert.rejects(
+      validateOperationalStateBackup(backupRoot),
+      (error: unknown) =>
+        error instanceof OperationalBackupError &&
+        error.code === 'corrupt_backup' &&
+        error.message.includes('required table is missing: core_agent_runs'),
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 test('releases the operational database when restored runtime capabilities are invalid', {
   skip:
     process.platform === 'win32' ? 'Windows does not expose a process file-descriptor list' : false,

@@ -372,7 +372,7 @@ function validateSqlite(
         throw new Error('foreign_key_check failed');
       }
       const schema = inspectOperationalStateSchema(database);
-      if (requiredSchema === 'current' && schema !== 'current') {
+      if (requiredSchema === 'current' && schema.status !== 'current') {
         throw new Error('operational schema versions do not match');
       }
 
@@ -449,11 +449,20 @@ function validateSqlite(
       const tableExists = database.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
       );
-      if (schema === 'current') {
-        for (const table of currentTables) {
-          if (tableExists.get(table) === undefined) {
-            throw new Error(`required table is missing: ${table}`);
-          }
+      const tableIntroductions = new Map<string, readonly [scope: string, version: number]>([
+        ['runtime_storage_root_binding', ['runtime', 9]],
+        ['runtime_partial_segments', ['runtime', 10]],
+        ['runtime_session_event_ordinals', ['runtime', 11]],
+        ['core_root_turn_start_rejections', ['core_execution', 2]],
+        ['workflow_daily_review_authority_state', ['workflow', 3]],
+      ]);
+      for (const table of currentTables) {
+        const introduction = tableIntroductions.get(table);
+        if (introduction && (schema.versions.get(introduction[0]) ?? -1) < introduction[1]) {
+          continue;
+        }
+        if (tableExists.get(table) === undefined) {
+          throw new Error(`required table is missing: ${table}`);
         }
       }
 

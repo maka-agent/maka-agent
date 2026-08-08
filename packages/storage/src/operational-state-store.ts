@@ -196,7 +196,7 @@ function openOperationalStateDatabase(
       migrationDatabase = new Database(databasePath);
       migrationLock.assertCurrentDatabasePath();
       configureSqliteRuntimeLockWait(migrationDatabase);
-      if (inspectOperationalStateSchema(migrationDatabase) === 'needs_migration') {
+      if (inspectOperationalStateSchema(migrationDatabase).status === 'needs_migration') {
         configureSqliteRuntimeDatabase(migrationDatabase);
         migrateOperationalStateDatabase(migrationDatabase, now);
       }
@@ -226,7 +226,7 @@ function openCurrentOperationalStateDatabase(
     schemaLock.assertCurrentDatabasePath();
     // This connection-only pragma lets preflight wait without changing a rejected database.
     configureSqliteRuntimeLockWait(database);
-    if (inspectOperationalStateSchema(database) === 'needs_migration') {
+    if (inspectOperationalStateSchema(database).status === 'needs_migration') {
       database.close();
       database = undefined;
       schemaLock.close();
@@ -244,16 +244,23 @@ function openCurrentOperationalStateDatabase(
   }
 }
 
+export interface OperationalStateSchemaInspection {
+  readonly status: 'current' | 'needs_migration';
+  readonly versions: ReadonlyMap<string, number>;
+}
+
 export function inspectOperationalStateSchema(
   database: DatabaseSync,
-): 'current' | 'needs_migration' {
+): OperationalStateSchemaInspection {
   let needsMigration = false;
   const runtimeVersion = readUserVersion(database);
+  const versions = new Map<string, number>([['runtime', runtimeVersion]]);
   assertSupportedOperationalSchemaVersion('runtime', runtimeVersion, SQLITE_RUNTIME_SCHEMA_VERSION);
   needsMigration ||= runtimeVersion < SQLITE_RUNTIME_SCHEMA_VERSION;
 
   if (hasTable(database, 'session_metadata_schema')) {
     const sessionMetadataVersion = readSqliteSessionMetadataSchemaVersion(database);
+    versions.set('session_metadata', sessionMetadataVersion);
     assertSupportedOperationalSchemaVersion(
       'session_metadata',
       sessionMetadataVersion,
@@ -264,7 +271,9 @@ export function inspectOperationalStateSchema(
     needsMigration = true;
   }
 
-  if (!hasTable(database, 'operational_schema_migrations')) return 'needs_migration';
+  if (!hasTable(database, 'operational_schema_migrations')) {
+    return { status: 'needs_migration', versions };
+  }
   const rows = database
     .prepare('SELECT scope, version FROM operational_schema_migrations')
     .all() as Array<{ scope?: unknown; version?: unknown }>;
@@ -297,11 +306,12 @@ export function inspectOperationalStateSchema(
     }
     assertSupportedOperationalSchemaVersion(scope, version, supportedVersion);
     registered.set(scope, version);
+    if (scope !== 'runtime' && scope !== 'session_metadata') versions.set(scope, version);
   }
   for (const [scope, version] of OPERATIONAL_SCHEMA_VERSIONS) {
     needsMigration ||= (registered.get(scope) ?? -1) < version;
   }
-  return needsMigration ? 'needs_migration' : 'current';
+  return { status: needsMigration ? 'needs_migration' : 'current', versions };
 }
 
 function assertSupportedOperationalSchemaVersion(
