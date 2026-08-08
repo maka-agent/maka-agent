@@ -27,8 +27,8 @@ import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version
 import {
   acquireOperationalStateDatabase,
   inspectOperationalStateSchema,
-  OPERATIONAL_STATE_DATABASE_NAME,
   migrateOperationalStateDatabaseCopy,
+  OPERATIONAL_STATE_DATABASE_NAME,
 } from './operational-state-store.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 
@@ -193,11 +193,13 @@ export async function restoreOperationalStateBackup(
       kind: input.kind,
     });
     const databaseLease = acquireOperationalStateDatabase(stagingRoot);
-    const runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
+    let runtimeStore: ReturnType<typeof createSqliteRuntimeStore> | undefined;
     try {
+      runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
       await adoptRestoredWorkspaceAuthorityRootInternal(runtimeStore, destinationCapability);
     } finally {
-      runtimeStore.close();
+      if (runtimeStore) runtimeStore.close();
+      else databaseLease.close();
     }
     normalizeStandaloneSqliteSnapshot(databasePath);
     await chmod(databasePath, 0o600);

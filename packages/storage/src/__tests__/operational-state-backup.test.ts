@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -246,6 +246,50 @@ test('rejects a current backup missing a required runtime authority table', asyn
   }
 });
 
+test('releases the operational database when restored runtime capabilities are invalid', {
+  skip:
+    process.platform === 'win32' ? 'Windows does not expose a process file-descriptor list' : false,
+}, async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-invalid-capability-'));
+  const stateRoot = join(base, 'state');
+  const backupRoot = join(base, 'backup');
+  try {
+    const sessions = createSessionStore(stateRoot);
+    await sessions.close?.();
+    await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
+    const database = new DatabaseSync(join(backupRoot, 'runtime.sqlite'));
+    try {
+      database.exec(`
+        DELETE FROM runtime_capabilities
+        WHERE capability = 'runtime_workspace_version_authority'
+      `);
+    } finally {
+      database.close();
+    }
+    await refreshDatabaseInventory(backupRoot);
+
+    const openFileDescriptors = await countOpenFileDescriptors();
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const destinationRoot = join(base, `restore-${attempt}`);
+      await assert.rejects(
+        restoreOperationalStateBackup({
+          backupRoot,
+          destinationRoot,
+          kind: 'headless',
+        }),
+        /runtime_workspace_version_authority/i,
+      );
+      assert.deepEqual(
+        (await readdir(base)).filter((entry) => entry.startsWith(`restore-${attempt}`)),
+        [],
+      );
+    }
+    assert.equal(await countOpenFileDescriptors(), openFileDescriptors);
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void> {
   const databasePath = join(backupRoot, 'runtime.sqlite');
   const database = new DatabaseSync(databasePath);
@@ -341,4 +385,8 @@ function readSchemaVersions(databasePath: string): {
   } finally {
     database.close();
   }
+}
+
+async function countOpenFileDescriptors(): Promise<number> {
+  return (await readdir(process.platform === 'linux' ? '/proc/self/fd' : '/dev/fd')).length;
 }
