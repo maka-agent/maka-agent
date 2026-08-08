@@ -282,12 +282,25 @@ export function createBoundaryFilesystemExecutor(
             ...common,
           });
           if (deleted.kind !== 'delete') throw new Error('ApplyPatch delete result mismatch');
-          return { path: deleted.path };
+          try {
+            const inspected = await run({ operation: { kind: 'lstat', path }, ...common });
+            if (inspected.kind !== 'lstat' || inspected.targetType !== 'missing') {
+              throw new Error('ApplyPatch delete target was recreated before settlement');
+            }
+            return { path: deleted.path, token: inspected.token };
+          } catch (error) {
+            throw mutationOutcomeUnknown(error);
+          }
         },
       };
       return await executeApplyPatchWithAdapter(call.patch, adapter, withFileWriteLock);
     },
   };
+}
+
+function mutationOutcomeUnknown(error: unknown): Error {
+  const failure = error instanceof Error ? error : new Error(String(error));
+  return Object.assign(failure, { effectUnknown: true });
 }
 
 interface WorkspaceFilesystemBackend {

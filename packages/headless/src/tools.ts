@@ -191,19 +191,22 @@ function createIsolatedApplyPatchFs(
   abortSignal: AbortSignal,
 ): ApplyPatchFsAdapter {
   const normalized = (path: string, label: string) => normalizeWorkspacePath(path, cwd, label);
+  const snapshot = async (relativePath: string) => {
+    const stdout = await execFileCommand(
+      executor,
+      cwd,
+      shellFileCommand(APPLY_PATCH_SNAPSHOT_SCRIPT, [relativePath]),
+      abortSignal,
+    );
+    return parseApplyPatchSnapshot(stdout, relativePath);
+  };
   return {
     async lockKey(path) {
       return fileWriteKey(cwd, normalized(path, 'ApplyPatch path'));
     },
     async snapshot(path) {
       const relativePath = normalized(path, 'ApplyPatch snapshot path');
-      const stdout = await execFileCommand(
-        executor,
-        cwd,
-        shellFileCommand(APPLY_PATCH_SNAPSHOT_SCRIPT, [relativePath]),
-        abortSignal,
-      );
-      return parseApplyPatchSnapshot(stdout, relativePath);
+      return await snapshot(relativePath);
     },
     async writeText(path, content, mode, expectedToken) {
       const relativePath = normalized(path, 'ApplyPatch write path');
@@ -233,7 +236,16 @@ function createIsolatedApplyPatchFs(
         shellFileCommand(APPLY_PATCH_DELETE_SCRIPT, [relativePath, expectedToken]),
         abortSignal,
       );
-      return { path: relativePath };
+      try {
+        const inspected = await snapshot(relativePath);
+        if (inspected.state.kind !== 'missing') {
+          throw new Error('ApplyPatch delete target was recreated before settlement');
+        }
+        return { path: relativePath, token: inspected.token };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        throw Object.assign(failure, { effectUnknown: true });
+      }
     },
   };
 }

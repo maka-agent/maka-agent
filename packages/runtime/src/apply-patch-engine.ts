@@ -26,7 +26,7 @@ export interface ApplyPatchFsAdapter {
     mode: 'create' | 'replace',
     expectedToken: string,
   ): Promise<{ path: string; bytes: number; token: string }>;
-  deletePath(path: string, expectedToken: string): Promise<{ path: string }>;
+  deletePath(path: string, expectedToken: string): Promise<{ path: string; token: string }>;
   preflightPermissions?(intents: readonly ApplyPatchAccessIntent[]): Promise<void>;
 }
 
@@ -142,7 +142,8 @@ async function settlePrepared(
         });
         continue;
       }
-      await fs.deletePath(step.path, expectedToken);
+      const deleted = await fs.deletePath(step.path, expectedToken);
+      tokens.set(step.path, deleted.token);
       completed.push(step.path);
       operations.push({ operation: 'delete', path: step.path, status: 'completed' });
     } catch (error) {

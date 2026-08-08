@@ -36,3 +36,27 @@ test('applies one multi-file patch through the filesystem authority', async () =
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+test('recreates a deleted path using its post-delete revision', async () => {
+  const cwd = await mkdtemp(join(tmpdir(), 'maka-apply-patch-recreate-'));
+  try {
+    await writeFile(join(cwd, 'same.txt'), 'before\n', 'utf8');
+    const filesystem = createBoundaryFilesystemExecutor({
+      workspace: createLocalWorkspaceExecutor(),
+    });
+
+    const result = await filesystem.applyPatch({
+      cwd,
+      patch: `*** Begin Patch
+*** Delete File: same.txt
+*** Add File: same.txt
++after
+*** End Patch`,
+    });
+
+    assert.equal(result.ok, true);
+    assert.equal(await readFile(join(cwd, 'same.txt'), 'utf8'), 'after\n');
+  } finally {
+    await rm(cwd, { recursive: true, force: true });
+  }
+});

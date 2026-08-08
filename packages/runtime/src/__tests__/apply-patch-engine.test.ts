@@ -11,7 +11,7 @@ test('preflights every hunk before the first mutation', async () => {
       writes.push(`${path}:${content}`);
       return { path, bytes: Buffer.byteLength(content), token: 'written' };
     },
-    deletePath: async (path) => ({ path }),
+    deletePath: async (path) => ({ path, token: 'deleted' }),
   };
 
   await assert.rejects(
@@ -48,7 +48,7 @@ test('obtains permission before reading file contents', async () => {
       bytes: Buffer.byteLength(content),
       token: 'after',
     }),
-    deletePath: async (path) => ({ path }),
+    deletePath: async (path) => ({ path, token: 'deleted' }),
   };
 
   await executeApplyPatchWithAdapter(
@@ -78,7 +78,7 @@ test('passes each committed revision token to the next mutation of the same path
         token: expectedToken === 'missing' ? 'created' : 'updated',
       };
     },
-    deletePath: async (path) => ({ path }),
+    deletePath: async (path) => ({ path, token: 'deleted' }),
   };
 
   const result = await executeApplyPatchWithAdapter(
@@ -98,6 +98,35 @@ test('passes each committed revision token to the next mutation of the same path
   assert.deepEqual(expectedTokens, ['missing', 'created']);
 });
 
+test('passes the post-delete token to a later recreation of the same path', async () => {
+  const expectedTokens: string[] = [];
+  const adapter: ApplyPatchFsAdapter = {
+    lockKey: async (path) => path,
+    snapshot: async () => ({ state: { kind: 'file', content: 'before\n' }, token: 'before' }),
+    writeText: async (path, content, _mode, expectedToken) => {
+      expectedTokens.push(expectedToken);
+      return { path, bytes: Buffer.byteLength(content), token: 'created' };
+    },
+    deletePath: async (path, expectedToken) => {
+      expectedTokens.push(expectedToken);
+      return { path, token: 'deleted' };
+    },
+  };
+
+  const result = await executeApplyPatchWithAdapter(
+    `*** Begin Patch
+*** Delete File: same.txt
+*** Add File: same.txt
++after
+*** End Patch`,
+    adapter,
+    async (_key, run) => await run(),
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(expectedTokens, ['before', 'deleted']);
+});
+
 test('reports an uncertain write failure as a partial effect', async () => {
   const adapter: ApplyPatchFsAdapter = {
     lockKey: async (path) => path,
@@ -105,7 +134,7 @@ test('reports an uncertain write failure as a partial effect', async () => {
     writeText: async () => {
       throw Object.assign(new Error('write outcome unknown'), { effectUnknown: true });
     },
-    deletePath: async (path) => ({ path }),
+    deletePath: async (path) => ({ path, token: 'deleted' }),
   };
 
   const result = await executeApplyPatchWithAdapter(
@@ -144,7 +173,7 @@ test('keeps the committed prefix visible when a later mutation fails', async () 
       if (path === 'second.txt') throw new Error('second write failed');
       return { path, bytes: Buffer.byteLength(content), token: 'created' };
     },
-    deletePath: async (path) => ({ path }),
+    deletePath: async (path) => ({ path, token: 'deleted' }),
   };
 
   const result = await executeApplyPatchWithAdapter(
