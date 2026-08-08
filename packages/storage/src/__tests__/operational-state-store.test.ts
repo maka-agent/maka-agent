@@ -303,6 +303,38 @@ test('rejects an unknown operational schema without changing the database', asyn
   }
 });
 
+test('rejects duplicate operational schema registrations', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-duplicate-scope-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      ALTER TABLE operational_schema_migrations RENAME TO original_operational_schema_migrations;
+      CREATE TABLE operational_schema_migrations (
+        scope TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM original_operational_schema_migrations;
+      INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM original_operational_schema_migrations
+      WHERE scope = 'runtime';
+      DROP TABLE original_operational_schema_migrations;
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /Operational schema runtime is registered more than once/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rejecting operational state preserves database permissions', {
   skip: process.platform === 'win32',
 }, async () => {

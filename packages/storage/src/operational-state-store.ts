@@ -289,6 +289,12 @@ export function inspectOperationalStateSchema(
           'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
       );
     }
+    if (registered.has(scope)) {
+      throw new Error(
+        `Operational schema ${scope} is registered more than once; ` +
+          'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
+      );
+    }
     assertSupportedOperationalSchemaVersion(scope, version, supportedVersion);
     registered.set(scope, version);
   }
