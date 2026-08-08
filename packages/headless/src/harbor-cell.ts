@@ -16,6 +16,7 @@ import {
   isThinkingLevel,
   resolveModelVisionSupport,
 } from '@maka/core';
+import { pricingModelKey } from '@maka/core/usage-stats/pricing';
 import {
   AgentGraphCoordinator,
   AGENT_TOOL_GROUP_ID,
@@ -1104,7 +1105,7 @@ export function buildAiSdkCellBackendRegistration(input: {
   });
   const nativeWebSearchEnabled =
     booleanEnv(input.env.MAKA_WEB_SEARCH_ENABLED, 'MAKA_WEB_SEARCH_ENABLED') ?? false;
-  const modelKey = `${connection.providerType}:${input.model}`;
+  const modelKey = pricingModelKey(connection.providerType, input.model);
   const pricingOverride = resolveHarborCellPricingOverride(input.env, modelKey);
   const lookupPricing = pricingOverride
     ? (key: string): PricingConfig | null =>
