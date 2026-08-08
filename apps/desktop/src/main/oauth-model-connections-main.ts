@@ -72,6 +72,13 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     }
 
     const defaults = PROVIDER_DEFAULTS['claude-subscription'];
+    // Session-scoped subscription tokens cannot reach /v1/models, so this
+    // provider declares fallback-only discovery and can never hold a fetched
+    // snapshot. Rebuild the inventory from the current registry instead of
+    // pinning whatever was persisted: a stale copy on disk both hides newly
+    // curated models (claude-opus-5) and makes reconciliation drop them back
+    // out of enabledModelIds the moment the user selects one. Same reasoning
+    // as the rebuilt fallback snapshot in syncOpenAiCodexConnection.
     const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
     const displayName = 'Claude OAuth';
     const now = Date.now();
@@ -80,10 +87,10 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       name: existing?.name ?? displayName,
       providerType: 'claude-subscription',
       baseUrl: defaults.baseUrl,
-      ...syncedSelection(existing, existing?.models?.length ? existing.models : fallbackModels),
+      ...syncedSelection(existing, fallbackModels),
       enabled: true,
-      models: existing?.models?.length ? existing.models : fallbackModels,
-      modelSource: existing?.modelSource ?? 'fallback',
+      models: fallbackModels,
+      modelSource: 'fallback',
       lastTestStatus: 'verified',
       lastTestAt: new Date(now).toISOString(),
       lastTestMessage: 'Claude OAuth 已登录。',
