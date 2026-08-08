@@ -232,6 +232,17 @@ test('session tools share one user-controlled workbar that stays mounted across 
   const fullPath = await recordFileRow.getAttribute('data-full-path');
   expect(fullPath).toMatch(/runtime\.sqlite$/);
 
+  // The Inspector derives this exact lookup key from the Host-backed call
+  // fact, not from the user-facing connection slug (`zai-live`).
+  const pricingKey = page.getByText('zai:glm-5.1', { exact: true });
+  await expect(pricingKey).toBeVisible();
+  const copyPricingKey = page.getByRole('button', {
+    name: '复制定价键: zai:glm-5.1',
+  });
+  await expect(copyPricingKey).toBeVisible();
+  await copyPricingKey.click();
+  await expect(page.getByText('已复制定价键')).toBeVisible();
+
   await page.locator('button[aria-label="展开侧边栏"]').dispatchEvent('click');
   await page
     .getByRole('navigation', { name: '对话列表' })

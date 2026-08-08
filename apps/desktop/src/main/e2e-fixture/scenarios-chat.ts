@@ -1,10 +1,15 @@
 import type {
+  ModelCallAttempt,
   SandboxBoundaryRequestEvent,
   SessionHeader,
   StoredMessage,
   E2eFixtureState,
 } from '@maka/core';
-import { createSqliteTaskLedgerStore } from '@maka/storage';
+import {
+  MODEL_CALL_ATTEMPT_EVENT_TYPE,
+  MODEL_CALL_ATTEMPT_SCHEMA_VERSION,
+} from '@maka/core';
+import { createSqliteAgentRunStore, createSqliteTaskLedgerStore } from '@maka/storage';
 import {
   ERROR_SESSION_ID,
   header,
@@ -32,7 +37,6 @@ const STREAMING_ANSWER_MARKDOWN = [
 ].join('\n');
 
 export async function writeTaskLedgerFixture(workspaceRoot: string, now: number): Promise<void> {
-  void now;
   const store = createSqliteTaskLedgerStore(workspaceRoot);
   try {
     const root = (
@@ -94,6 +98,66 @@ export async function writeTaskLedgerFixture(workspaceRoot: string, now: number)
     });
   } finally {
     store.close();
+  }
+
+  await writeUnpricedInspectorFixture(workspaceRoot, now);
+}
+
+async function writeUnpricedInspectorFixture(workspaceRoot: string, now: number): Promise<void> {
+  const runId = 'run-unpriced-inspector';
+  const turnId = 'turn-fixture-1';
+  const completedAt = now - 9 * 60_000;
+  const attempt: ModelCallAttempt = {
+    schemaVersion: MODEL_CALL_ATTEMPT_SCHEMA_VERSION,
+    logicalCallId: 'call-unpriced-inspector',
+    attemptId: 'attempt-unpriced-inspector',
+    traceId: 'trace-unpriced-inspector',
+    sessionId: TURN_SESSION_ID,
+    runId,
+    turnId,
+    step: 0,
+    attempt: 0,
+    callKind: 'main',
+    connectionSlug: 'zai-live',
+    providerId: 'zai',
+    modelId: 'glm-5.1',
+    startedAt: completedAt - 800,
+    completedAt,
+    latencyMs: 800,
+    status: 'completed',
+    usageBasis: 'reported',
+    inputTokens: 120,
+    outputTokens: 30,
+    costBasis: 'unpriced',
+  };
+  const runStore = createSqliteAgentRunStore(workspaceRoot);
+  try {
+    await runStore.createRun({
+      runId,
+      invocationId: 'invocation-unpriced-inspector',
+      sessionId: TURN_SESSION_ID,
+      turnId,
+      status: 'completed',
+      backendKind: 'ai-sdk',
+      llmConnectionSlug: 'zai-live',
+      modelId: 'glm-5.1',
+      cwd: '/workspace/maka',
+      permissionMode: 'ask',
+      createdAt: attempt.startedAt,
+      updatedAt: completedAt,
+      completedAt,
+    });
+    await runStore.appendEvent(TURN_SESSION_ID, runId, {
+      type: MODEL_CALL_ATTEMPT_EVENT_TYPE,
+      id: attempt.attemptId,
+      runId,
+      sessionId: TURN_SESSION_ID,
+      turnId,
+      ts: completedAt,
+      data: { ...attempt },
+    });
+  } finally {
+    runStore.close?.();
   }
 }
 

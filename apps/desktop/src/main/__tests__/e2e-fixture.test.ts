@@ -386,6 +386,33 @@ describe('e2e-fixture mode', () => {
         tasks.find((task) => task.key === 'T1.2.1')?.parentId,
         tasks.find((task) => task.key === 'T1.2')?.id,
       );
+      const pricingAttempt = withRuntimeDatabase(workspaceRoot, (database) => {
+        const row = database
+          .prepare(`
+            SELECT record_json AS recordJson
+            FROM core_agent_run_events
+            WHERE session_id = ? AND event_type = 'model_call_attempt_recorded'
+          `)
+          .get('e2e-fixture-turn') as { recordJson?: unknown } | undefined;
+        if (typeof row?.recordJson !== 'string') throw new Error('Pricing attempt not found');
+        return JSON.parse(row.recordJson) as {
+          data?: { connectionSlug?: string; providerId?: string; modelId?: string; costBasis?: string };
+        };
+      });
+      assert.deepEqual(
+        pricingAttempt.data && {
+          connectionSlug: pricingAttempt.data.connectionSlug,
+          providerId: pricingAttempt.data.providerId,
+          modelId: pricingAttempt.data.modelId,
+          costBasis: pricingAttempt.data.costBasis,
+        },
+        {
+          connectionSlug: 'zai-live',
+          providerId: 'zai',
+          modelId: 'glm-5.1',
+          costBasis: 'unpriced',
+        },
+      );
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
     }
