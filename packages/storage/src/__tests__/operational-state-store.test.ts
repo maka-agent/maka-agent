@@ -12,6 +12,8 @@ import { SQLITE_USAGE_SCHEMA_VERSION } from '../sqlite-usage-schema.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 const LEGACY_RUNTIME_SCHEMA_VERSION = 10;
+const MAIN_SESSION_METADATA_SCHEMA_VERSION = 22;
+const MAIN_WORKFLOW_SCHEMA_VERSION = 4;
 
 test('shares one operational database and produces an online backup', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-state-'));
@@ -215,7 +217,7 @@ test('rejects current operational state with a changed required trigger', async 
   }
 });
 
-test('rolls back every scope when operational migration publication fails', async () => {
+test('rolls back all migrated scopes when operational migration publication fails', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
   const databasePath = join(root, 'runtime.sqlite');
   try {
@@ -223,10 +225,19 @@ test('rolls back every scope when operational migration publication fails', asyn
 
     const database = new DatabaseSync(databasePath);
     rewindRuntimeSchema(database);
-    database
-      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(LEGACY_RUNTIME_SCHEMA_VERSION);
     database.exec(`
+      DROP TRIGGER session_messages_lock_connection;
+      UPDATE session_metadata_schema
+      SET version = ${MAIN_SESSION_METADATA_SCHEMA_VERSION}
+      WHERE scope = 'session_metadata';
+      DROP TRIGGER workflow_quote_cleanup_fill_record;
+      UPDATE operational_schema_migrations
+      SET version = CASE scope
+        WHEN 'runtime' THEN ${LEGACY_RUNTIME_SCHEMA_VERSION}
+        WHEN 'session_metadata' THEN ${MAIN_SESSION_METADATA_SCHEMA_VERSION}
+        WHEN 'workflow' THEN ${MAIN_WORKFLOW_SCHEMA_VERSION}
+        ELSE version
+      END;
       CREATE TRIGGER reject_runtime_registry_upgrade
       BEFORE UPDATE OF version ON operational_schema_migrations
       WHEN OLD.scope = 'runtime' AND NEW.version > OLD.version
@@ -247,6 +258,33 @@ test('rolls back every scope when operational migration publication fails', asyn
       assert.equal(
         (
           preserved
+            .prepare(`SELECT version FROM session_metadata_schema WHERE scope = 'session_metadata'`)
+            .get() as { version: number }
+        ).version,
+        MAIN_SESSION_METADATA_SCHEMA_VERSION,
+      );
+      assert.deepEqual(
+        preserved
+          .prepare(`
+            SELECT scope, version
+            FROM operational_schema_migrations
+            WHERE scope IN ('runtime', 'session_metadata', 'workflow')
+            ORDER BY scope
+          `)
+          .all()
+          .map((row) => ({
+            scope: (row as { scope: string }).scope,
+            version: (row as { version: number }).version,
+          })),
+        [
+          { scope: 'runtime', version: LEGACY_RUNTIME_SCHEMA_VERSION },
+          { scope: 'session_metadata', version: MAIN_SESSION_METADATA_SCHEMA_VERSION },
+          { scope: 'workflow', version: MAIN_WORKFLOW_SCHEMA_VERSION },
+        ],
+      );
+      assert.equal(
+        (
+          preserved
             .prepare(
               `SELECT COUNT(*) AS count FROM sqlite_master
                WHERE type = 'table' AND name = 'runtime_session_event_ordinals'`,
@@ -254,6 +292,23 @@ test('rolls back every scope when operational migration publication fails', asyn
             .get() as { count: number }
         ).count,
         0,
+      );
+      assert.deepEqual(
+        preserved
+          .prepare(`
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND name IN (
+                'runtime_event_ordinal_retry',
+                'runtime_events_assign_session_ordinal',
+                'session_messages_lock_connection',
+                'workflow_quote_cleanup_fill_record'
+              )
+            ORDER BY name
+          `)
+          .all(),
+        [],
       );
     } finally {
       preserved.close();
