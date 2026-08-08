@@ -4,6 +4,7 @@ import {
   decodeStoredMessageForRead,
   userFacingText,
   type ActiveInteractionRequestEvent,
+  type FileEditToolset,
   type QueueEnqueueOutcome,
   type SessionEvent,
   type SessionSummary,
@@ -64,6 +65,7 @@ export interface RuntimeHostMakaSessionDriverInput {
   llmConnectionSlug: string;
   model: string;
   permissionMode?: PermissionMode;
+  fileEditToolset?: FileEditToolset;
   orchestrationMode?: OrchestrationMode;
   newId?: () => string;
   now?: () => number;
@@ -109,6 +111,7 @@ class RuntimeHostMakaSessionDriverImpl implements RuntimeHostMakaSessionDriver {
   #llmConnectionSlug: string;
   #thinkingLevel: ThinkingLevel | undefined;
   #permissionMode: PermissionMode;
+  #newSessionFileEditToolset: FileEditToolset | undefined;
   #activeBoundaryDisplayMode: PermissionMode | undefined;
   #orchestrationMode: OrchestrationMode;
   #channel: RuntimeHostSessionChannel | undefined;
@@ -136,6 +139,7 @@ class RuntimeHostMakaSessionDriverImpl implements RuntimeHostMakaSessionDriver {
     this.#model = input.model;
     this.#llmConnectionSlug = input.llmConnectionSlug;
     this.#permissionMode = input.permissionMode ?? 'ask';
+    this.#newSessionFileEditToolset = input.fileEditToolset;
     this.#orchestrationMode = input.orchestrationMode ?? 'default';
   }
 
@@ -151,6 +155,7 @@ class RuntimeHostMakaSessionDriverImpl implements RuntimeHostMakaSessionDriver {
     this.#model = input.model;
     this.#thinkingLevel = input.thinkingLevel;
     this.#permissionMode = input.permissionMode ?? 'ask';
+    this.#newSessionFileEditToolset = input.fileEditToolset ?? this.#newSessionFileEditToolset;
     const session = await this.#createSession(input.name ?? DEFAULT_SESSION_NAME);
     return runtimeHostSessionSummary(session);
   }
@@ -580,6 +585,9 @@ class RuntimeHostMakaSessionDriverImpl implements RuntimeHostMakaSessionDriver {
           model: this.#model,
         },
         permissionMode: this.#permissionMode,
+        ...(this.#newSessionFileEditToolset
+          ? { fileEditToolset: this.#newSessionFileEditToolset }
+          : {}),
         ...(this.#orchestrationMode === 'default'
           ? {}
           : { orchestrationMode: this.#orchestrationMode }),
@@ -958,6 +966,7 @@ export function runtimeHostSessionSummary(session: SessionCatalogProjection): Se
     model: session.model,
     ...(session.thinkingLevel === undefined ? {} : { thinkingLevel: session.thinkingLevel }),
     permissionMode: session.permissionMode,
+    ...(session.fileEditToolset === undefined ? {} : { fileEditToolset: session.fileEditToolset }),
     collaborationMode: session.collaborationMode,
     orchestrationMode: session.orchestrationMode,
   };
