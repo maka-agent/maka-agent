@@ -603,11 +603,13 @@ function StepRow(props: {
               variant="ghost"
               size="sm"
               icon={<Copy size={14} aria-hidden="true" />}
-              label={copy.copyPricingKey}
+              label={`${copy.copyPricingKey}: ${pricingKey}`}
               onClick={() => {
                 void props.onCopyPricingKey(pricingKey);
               }}
-            />
+            >
+              {copy.copyPricingKey}
+            </Button>
           </span>
         )}
         {step.recovered && (
