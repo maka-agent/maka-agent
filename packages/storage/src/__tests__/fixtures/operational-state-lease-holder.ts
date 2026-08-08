@@ -5,10 +5,23 @@ if (!root || !process.send) {
   throw new Error('usage: operational-state-lease-holder <root>');
 }
 
-const lease = acquireOperationalStateDatabase(root);
-process.send({ type: 'ready' });
+let lease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
+const open = () => {
+  lease = acquireOperationalStateDatabase(root);
+  process.send?.({ type: 'ready' });
+};
+
+if (process.argv[3] === 'wait-for-open') {
+  process.send({ type: 'acquiring' });
+} else {
+  open();
+}
 process.on('message', (message) => {
+  if (message === 'open' && !lease) {
+    open();
+    return;
+  }
   if (message !== 'close') return;
-  lease.close();
+  lease?.close();
   process.exit(0);
 });

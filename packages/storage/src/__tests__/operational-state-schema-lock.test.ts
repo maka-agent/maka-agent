@@ -123,12 +123,14 @@ test('an operational opener waits for an in-progress migration turn', async () =
     ]);
     opener = fork(
       new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
-      [root],
+      [root, 'wait-for-open'],
       {
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       },
     );
+    await waitForMessage(opener, 'acquiring');
     const opened = waitForReady(opener);
+    opener.send('open');
     await assertPending(opened, 'operational opener');
 
     migrationHolder.send('close');
@@ -187,17 +189,17 @@ function readRuntimeVersion(databasePath: string): number {
 }
 
 function waitForReady(child: ChildProcess): Promise<void> {
+  return waitForMessage(child, 'ready');
+}
+
+function waitForMessage(child: ChildProcess, type: string): Promise<void> {
   return new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', (code, signal) => {
       reject(new Error(`operational lease holder exited before ready: ${code ?? signal}`));
     });
     child.once('message', (message) => {
-      if (
-        message &&
-        typeof message === 'object' &&
-        (message as { type?: unknown }).type === 'ready'
-      ) {
+      if (message && typeof message === 'object' && (message as { type?: unknown }).type === type) {
         resolve();
       } else {
         reject(new Error(`unexpected operational lease holder message: ${String(message)}`));
