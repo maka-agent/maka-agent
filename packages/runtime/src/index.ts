@@ -1501,6 +1501,7 @@ export type {
   ProductToolSurfaceIdentity,
   ProductToolSurfacePolicy,
 } from './tool-catalog-derive.js';
+export { applyPatchToolResultToModelOutput } from './file-tool-model-output.js';
 
 // ───────────────────────────────────────────────────────────────────────────
 // System-prompt fragments (shared by the desktop app and the CLI/TUI).

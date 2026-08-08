@@ -101,7 +101,7 @@ describe('heavy-task compact evidence', () => {
     );
   });
 
-  test('Write and Edit normalization omits mutation payloads and uses diff placeholders', () => {
+  test('file mutation evidence omits payloads and uses diff placeholders', () => {
     const writeContent = 'secret write body should not appear';
     const writeEvidence = compactToolEvidence({
       ...base,
@@ -122,7 +122,20 @@ describe('heavy-task compact evidence', () => {
       },
       result: { ok: true, path: 'src/out.txt', replacements: 1 },
     });
-    const serialized = JSON.stringify([writeEvidence, editEvidence]);
+    const patchBody = 'private patch body should not appear';
+    const patchEvidence = compactToolEvidence({
+      ...base,
+      evidenceId: 'patch-evidence',
+      name: 'ApplyPatch',
+      input: { cwd: '/workspace', patch: patchBody },
+      result: {
+        ok: true,
+        operations: [{ operation: 'update', path: 'src/out.txt', status: 'completed', bytes: 4 }],
+        completed: ['src/out.txt'],
+        uncompleted: [],
+      },
+    });
+    const serialized = JSON.stringify([writeEvidence, editEvidence, patchEvidence]);
 
     assert.equal(writeEvidence.tool?.inputSummary.contentOmitted, true);
     assert.equal(writeEvidence.tool?.diff?.status, 'not_captured');
@@ -130,7 +143,13 @@ describe('heavy-task compact evidence', () => {
     assert.equal(editEvidence.tool?.inputSummary.newStringOmitted, true);
     assert.equal(editEvidence.tool?.inputSummary.replacements, 1);
     assert.equal(editEvidence.tool?.diff?.status, 'not_captured');
-    assert.doesNotMatch(serialized, /secret write body|old private body|new private body/);
+    assert.equal(patchEvidence.tool?.inputSummary.patchOmitted, true);
+    assert.equal(patchEvidence.tool?.inputSummary.operationCount, 1);
+    assert.deepEqual(patchEvidence.tool?.diff?.files, [{ path: 'src/out.txt' }]);
+    assert.doesNotMatch(
+      serialized,
+      /secret write body|old private body|new private body|private patch body/,
+    );
   });
 
   test('artifact normalization preserves metadata without artifact body content', () => {

@@ -140,6 +140,7 @@ export async function runExperimentWithStorage(
       deps.realBackendIsolation?.toolExecutor,
       {
         agentTools: effectiveConfig.agentTools,
+        fileEditToolset: effectiveConfig.fileEditToolset,
         snapshotImage: createReadImageSnapshotter(storage.artifactStore),
       },
     );
@@ -190,6 +191,9 @@ export async function runExperimentWithStorage(
         llmConnectionSlug: config.llmConnectionSlug,
         model: config.model,
         permissionMode: 'ask',
+        ...(effectiveConfig.fileEditToolset
+          ? { fileEditToolset: effectiveConfig.fileEditToolset }
+          : {}),
         ...(deps.orchestrationMode ? { orchestrationMode: deps.orchestrationMode } : {}),
         name: `lab:${config.id}:${task.id}`,
       },
