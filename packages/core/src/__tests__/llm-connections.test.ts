@@ -1,6 +1,9 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
+import { connectionFallbackModelIds } from '../model-catalog.js';
+import { lookupModelMetadata } from '../model-metadata.js';
 import {
+  SUPERSEDED_MODEL_ID_ALIASES,
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
   PROVIDER_REGISTRY,
@@ -219,4 +222,66 @@ test('model reconciliation never invents a default the user cleared', () => {
     ),
     { defaultModel: '', enabledModelIds: ['picked'] },
   );
+});
+
+test('a superseded model id migrates to the inventory that still offers it', () => {
+  // Renaming, not retirement: the stored dated id and the curated alias name
+  // the same model, so the user stays on it.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'claude-haiku-4-5-20251001',
+        enabledModelIds: ['claude-haiku-4-5-20251001'],
+        hasModelInventory: true,
+      },
+      [{ id: 'claude-opus-5' }, { id: 'claude-haiku-4-5' }],
+    ),
+    { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
+  );
+  // Both forms enabled collapse onto one entry rather than duplicating.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'claude-haiku-4-5',
+        enabledModelIds: ['claude-haiku-4-5', 'claude-haiku-4-5-20251001'],
+        hasModelInventory: true,
+      },
+      [{ id: 'claude-haiku-4-5' }],
+    ),
+    { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
+  );
+  // An id the alias table does not claim is still repaired against the live
+  // list — retirement and renaming must not be conflated.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'claude-opus-4-1-20250805',
+        enabledModelIds: ['claude-opus-4-1-20250805'],
+        hasModelInventory: true,
+      },
+      [{ id: 'claude-opus-5' }],
+    ),
+    { defaultModel: 'claude-opus-5', enabledModelIds: ['claude-opus-5'] },
+  );
+});
+
+test('the superseded-id table only ever aliases a rename, never a retirement', () => {
+  const offered = new Set(
+    (Object.keys(PROVIDER_REGISTRY) as ProviderType[]).flatMap((providerType) => [
+      ...connectionFallbackModelIds(providerType),
+    ]),
+  );
+  for (const [supersededId, target] of Object.entries(SUPERSEDED_MODEL_ID_ALIASES)) {
+    // A target nothing lists would send reconciliation straight back to the
+    // "first live id" fallback this table exists to prevent.
+    assert.ok(offered.has(target), `alias target ${target} is not offered by any curated inventory`);
+    assert.notEqual(supersededId, target);
+    // The membership rule, machine-checked: a withdrawn model must be repaired
+    // against the live list, never silently rewritten to a different model.
+    assert.notEqual(
+      lookupModelMetadata('anthropic', supersededId).lifecycle,
+      'deprecated',
+      `${supersededId} is deprecated, so it is retired rather than renamed`,
+    );
+  }
 });

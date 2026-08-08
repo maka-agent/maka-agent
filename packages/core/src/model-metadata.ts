@@ -494,7 +494,7 @@ const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly str
     'claude-sonnet-4-6',
     'claude-opus-4-8',
     'claude-haiku-4-5',
-    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4-5',
   ],
   openai: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5'],
   deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-reasoner', 'deepseek-chat'],

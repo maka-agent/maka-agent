@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { PROVIDER_DEFAULTS, type LlmConnection } from '@maka/core';
+import { buildConnectionModelCatalogEntries } from '@maka/core/model-catalog';
 import {
   CLAUDE_SUBSCRIPTION_CONNECTION_SLUG,
   createOAuthModelConnectionsMainService,
@@ -92,7 +93,9 @@ describe('Claude subscription model connection synchronization', () => {
     const synchronized = await service.syncClaudeSubscriptionConnection();
 
     assert.ok(synchronized?.enabledModelIds?.includes('claude-opus-5'));
-    assert.ok(synchronized?.enabledModelIds?.includes('claude-sonnet-4-5-20250929'));
+    // The prior selection survives too — under the id this inventory lists it
+    // as, since the curated list carries aliases rather than pinned releases.
+    assert.ok(synchronized?.enabledModelIds?.includes('claude-sonnet-4-5'));
   });
 
   test('repairs a default model the curated catalog has retired', async () => {
@@ -111,5 +114,59 @@ describe('Claude subscription model connection synchronization', () => {
     assert.ok(curated.includes(synchronized?.defaultModel ?? ''));
     assert.ok(synchronized?.enabledModelIds?.includes(synchronized.defaultModel));
     assert.equal(synchronized?.enabledModelIds?.includes('claude-opus-4-1-20250805'), false);
+  });
+
+  // A dated id and its "latest" alias name the same model, so migration must
+  // keep the user on it. Asserting only "the new default is in the curated
+  // list" would pass while silently moving a Haiku user onto Opus — across
+  // model family and price tier — so these assert the family survives.
+  for (const { title, storedId, family } of [
+    { title: 'Haiku', storedId: 'claude-haiku-4-5-20251001', family: 'haiku' },
+    { title: 'Sonnet 4.5', storedId: 'claude-sonnet-4-5-20250929', family: 'sonnet-4-5' },
+  ]) {
+    test(`keeps an existing ${title} selection on ${title} when its id is superseded`, async () => {
+      const service = claudeService(
+        persistedConnection({
+          defaultModel: storedId,
+          models: [{ id: storedId }],
+          modelSource: 'fallback',
+          enabledModelIds: [storedId],
+        }),
+      );
+
+      const synchronized = await service.syncClaudeSubscriptionConnection();
+
+      assert.ok(
+        synchronized?.defaultModel.includes(family),
+        `expected a ${title} default, got ${synchronized?.defaultModel}`,
+      );
+      assert.ok(synchronized?.enabledModelIds?.includes(synchronized.defaultModel));
+      assert.ok(
+        PROVIDER_DEFAULTS['claude-subscription'].fallbackModels.includes(
+          synchronized?.defaultModel ?? '',
+        ),
+      );
+    });
+  }
+
+  test('reconciles against the same inventory the settings catalog offers', async () => {
+    const service = claudeService(persistedConnection({ modelSource: 'fallback' }));
+
+    const synchronized = await service.syncClaudeSubscriptionConnection();
+    assert.ok(synchronized);
+
+    // The drift this guards: a model offered by the catalog but absent from the
+    // sync inventory is filtered out of enabledModelIds on the next refresh,
+    // which reads in the product as an option that cannot be selected.
+    assert.deepEqual(
+      synchronized.models?.map(({ id }) => id),
+      buildConnectionModelCatalogEntries({
+        connection: {
+          slug: CLAUDE_SUBSCRIPTION_CONNECTION_SLUG,
+          providerType: 'claude-subscription',
+          defaultModel: synchronized.defaultModel,
+        },
+      }).map(({ id }) => id),
+    );
   });
 });

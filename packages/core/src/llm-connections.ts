@@ -148,6 +148,42 @@ export function connectionEnabledModelIds(connection: {
 }
 
 /**
+ * Model ids that name the same model as another id, mapped to the form a
+ * curated inventory is more likely to list them under.
+ *
+ * This is renaming, not retirement: Anthropic publishes a pinned dated id and a
+ * shorter "latest" alias for one model, so an inventory listing either form
+ * still offers a selection stored in the other. Reconciliation compares ids
+ * literally, so without this table a stored `claude-haiku-4-5-20251001` reads as
+ * a model the catalog dropped, and repair falls through to the first live id —
+ * moving a Haiku user onto Opus, across both model family and price tier, with
+ * no prompt.
+ *
+ * Membership rule: only ids that name the *same* model as their target. A model
+ * that was genuinely withdrawn (`claude-opus-4-1-20250805`, carrying
+ * `lifecycle: 'deprecated'`) does NOT belong here — repairing that one onto a
+ * different model is correct, because the original is gone.
+ */
+export const SUPERSEDED_MODEL_ID_ALIASES: Readonly<Record<string, string>> = {
+  'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
+};
+
+/**
+ * Resolve a stored id against one inventory. Whether an id is superseded is a
+ * property of the inventory, not of the id: the API-key Anthropic catalog
+ * deliberately lists `claude-sonnet-4-5-20250929` alongside its alias so users
+ * can pin a release, while the subscription catalog lists aliases only. So this
+ * rewrites only when the stored id is absent AND its alias is present — the
+ * exact case where a literal comparison would misread a rename as a removal.
+ */
+function supersededModelId(modelId: string, live: ReadonlySet<string>): string {
+  if (live.has(modelId)) return modelId;
+  const alias = SUPERSEDED_MODEL_ID_ALIASES[modelId];
+  return alias !== undefined && live.has(alias) ? alias : modelId;
+}
+
+/**
  * THE rule for a connection's model selection:
  * **`defaultModel` is either absent, or a member of `enabledModelIds`.**
  *
@@ -228,9 +264,19 @@ export function reconcileConnectionAfterModelFetch(
     liveIds.push(id);
   }
 
-  const previousDefault =
-    typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '';
-  const previousEnabled = connectionEnabledModelIds(connection);
+  // Migrate before matching: a superseded id names a model the inventory still
+  // offers under its current id, so comparing it literally would classify a
+  // live model as retired and fall through to "first live id" — silently
+  // moving the user to an unrelated model family.
+  const previousDefault = supersededModelId(
+    typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '',
+    live,
+  );
+  // Every downstream use funnels through connectionEnabledModelIds, which
+  // dedupes — so mapping two ids onto one alias here is safe.
+  const previousEnabled = connectionEnabledModelIds(connection).map((id) =>
+    supersededModelId(id, live),
+  );
 
   if (liveIds.length === 0) {
     const defaultModel = previousDefault;

@@ -6,6 +6,7 @@ import {
   type LlmConnection,
   type ModelDiscoverySource,
 } from '@maka/core/llm-connections';
+import { connectionFallbackModelIds } from '@maka/core/model-catalog';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
 import type { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { isSubscriptionExperimentalEnabled } from './oauth/claude-subscription-helpers.js';
@@ -74,12 +75,16 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     const defaults = PROVIDER_DEFAULTS['claude-subscription'];
     // Session-scoped subscription tokens cannot reach /v1/models, so this
     // provider declares fallback-only discovery and can never hold a fetched
-    // snapshot. Rebuild the inventory from the current registry instead of
+    // snapshot. Rebuild the inventory from the curated catalog instead of
     // pinning whatever was persisted: a stale copy on disk both hides newly
     // curated models (claude-opus-5) and makes reconciliation drop them back
     // out of enabledModelIds the moment the user selects one. Same reasoning
     // as the rebuilt fallback snapshot in syncOpenAiCodexConnection.
-    const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
+    //
+    // Read through connectionFallbackModelIds, the same authority the settings
+    // catalog projects from, so the list a user is offered and the list their
+    // selection is reconciled against cannot drift apart.
+    const fallbackModels = connectionFallbackModelIds('claude-subscription').map((id) => ({ id }));
     const displayName = 'Claude OAuth';
     const now = Date.now();
     const connection: LlmConnection = {
