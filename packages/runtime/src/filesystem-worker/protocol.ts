@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import { validateSandboxBoundaryExpansion } from '@maka/core';
 
-export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 4 as const;
+// v6 adds no-follow create/replace/delete mutations for ApplyPatch settlement.
+export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 6 as const;
 
 const path = z.string().min(1).max(4096);
 const cwd = z.string().min(1).max(4096);
@@ -40,7 +41,7 @@ export const FilesystemWorkerTargetSchema = z
     enforcementPath: path,
     access: z.enum(['read', 'write']),
     scope: z.enum(['exact', 'subtree']),
-    targetType: z.enum(['file', 'directory', 'other', 'missing']),
+    targetType: z.enum(['file', 'directory', 'symlink', 'other', 'missing']),
   })
   .strict();
 
@@ -54,7 +55,18 @@ export const FilesystemWorkerOperationSchema = z.discriminatedUnion('kind', [
       limit: z.number().int().positive().optional(),
     })
     .strict(),
-  z.object({ kind: z.literal('write'), cwd, path, content: z.string() }).strict(),
+  z.object({ kind: z.literal('lstat'), cwd, path }).strict(),
+  z
+    .object({
+      kind: z.literal('write'),
+      cwd,
+      path,
+      content: z.string(),
+      mode: z.enum(['create', 'replace']).optional(),
+      expectedToken: z.string().min(1).optional(),
+    })
+    .strict(),
+  z.object({ kind: z.literal('delete'), cwd, path, expectedToken: z.string().min(1) }).strict(),
   z
     .object({
       kind: z.literal('edit'),
@@ -106,6 +118,13 @@ export const FilesystemWorkerRequestSchema = z
   .strict();
 
 export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
+  z
+    .object({
+      kind: z.literal('lstat'),
+      targetType: z.enum(['file', 'directory', 'symlink', 'other', 'missing']),
+      token: z.string().min(1),
+    })
+    .strict(),
   z.object({ kind: z.literal('read'), content: z.string() }).strict(),
   z
     .object({
@@ -120,9 +139,11 @@ export const FilesystemWorkerResultSchema = z.discriminatedUnion('kind', [
       ok: z.literal(true),
       path: z.string(),
       bytes: z.number().int().nonnegative(),
+      token: z.string().min(1).optional(),
       diff: z.string().optional(),
     })
     .strict(),
+  z.object({ kind: z.literal('delete'), ok: z.literal(true), path: z.string() }).strict(),
   z
     .object({
       kind: z.literal('edit'),

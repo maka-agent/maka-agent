@@ -10,12 +10,14 @@
 // "full access" stricter than ask mode, which grants :slash_tmp outright (#2083).
 
 import { Buffer } from 'node:buffer';
-import { realpath } from 'node:fs/promises';
-import { isAbsolute } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { lstat, mkdir, open, realpath, rename, unlink } from 'node:fs/promises';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import type { ExecutionBoundary, PermissionMode, PermissionProfile } from '@maka/core';
 import { computeEditedSource } from './edit-replace.js';
 import { createUnifiedDiff } from './unified-diff.js';
 import { withFileWriteLock } from './file-write-lock.js';
+import { assertFilesystemEntryRevision, snapshotFilesystemEntry } from './filesystem-revision.js';
 import type {
   FilesystemWorkerClient,
   FilesystemWorkerClientOperation,
@@ -23,6 +25,7 @@ import type {
 import type { ImageMimeType } from './image-file.js';
 import type { FilesystemWorkerResult } from './filesystem-worker/protocol.js';
 import { normalizeSandboxBoundaryPath } from './sandbox-boundary-path.js';
+import { isPathInside, realpathAllowMissing } from './path-containment.js';
 import { SandboxCommandError } from './sandbox/errors.js';
 import type {
   WorkspaceEditExecutor,
@@ -91,7 +94,16 @@ function pathScopeForBoundary(boundary: ExecutionBoundary | undefined): Workspac
 /** Operations that read, modify and write back, and so must hold the target's lock. */
 function mutates(operation: FilesystemOperation): boolean {
   return (
-    operation.kind === 'write' || operation.kind === 'edit' || operation.kind === 'format_json'
+    operation.kind === 'write' ||
+    operation.kind === 'delete' ||
+    operation.kind === 'edit' ||
+    operation.kind === 'format_json'
+  );
+}
+
+function mutatesDirectoryEntry(operation: FilesystemOperation): boolean {
+  return (
+    operation.kind === 'delete' || (operation.kind === 'write' && operation.mode !== undefined)
   );
 }
 
@@ -160,15 +172,29 @@ export function createBoundaryFilesystemExecutor(
       // with, or the lock-key space and the resolved-path space drift apart.
       const worker = workerFor(call.executionBoundary);
       const key = worker
-        ? (
-            await normalizeSandboxBoundaryPath({
-              path: call.operation.path,
-              access: 'write',
-              scope: 'exact',
+        ? mutatesDirectoryEntry(call.operation)
+          ? await resolveDirectoryEntryPath({
               cwd: await canonicalExistingPath(call.cwd),
+              path: call.operation.path,
+              label: 'ApplyPatch lock',
+              scope: 'host',
             })
-          ).enforcementPath
-        : (await input.workspace.writeLockKey({ cwd: call.cwd, path: call.operation.path })).key;
+          : (
+              await normalizeSandboxBoundaryPath({
+                path: call.operation.path,
+                access: 'write',
+                scope: 'exact',
+                cwd: await canonicalExistingPath(call.cwd),
+              })
+            ).enforcementPath
+        : mutatesDirectoryEntry(call.operation)
+          ? await resolveDirectoryEntryPath({
+              cwd: call.cwd,
+              path: call.operation.path,
+              label: 'ApplyPatch lock',
+              scope: pathScopeForBoundary(call.executionBoundary),
+            })
+          : (await input.workspace.writeLockKey({ cwd: call.cwd, path: call.operation.path })).key;
       return await withFileWriteLock(key, () => run(call));
     },
   };
@@ -189,6 +215,25 @@ function createWorkspaceFilesystemExecutor(
   return {
     async execute({ operation, cwd, abortSignal }, scope) {
       switch (operation.kind) {
+        case 'lstat': {
+          const path = await resolveDirectoryEntryPath({
+            cwd,
+            path: operation.path,
+            label: 'ApplyPatch lstat',
+            scope,
+          });
+          try {
+            const snapshot = await snapshotFilesystemEntry(path);
+            return { kind: 'lstat', targetType: snapshot.targetType, token: snapshot.token };
+          } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (code === 'ENOENT' || code === 'ENOTDIR') {
+              const snapshot = await snapshotFilesystemEntry(path);
+              return { kind: 'lstat', targetType: 'missing', token: snapshot.token };
+            }
+            throw error;
+          }
+        }
         case 'read': {
           const { path } = await workspace.resolveExistingPath({
             cwd,
@@ -208,12 +253,21 @@ function createWorkspaceFilesystemExecutor(
           return { kind: 'read', content: result.content };
         }
         case 'write': {
-          const { path } = await workspace.resolveWritablePath({
-            cwd,
-            path: operation.path,
-            label: 'Write',
-            scope,
-          });
+          const path = operation.mode
+            ? await resolveDirectoryEntryPath({
+                cwd,
+                path: operation.path,
+                label: `ApplyPatch ${operation.mode}`,
+                scope,
+              })
+            : (
+                await workspace.resolveWritablePath({
+                  cwd,
+                  path: operation.path,
+                  label: 'Write',
+                  scope,
+                })
+              ).path;
           // Read-before-write: an overwrite's diff is what tells the reader
           // what was lost. Only a missing file means the whole content is
           // new — an unreadable or binary existing file leaves the previous
@@ -227,7 +281,14 @@ function createWorkspaceFilesystemExecutor(
             const code = (error as NodeJS.ErrnoException).code;
             previous = code === 'ENOENT' || code === 'ENOTDIR' ? 'new' : 'unknown';
           }
-          const written = await workspace.writeFile({ cwd, path, content: operation.content });
+          const written = operation.mode
+            ? await writePatchFile(
+                path,
+                operation.content,
+                operation.mode,
+                operation.expectedToken ?? '',
+              )
+            : await workspace.writeFile({ cwd, path, content: operation.content });
           const diff =
             previous === 'unknown'
               ? undefined
@@ -236,13 +297,26 @@ function createWorkspaceFilesystemExecutor(
                   previous === 'new' ? undefined : previous,
                   operation.content,
                 );
+          const token = operation.mode ? (await snapshotFilesystemEntry(path)).token : undefined;
           return {
             kind: 'write',
             ok: true,
             path: written.path,
             bytes: written.bytes,
+            ...(token ? { token } : {}),
             ...(diff !== undefined ? { diff } : {}),
           };
+        }
+        case 'delete': {
+          const path = await resolveDirectoryEntryPath({
+            cwd,
+            path: operation.path,
+            label: 'ApplyPatch delete',
+            scope,
+          });
+          await assertFilesystemEntryRevision(path, operation.expectedToken);
+          await unlink(path);
+          return { kind: 'delete', ok: true, path };
         }
         case 'edit': {
           const { path } = await workspace.resolveExistingPath({
@@ -355,6 +429,70 @@ function createWorkspaceFilesystemExecutor(
         }
       }
     },
+  };
+}
+
+/** Resolve a directory entry without following its final symlink. */
+async function resolveDirectoryEntryPath(input: {
+  cwd: string;
+  path: string;
+  label: string;
+  scope: WorkspacePathScope;
+}): Promise<string> {
+  const root = await canonicalExistingPath(input.cwd);
+  const candidate = isAbsolute(input.path) ? resolve(input.path) : resolve(input.cwd, input.path);
+  const parent = await realpathAllowMissing(dirname(candidate));
+  if (input.scope === 'workspace' && !isPathInside(root, parent)) {
+    throw new Error(`${input.label} path must stay inside session cwd`);
+  }
+  return resolve(parent, basename(candidate));
+}
+
+async function writePatchFile(
+  path: string,
+  content: string,
+  mode: 'create' | 'replace',
+  expectedToken: string,
+): Promise<{ ok: true; path: string; bytes: number; token: string }> {
+  if (!expectedToken) throw new Error('Patch write requires an expected revision');
+  await assertFilesystemEntryRevision(path, expectedToken);
+  if (mode === 'create') {
+    await mkdir(dirname(path), { recursive: true });
+    await assertFilesystemEntryRevision(path, expectedToken);
+    const handle = await open(path, 'wx');
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+    } catch (error) {
+      await handle.close().catch(() => {});
+      await unlink(path).catch(() => {});
+      throw error;
+    }
+    await handle.close();
+  } else {
+    const metadata = await lstat(path);
+    if (!metadata.isFile() || metadata.isSymbolicLink()) {
+      throw new Error('ApplyPatch replace target is no longer a regular file');
+    }
+    const temp = resolve(dirname(path), `.maka-apply-patch-${process.pid}-${randomUUID()}.tmp`);
+    const handle = await open(temp, 'wx', metadata.mode);
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+      await handle.close();
+      await assertFilesystemEntryRevision(path, expectedToken);
+      await rename(temp, path);
+    } catch (error) {
+      await handle.close().catch(() => {});
+      await unlink(temp).catch(() => {});
+      throw error;
+    }
+  }
+  return {
+    ok: true,
+    path,
+    bytes: Buffer.byteLength(content, 'utf8'),
+    token: (await snapshotFilesystemEntry(path)).token,
   };
 }
 

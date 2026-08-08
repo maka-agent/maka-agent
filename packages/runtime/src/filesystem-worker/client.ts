@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { realpath } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
+import { lstat, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import {
   canReadPath,
   canWritePath,
@@ -13,6 +14,7 @@ import {
 } from '@maka/core';
 
 import { normalizeSandboxBoundaryPath } from '../sandbox-boundary-path.js';
+import { realpathAllowMissing } from '../path-containment.js';
 import { pinExistingLinuxProfilePath } from '../sandbox/linux-profile-path.js';
 import type { SandboxManager } from '../sandbox/sandbox-manager.js';
 import type { SandboxPlatform } from '../sandbox/types.js';
@@ -150,12 +152,20 @@ export class FilesystemWorkerClient {
     if (!parsedOperation.success) throw clientError('invalid_operation', 'validation', requestId);
 
     const access = operationAccess(parsedOperation.data.kind);
-    const target = await normalizeSandboxBoundaryPath({
-      path: parsedOperation.data.path,
-      access,
-      scope: operationScope(parsedOperation.data.kind),
-      cwd: canonicalCwd,
-    }).catch(() => {
+    const entryMode = usesDirectoryEntrySemantics(parsedOperation.data);
+    const target = await (entryMode
+      ? normalizeDirectoryEntryTarget({
+          path: parsedOperation.data.path,
+          access,
+          cwd: canonicalCwd,
+        })
+      : normalizeSandboxBoundaryPath({
+          path: parsedOperation.data.path,
+          access,
+          scope: operationScope(parsedOperation.data.kind),
+          cwd: canonicalCwd,
+        })
+    ).catch(() => {
       throw clientError('invalid_operation', 'validation', requestId);
     });
     const compiled =
@@ -177,12 +187,20 @@ export class FilesystemWorkerClient {
       access,
       enforcementPath: target.enforcementPath,
       targetType: target.targetType,
+      entryMode,
+    });
+    const runtimeReadableRoots = filesystemWorkerRuntimeReadableRoots({
+      platform,
+      access,
+      enforcementPath: target.enforcementPath,
+      entryMode,
     });
     const pathContext = {
       workspaceRoots: compiled.workspaceRoots,
       tmpdir: await canonicalPath(tmpdir()),
       slashTmp: await canonicalPath('/tmp'),
       ...(runtimeWritableRoots ? { runtimeWritableRoots } : {}),
+      ...(runtimeReadableRoots ? { runtimeReadableRoots } : {}),
     };
     const allowed =
       access === 'write'
@@ -220,7 +238,10 @@ export class FilesystemWorkerClient {
     } as const;
     const operation = FilesystemWorkerOperationSchema.parse({
       ...parsedOperation.data,
-      path: target.enforcementPath,
+      path:
+        parsedOperation.data.kind === 'delete' || parsedOperation.data.kind === 'lstat'
+          ? target.displayPath
+          : target.enforcementPath,
     });
     const request = {
       version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
@@ -243,13 +264,13 @@ export class FilesystemWorkerClient {
     if (!launch.ok) throw clientError(launch.reason, 'launch', requestId, launch.message);
     const workerProfile = deriveWorkerProfile(effectiveProfile, operationBoundary);
     const pinnedTarget =
-      platform === 'linux' && target.targetType !== 'missing'
+      platform === 'linux' && !entryMode && target.targetType !== 'missing'
         ? (() => {
             try {
               return pinExistingLinuxProfilePath({
                 path: target.enforcementPath,
                 access,
-                targetType: target.targetType,
+                targetType: target.targetType as 'file' | 'directory' | 'other',
                 childFd: 4,
               });
             } catch {
@@ -262,7 +283,7 @@ export class FilesystemWorkerClient {
             }
           })()
         : undefined;
-    if (platform === 'linux' && target.targetType !== 'missing' && !pinnedTarget) {
+    if (platform === 'linux' && !entryMode && target.targetType !== 'missing' && !pinnedTarget) {
       throw clientError(
         'path_changed',
         'validation',
@@ -271,7 +292,9 @@ export class FilesystemWorkerClient {
       );
     }
     const pinnedRuntimeWritableRoot =
-      platform === 'linux' && target.targetType === 'missing' && runtimeWritableRoots?.[0]
+      platform === 'linux' &&
+      runtimeWritableRoots?.[0] &&
+      (entryMode || target.targetType === 'missing')
         ? (() => {
             try {
               return pinExistingLinuxProfilePath({
@@ -292,8 +315,8 @@ export class FilesystemWorkerClient {
         : undefined;
     if (
       platform === 'linux' &&
-      target.targetType === 'missing' &&
       runtimeWritableRoots &&
+      (entryMode || target.targetType === 'missing') &&
       !pinnedRuntimeWritableRoot
     ) {
       throw clientError(
@@ -315,7 +338,10 @@ export class FilesystemWorkerClient {
           profile: workerProfile,
           pathContext: {
             ...pathContext,
-            runtimeReadableRoots: launch.spec.runtimeReadableRoots,
+            runtimeReadableRoots: uniqueRoots([
+              ...(pathContext.runtimeReadableRoots ?? []),
+              ...launch.spec.runtimeReadableRoots,
+            ]),
             executableRoots: launch.spec.executableRoots,
             ...(pinnedTarget
               ? {
@@ -425,11 +451,43 @@ export function filesystemWorkerRuntimeWritableRoots(input: {
   access: 'read' | 'write';
   enforcementPath: string;
   targetType: FilesystemWorkerTarget['targetType'];
+  entryMode?: boolean;
 }): readonly string[] | undefined {
-  if (input.platform !== 'linux' || input.access !== 'write' || input.targetType !== 'missing') {
-    return undefined;
+  if (input.platform !== 'linux' || input.access !== 'write') return undefined;
+  if (!input.entryMode && input.targetType !== 'missing') return undefined;
+  const ancestor = deepestExistingAncestor(dirname(input.enforcementPath));
+  return ancestor ? [ancestor] : undefined;
+}
+
+/** @internal Read-only parent mount for an entry-mode lstat probe on Linux. */
+export function filesystemWorkerRuntimeReadableRoots(input: {
+  platform: SandboxPlatform;
+  access: 'read' | 'write';
+  enforcementPath: string;
+  entryMode?: boolean;
+}): readonly string[] | undefined {
+  if (input.platform !== 'linux' || input.access !== 'read' || !input.entryMode) return undefined;
+  const ancestor = deepestExistingAncestor(dirname(input.enforcementPath));
+  return ancestor ? [ancestor] : undefined;
+}
+
+function deepestExistingAncestor(path: string): string | undefined {
+  let cursor = path;
+  while (true) {
+    try {
+      return realpathSync(cursor);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+      const parent = dirname(cursor);
+      if (parent === cursor) return undefined;
+      cursor = parent;
+    }
   }
-  return [dirname(input.enforcementPath)];
+}
+
+function uniqueRoots(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
 }
 
 function deriveWorkerProfile(
@@ -467,7 +525,9 @@ function deriveWorkerProfile(
 }
 
 function operationAccess(kind: FilesystemWorkerOperation['kind']): 'read' | 'write' {
-  return kind === 'write' || kind === 'edit' || kind === 'format_json' ? 'write' : 'read';
+  return kind === 'write' || kind === 'delete' || kind === 'edit' || kind === 'format_json'
+    ? 'write'
+    : 'read';
 }
 
 function operationScope(kind: FilesystemWorkerOperation['kind']): 'exact' | 'subtree' | 'auto' {
@@ -477,6 +537,48 @@ function operationScope(kind: FilesystemWorkerOperation['kind']): 'exact' | 'sub
 
 async function canonicalPath(path: string): Promise<string> {
   return await realpath(path).catch(() => path);
+}
+
+function usesDirectoryEntrySemantics(operation: FilesystemWorkerOperation): boolean {
+  return (
+    operation.kind === 'lstat' ||
+    operation.kind === 'delete' ||
+    (operation.kind === 'write' && operation.mode === 'create')
+  );
+}
+
+async function normalizeDirectoryEntryTarget(input: {
+  path: string;
+  cwd: string;
+  access: 'read' | 'write';
+}): Promise<FilesystemWorkerTarget & { displayPath: string }> {
+  const requested = isAbsolute(input.path) ? resolve(input.path) : resolve(input.cwd, input.path);
+  const enforcementPath = resolve(
+    await realpathAllowMissing(dirname(requested)),
+    basename(requested),
+  );
+  let targetType: FilesystemWorkerTarget['targetType'];
+  try {
+    const metadata = await lstat(enforcementPath);
+    targetType = metadata.isSymbolicLink()
+      ? 'symlink'
+      : metadata.isFile()
+        ? 'file'
+        : metadata.isDirectory()
+          ? 'directory'
+          : 'other';
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code !== 'ENOENT' && code !== 'ENOTDIR') throw error;
+    targetType = 'missing';
+  }
+  return {
+    displayPath: requested,
+    enforcementPath,
+    access: input.access,
+    scope: 'exact',
+    targetType,
+  };
 }
 
 function clientError(
