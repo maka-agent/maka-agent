@@ -13,7 +13,11 @@ describe('Harbor cell output contract', () => {
   test('rejects malformed or internally inconsistent product-tool identities', () => {
     const identity = (
       productToolSurface: {
-        policy: { economy: boolean; disabledSurfaceIds: string[] };
+        policy: {
+          economy: boolean;
+          fileEditToolset?: 'edit_write' | 'apply_patch';
+          disabledSurfaceIds: string[];
+        };
         productToolNames: string[];
       },
       agentTools = false,
@@ -26,6 +30,18 @@ describe('Harbor cell output contract', () => {
       productToolSurface,
     });
     const cases: Array<[string, unknown, RegExp]> = [
+      [
+        'file-edit toolset mismatch',
+        identity({
+          policy: {
+            economy: true,
+            fileEditToolset: 'apply_patch',
+            disabledSurfaceIds: [],
+          },
+          productToolNames: ['Read', 'Write'],
+        }),
+        /Write.*conflicts with file-edit toolset "apply_patch"/,
+      ],
       [
         'unknown tool',
         identity({
@@ -224,7 +240,7 @@ describe('Harbor cell output contract', () => {
       pricingProfile: 'deepseek-v4-flash-tbench-v1',
       agentTools: true,
       productToolSurface: {
-        policy: { economy: true, disabledSurfaceIds: [] },
+        policy: { economy: true, fileEditToolset: 'edit_write', disabledSurfaceIds: [] },
         productToolNames: ['Bash', 'agent_spawn'],
       },
       supplementalToolSets: [

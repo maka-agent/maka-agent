@@ -9,6 +9,7 @@ import type {
   InvocationResult,
   ProductToolSurfaceIdentity,
 } from '@maka/runtime';
+import { isFileEditToolset, resolveFileEditToolset } from '@maka/core/file-edit-toolset';
 import type { SupplementalToolSetIdentity } from './task-contracts.js';
 import type { HeadlessSystemPromptMode } from './contracts.js';
 
@@ -479,12 +480,31 @@ function validateProductToolSurfaceIdentity(value: unknown): ProductToolSurfaceI
       );
     }
   }
+  const fileEditToolset = resolveFileEditToolset(
+    value.policy.fileEditToolset === undefined
+      ? undefined
+      : isFileEditToolset(value.policy.fileEditToolset)
+        ? value.policy.fileEditToolset
+        : (() => {
+            throw new Error(
+              'executionIdentity.productToolSurface.policy.fileEditToolset must be edit_write or apply_patch',
+            );
+          })(),
+  );
+  const forbiddenFileTools = fileEditToolset === 'apply_patch' ? ['Write', 'Edit'] : ['ApplyPatch'];
+  const forbiddenFileTool = forbiddenFileTools.find((name) => productToolNames.includes(name));
+  if (forbiddenFileTool) {
+    throw new Error(
+      `executionIdentity.productToolSurface.productToolNames entry "${forbiddenFileTool}" conflicts with file-edit toolset "${fileEditToolset}"`,
+    );
+  }
   return {
     policy: {
       economy: requireBoolean(
         value.policy.economy,
         'executionIdentity.productToolSurface.policy.economy',
       ),
+      fileEditToolset,
       disabledSurfaceIds,
     },
     productToolNames,

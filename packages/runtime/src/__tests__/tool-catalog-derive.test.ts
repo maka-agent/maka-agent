@@ -19,6 +19,31 @@ function tool(name: string): MakaTool {
 }
 
 describe('projectEffectiveProductToolSurface', () => {
+  it('binds exactly one file-edit toolset and records the normalized choice', () => {
+    const candidates = [tool('Read'), tool('Write'), tool('Edit'), tool('ApplyPatch')];
+    const editWrite = projectEffectiveProductToolSurface({
+      host: 'headless',
+      tools: candidates,
+      policy: { economy: true },
+    });
+    const applyPatch = projectEffectiveProductToolSurface({
+      host: 'headless',
+      tools: candidates,
+      policy: { economy: true, fileEditToolset: 'apply_patch' },
+    });
+
+    assert.deepEqual(
+      editWrite.tools.map((candidate) => candidate.name),
+      ['Read', 'Write', 'Edit'],
+    );
+    assert.equal(editWrite.identity.policy.fileEditToolset, 'edit_write');
+    assert.deepEqual(
+      applyPatch.tools.map((candidate) => candidate.name),
+      ['Read', 'ApplyPatch'],
+    );
+    assert.equal(applyPatch.identity.policy.fileEditToolset, 'apply_patch');
+  });
+
   it('removes a disabled surface before deriving the effective binding', () => {
     const surface = projectEffectiveProductToolSurface({
       host: 'headless',
@@ -33,6 +58,7 @@ describe('projectEffectiveProductToolSurface', () => {
       ],
       policy: {
         economy: true,
+        fileEditToolset: 'edit_write',
         disabledSurfaceIds: ['agent'],
       },
     });
@@ -91,6 +117,7 @@ describe('projectEffectiveProductToolSurface', () => {
     assert.deepEqual(surface.identity, {
       policy: {
         economy: true,
+        fileEditToolset: 'edit_write',
         disabledSurfaceIds: ['agent'],
       },
       productToolNames: ['Read', 'browser_click', 'browser_navigate'],

@@ -11,17 +11,20 @@ import {
   unknownBoundToolNames,
   type ToolHostId,
 } from '@maka/core/tool-catalog';
+import { resolveFileEditToolset, type FileEditToolset } from '@maka/core/file-edit-toolset';
 import type { HostCapabilities } from './skills-context.js';
 import type { ToolGroup } from './tool-availability.js';
 import type { MakaTool } from './tool-runtime.js';
 
 export interface ProductToolSurfacePolicy {
   readonly economy: boolean;
+  readonly fileEditToolset?: FileEditToolset;
   readonly disabledSurfaceIds?: Iterable<string>;
 }
 
 export interface NormalizedProductToolSurfacePolicy {
   readonly economy: boolean;
+  readonly fileEditToolset: FileEditToolset;
   readonly disabledSurfaceIds: readonly string[];
 }
 
@@ -91,8 +94,15 @@ export function projectEffectiveProductToolSurface(input: {
   tools: readonly MakaTool[];
   policy: ProductToolSurfacePolicy;
 }): EffectiveProductToolSurface {
+  const fileEditToolset = resolveFileEditToolset(input.policy.fileEditToolset);
   const disabledSurfaceIds = [...new Set(input.policy.disabledSurfaceIds ?? [])].sort();
   const excludedToolNames = new Set<string>();
+  if (fileEditToolset === 'apply_patch') {
+    excludedToolNames.add('Write');
+    excludedToolNames.add('Edit');
+  } else {
+    excludedToolNames.add('ApplyPatch');
+  }
   for (const surfaceId of disabledSurfaceIds) {
     const surface = catalogSurfaceById(surfaceId);
     if (!surface) throw new Error(`Unknown product-tool surface "${surfaceId}"`);
@@ -115,6 +125,7 @@ export function projectEffectiveProductToolSurface(input: {
   const hostCapabilities = buildHostCapabilitiesFromBinding(boundToolNames);
   const policy = Object.freeze({
     economy: input.policy.economy,
+    fileEditToolset,
     disabledSurfaceIds: Object.freeze(disabledSurfaceIds),
   });
   return Object.freeze({

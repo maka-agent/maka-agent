@@ -1108,7 +1108,11 @@ describe('runHarborCell', () => {
       assert.equal(observed.spawned, false);
       assert.match(observed.error ?? '', /missing tools/i);
       assert.deepEqual(result.output.executionIdentity?.productToolSurface, {
-        policy: { economy: true, disabledSurfaceIds: ['agent'] },
+        policy: {
+          economy: true,
+          fileEditToolset: 'edit_write',
+          disabledSurfaceIds: ['agent'],
+        },
         productToolNames: ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'],
       });
     });
