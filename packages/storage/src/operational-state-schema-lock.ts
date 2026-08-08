@@ -77,13 +77,12 @@ function tryAcquireOperationalStateSchemaLock(
   mkdirSync(dirname(canonicalDatabasePath), { recursive: true });
   const databaseFd = openSync(
     canonicalDatabasePath,
-    fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
+    fsConstants.O_CREAT | fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
     0o600,
   );
   let lockFd: number | undefined;
   let acquired = false;
   try {
-    if (process.platform !== 'win32') fchmodSync(databaseFd, 0o600);
     const databaseIdentity = assertStableRegularFile(databaseFd, canonicalDatabasePath);
     const lockPath = resolveOperationalStateLockPath(
       databaseIdentity.dev,

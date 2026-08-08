@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -303,6 +303,33 @@ test('rejects an unknown operational schema without changing the database', asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test(
+  'rejecting operational state preserves database permissions',
+  { skip: process.platform === 'win32' },
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-operational-rejected-mode-'));
+    const databasePath = join(root, 'runtime.sqlite');
+    try {
+      acquireOperationalStateDatabase(root).close();
+
+      const database = new DatabaseSync(databasePath);
+      database
+        .prepare(
+          `INSERT INTO operational_schema_migrations(scope, version, applied_at)
+           VALUES ('future_scope', 1, 0)`,
+        )
+        .run();
+      database.close();
+      await chmod(databasePath, 0o640);
+
+      assert.throws(() => acquireOperationalStateDatabase(root), /future_scope is unknown/);
+      assert.equal((await stat(databasePath)).mode & 0o777, 0o640);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  },
+);
 
 test('rejects an invalid registered schema version before migrating', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-invalid-version-'));
