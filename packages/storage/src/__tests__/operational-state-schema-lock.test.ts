@@ -40,7 +40,10 @@ test('a live operational database lease excludes schema migration', async () => 
 });
 
 test('rejects a replaced owner lock while the registered owner is live', {
-  skip: process.platform === 'win32' ? 'Windows cannot rename an open lock file' : false,
+  skip:
+    process.platform === 'win32'
+      ? 'Windows cannot rename an open SQLite authority lock file'
+      : false,
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-replaced-'));
   const databasePath = join(root, 'runtime.sqlite');
