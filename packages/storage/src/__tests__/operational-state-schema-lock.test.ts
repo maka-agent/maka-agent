@@ -37,7 +37,24 @@ test('a live operational database lease excludes schema migration', async () => 
   }
 });
 
-test('replacing the workspace root cannot detach a live owner from its database migration lock', async () => {
+test('recreates a missing owner lock after every owner has closed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-recreate-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    await rm(resolveOperationalStateSchemaLockPath(databasePath, 'owner'));
+
+    acquireOperationalStateDatabase(root).close();
+
+    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('replacing the workspace root cannot detach a live owner from its database migration lock', {
+  skip: process.platform === 'win32',
+}, async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-root-replacement-'));
   const movedRoot = `${root}-moved`;
   const databasePath = join(root, 'runtime.sqlite');
@@ -61,37 +78,6 @@ test('replacing the workspace root cannot detach a live owner from its database 
     await stopChild(holder);
     await rm(root, { recursive: true, force: true });
     await rm(movedRoot, { recursive: true, force: true });
-  }
-});
-
-test('replacing the active owner lock cannot detach a live operational schema owner', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-replacement-'));
-  const databasePath = join(root, 'runtime.sqlite');
-  let movedLockPath: string | undefined;
-  let holder: ChildProcess | undefined;
-  try {
-    acquireOperationalStateDatabase(root).close();
-    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
-
-    const lockPath = resolveOperationalStateSchemaLockPath(databasePath, 'owner');
-    movedLockPath = `${lockPath}.${process.pid}.moved`;
-    await rename(lockPath, movedLockPath);
-
-    rewindRuntimeSchema(databasePath);
-
-    let unexpectedLease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
-    try {
-      assert.throws(() => {
-        unexpectedLease = acquireOperationalStateDatabase(root);
-      }, /lock authority/i);
-    } finally {
-      unexpectedLease?.close();
-    }
-    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
-  } finally {
-    await stopChild(holder);
-    if (movedLockPath) await rm(movedLockPath, { force: true });
-    await rm(root, { recursive: true, force: true });
   }
 });
 

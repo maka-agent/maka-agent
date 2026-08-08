@@ -24,7 +24,6 @@ const MIGRATION_WAIT_TIMEOUT_MESSAGE =
   'Timed out waiting for another Maka process to finish opening or upgrading operational state; retry after it completes.';
 
 export interface OperationalStateSchemaLock {
-  readonly identity: { readonly dev: string; readonly ino: string };
   assertCurrentDatabasePath(): void;
   close(): void;
 }
@@ -104,16 +103,12 @@ function tryAcquireOperationalStateSchemaLock(
       closeSync(databaseFd);
       return undefined;
     }
-    const lockIdentity = assertStableRegularFile(lockFd, lockPath);
+    assertStableRegularFile(lockFd, lockPath);
     assertStableRegularFile(databaseFd, canonicalDatabasePath);
     const acquiredLockFd = lockFd;
 
     let closed = false;
     return Object.freeze({
-      identity: Object.freeze({
-        dev: lockIdentity.dev.toString(),
-        ino: lockIdentity.ino.toString(),
-      }),
       assertCurrentDatabasePath: () => {
         if (closed) throw new Error('Operational schema lock is closed');
         assertStableRegularFile(databaseFd, canonicalDatabasePath);

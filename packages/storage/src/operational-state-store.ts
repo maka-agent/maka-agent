@@ -40,15 +40,7 @@ import {
 } from './operational-state-schema-lock.js';
 
 export const OPERATIONAL_STATE_DATABASE_NAME = 'runtime.sqlite';
-export const OPERATIONAL_STATE_SCHEMA_VERSION = 2;
-
-const CREATE_OPERATIONAL_LOCK_AUTHORITY = `
-  CREATE TABLE IF NOT EXISTS operational_lock_authority (
-    singleton INTEGER NOT NULL PRIMARY KEY CHECK (singleton = 1),
-    lock_dev TEXT NOT NULL CHECK (lock_dev GLOB '[0-9]*'),
-    lock_ino TEXT NOT NULL CHECK (lock_ino GLOB '[0-9]*')
-  ) WITHOUT ROWID;
-`;
+export const OPERATIONAL_STATE_SCHEMA_VERSION = 1;
 
 /** Resolve the authoritative on-disk path of the operational-state database. */
 export function resolveOperationalStateDatabasePath(workspaceRoot: string): string {
@@ -150,7 +142,6 @@ class OperationalStateDatabaseOwner {
     this.references += 1;
     try {
       const pages = await loadSqliteModule().backup(this.database, canonicalDestination);
-      prepareOperationalStateDatabaseCopy(canonicalDestination);
       return pages;
     } finally {
       this.releaseReference();
@@ -190,15 +181,12 @@ class OperationalStateDatabaseOwner {
 function openOperationalStateDatabase(
   databasePath: string,
   now: () => number,
-  rebindLockAuthority = false,
 ): { database: DatabaseSync; schemaLock: OperationalStateSchemaLock } {
   mkdirSync(dirname(databasePath), { recursive: true });
   const migrationTurn = waitForOperationalStateMigrationTurn(databasePath);
   try {
-    if (!rebindLockAuthority) {
-      const current = openCurrentOperationalStateDatabase(databasePath);
-      if (current) return current;
-    }
+    const current = openCurrentOperationalStateDatabase(databasePath);
+    if (current) return current;
 
     const migrationLock = tryAcquireOperationalStateMigrationLock(databasePath);
     if (!migrationLock) throw operationalStateMigrationBlockedError();
@@ -208,24 +196,9 @@ function openOperationalStateDatabase(
       migrationDatabase = new Database(databasePath);
       migrationLock.assertCurrentDatabasePath();
       configureSqliteRuntimeLockWait(migrationDatabase);
-      if (
-        rebindLockAuthority &&
-        readRegisteredOperationalVersion(migrationDatabase) === OPERATIONAL_STATE_SCHEMA_VERSION
-      ) {
-        migrationDatabase.exec('BEGIN IMMEDIATE');
-        try {
-          writeOperationalLockAuthority(migrationDatabase, migrationLock);
-          migrationDatabase.exec('COMMIT');
-        } catch (error) {
-          rollback(migrationDatabase);
-          throw error;
-        }
-      } else {
-        assertOperationalStateLockAuthority(migrationDatabase, migrationLock);
-      }
       if (inspectOperationalStateSchema(migrationDatabase) === 'needs_migration') {
         configureSqliteRuntimeDatabase(migrationDatabase);
-        migrateOperationalStateDatabase(migrationDatabase, now, migrationLock);
+        migrateOperationalStateDatabase(migrationDatabase, now);
       }
     } finally {
       closeOperationalStateResources(
@@ -253,7 +226,6 @@ function openCurrentOperationalStateDatabase(
     schemaLock.assertCurrentDatabasePath();
     // This connection-only pragma lets preflight wait without changing a rejected database.
     configureSqliteRuntimeLockWait(database);
-    assertOperationalStateLockAuthority(database, schemaLock);
     if (inspectOperationalStateSchema(database) === 'needs_migration') {
       database.close();
       database = undefined;
@@ -323,9 +295,6 @@ export function inspectOperationalStateSchema(
   for (const [scope, version] of OPERATIONAL_SCHEMA_VERSIONS) {
     needsMigration ||= (registered.get(scope) ?? -1) < version;
   }
-  if (registered.get('operational') === OPERATIONAL_STATE_SCHEMA_VERSION) {
-    readOperationalLockAuthority(database);
-  }
   return needsMigration ? 'needs_migration' : 'current';
 }
 
@@ -352,11 +321,7 @@ function hasTable(database: DatabaseSync, name: string): boolean {
   return table?.present === 1;
 }
 
-function migrateOperationalStateDatabase(
-  db: DatabaseSync,
-  now: () => number,
-  schemaLock: OperationalStateSchemaLock,
-): void {
+function migrateOperationalStateDatabase(db: DatabaseSync, now: () => number): void {
   db.exec('BEGIN IMMEDIATE');
   try {
     migrateSqliteRuntimeDatabase(db, { transaction: 'caller' });
@@ -366,8 +331,6 @@ function migrateOperationalStateDatabase(
     migrateSqliteUsageDatabase(db);
     migrateSqliteArtifactDatabase(db);
     migrateSqliteAutomationDatabase(db);
-    db.exec(CREATE_OPERATIONAL_LOCK_AUTHORITY);
-    writeOperationalLockAuthority(db, schemaLock);
     db.exec(`
       CREATE TABLE IF NOT EXISTS operational_schema_migrations (
         scope TEXT PRIMARY KEY,
@@ -386,65 +349,8 @@ function migrateOperationalStateDatabase(
   }
 }
 
-function assertOperationalStateLockAuthority(
-  database: DatabaseSync,
-  schemaLock: OperationalStateSchemaLock,
-): void {
-  if (readRegisteredOperationalVersion(database) !== OPERATIONAL_STATE_SCHEMA_VERSION) return;
-  const registered = readOperationalLockAuthority(database);
-  if (registered.dev !== schemaLock.identity.dev || registered.ino !== schemaLock.identity.ino) {
-    throw new Error(
-      'Operational owner lock authority changed; ' +
-        'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
-    );
-  }
-}
-
-function readRegisteredOperationalVersion(database: DatabaseSync): number | undefined {
-  if (!hasTable(database, 'operational_schema_migrations')) return undefined;
-  const row = database
-    .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'operational'`)
-    .get() as { version?: unknown } | undefined;
-  return typeof row?.version === 'number' && Number.isSafeInteger(row.version)
-    ? row.version
-    : undefined;
-}
-
-function readOperationalLockAuthority(database: DatabaseSync): { dev: string; ino: string } {
-  if (!hasTable(database, 'operational_lock_authority')) {
-    throw new Error('Operational lock authority is missing; restore or repair this workspace.');
-  }
-  const row = database
-    .prepare('SELECT lock_dev, lock_ino FROM operational_lock_authority WHERE singleton = 1')
-    .get() as { lock_dev?: unknown; lock_ino?: unknown } | undefined;
-  if (
-    typeof row?.lock_dev !== 'string' ||
-    !/^\d+$/.test(row.lock_dev) ||
-    typeof row.lock_ino !== 'string' ||
-    !/^\d+$/.test(row.lock_ino)
-  ) {
-    throw new Error('Operational lock authority is invalid; restore or repair this workspace.');
-  }
-  return { dev: row.lock_dev, ino: row.lock_ino };
-}
-
-function writeOperationalLockAuthority(
-  database: DatabaseSync,
-  schemaLock: OperationalStateSchemaLock,
-): void {
-  database
-    .prepare(`
-      INSERT INTO operational_lock_authority(singleton, lock_dev, lock_ino)
-      VALUES (1, ?, ?)
-      ON CONFLICT(singleton) DO UPDATE SET
-        lock_dev = excluded.lock_dev,
-        lock_ino = excluded.lock_ino
-    `)
-    .run(schemaLock.identity.dev, schemaLock.identity.ino);
-}
-
-export function prepareOperationalStateDatabaseCopy(databasePath: string): void {
-  const opened = openOperationalStateDatabase(databasePath, Date.now, true);
+export function migrateOperationalStateDatabaseCopy(databasePath: string): void {
+  const opened = openOperationalStateDatabase(databasePath, Date.now);
   closeOperationalStateResources(
     opened.database,
     opened.schemaLock,
