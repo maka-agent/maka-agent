@@ -524,9 +524,7 @@ export const CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES: Readonly<Record<string, strin
 export function modelIdAliasesForProvider(
   providerType: ProviderType,
 ): Readonly<Record<string, string>> | undefined {
-  return providerType === 'claude-subscription'
-    ? CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES
-    : undefined;
+  return providerType === 'claude-subscription' ? CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES : undefined;
 }
 
 const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
