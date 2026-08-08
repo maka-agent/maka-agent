@@ -742,6 +742,11 @@ export function registerSessionsIpc(
     void streamEvents(sessionId, iterator, { turnId, goalBoundary: 'external' });
     return {
       ok: true as const,
+      // Shared bridge contract (#2222 review): the Runtime Host-backed facade
+      // reports the Host's canonical submit disposition; the embedded facade
+      // always opens a new turn, so it reports `turn_started` to keep the
+      // discriminated union sound until the M5 cutover removes this path.
+      disposition: 'turn_started' as const,
       turnId,
       attachments,
       inlineReferences,
