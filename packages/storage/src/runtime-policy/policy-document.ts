@@ -2,6 +2,7 @@ import {
   createDefaultRuntimePolicy,
   decodeCanonicalRuntimePolicy,
   decodeLegacyRuntimePolicyV1,
+  decodeLegacyRuntimePolicyV2,
   normalizeRuntimePolicyMutation,
   type MutateRuntimePolicyInput,
   type MutateRuntimePolicyResult,
@@ -24,7 +25,7 @@ import {
 } from './document-io.js';
 
 const FILE = 'runtime-policy.json';
-const SCHEMA_VERSION = 2 as const;
+const SCHEMA_VERSION = 3 as const;
 
 export interface RuntimePolicyDocument {
   readonly schemaVersion: typeof SCHEMA_VERSION;
@@ -49,7 +50,11 @@ export class RuntimePolicyDocumentOwner {
       'revision',
       'policy',
     ]);
-    if (document.schemaVersion !== 1 && document.schemaVersion !== SCHEMA_VERSION) {
+    if (
+      document.schemaVersion !== 1 &&
+      document.schemaVersion !== 2 &&
+      document.schemaVersion !== SCHEMA_VERSION
+    ) {
       throw codecError('invalid_document', `${FILE} has an unsupported schema version`);
     }
     return {
@@ -58,7 +63,9 @@ export class RuntimePolicyDocumentOwner {
       policy: decodePersistedDomain(() =>
         document.schemaVersion === 1
           ? decodeLegacyRuntimePolicyV1(document.policy)
-          : decodeCanonicalRuntimePolicy(document.policy),
+          : document.schemaVersion === 2
+            ? decodeLegacyRuntimePolicyV2(document.policy)
+            : decodeCanonicalRuntimePolicy(document.policy),
       ),
     };
   }

@@ -49,14 +49,21 @@ describe('runtime policy stores', () => {
   test('upgrades a version-one policy with an empty canonical subagent catalog', async () => {
     await withInteractiveOwner(async ({ root, stores }) => {
       const { subagents: _subagents, ...legacyPolicy } = createDefaultRuntimePolicy();
+      const { fileEditToolset: _fileEditToolset, ...legacyChatDefaults } =
+        legacyPolicy.chatDefaults;
       await writeFile(
         join(root, 'runtime-policy.json'),
-        `${JSON.stringify({ schemaVersion: 1, revision: 3, policy: legacyPolicy })}\n`,
+        `${JSON.stringify({
+          schemaVersion: 1,
+          revision: 3,
+          policy: { ...legacyPolicy, chatDefaults: legacyChatDefaults },
+        })}\n`,
       );
 
       const snapshot = await stores.runtimePolicy.getSnapshot();
       assert.equal(snapshot.revision, 3);
       assert.deepEqual(snapshot.policy.subagents, { presets: [] });
+      assert.equal(snapshot.policy.chatDefaults.fileEditToolset, 'edit_write');
       const committed = await stores.runtimePolicy.mutate({
         expectedRevision: 3,
         operation: { kind: 'set_subagents', value: { presets: [] } },
@@ -65,7 +72,35 @@ describe('runtime policy stores', () => {
       const persisted = JSON.parse(await readFile(join(root, 'runtime-policy.json'), 'utf8')) as {
         schemaVersion: number;
       };
-      assert.equal(persisted.schemaVersion, 2);
+      assert.equal(persisted.schemaVersion, 3);
+    });
+  });
+
+  test('upgrades a version-two policy with the default file-edit toolset', async () => {
+    await withInteractiveOwner(async ({ root, stores }) => {
+      const current = createDefaultRuntimePolicy();
+      const { fileEditToolset: _fileEditToolset, ...legacyChatDefaults } = current.chatDefaults;
+      await writeFile(
+        join(root, 'runtime-policy.json'),
+        `${JSON.stringify({
+          schemaVersion: 2,
+          revision: 4,
+          policy: { ...current, chatDefaults: legacyChatDefaults },
+        })}\n`,
+      );
+
+      const snapshot = await stores.runtimePolicy.getSnapshot();
+      assert.equal(snapshot.revision, 4);
+      assert.equal(snapshot.policy.chatDefaults.fileEditToolset, 'edit_write');
+      const committed = await stores.runtimePolicy.mutate({
+        expectedRevision: 4,
+        operation: { kind: 'set_chat_defaults', value: snapshot.policy.chatDefaults },
+      });
+      assert.equal(committed.kind, 'committed');
+      const persisted = JSON.parse(await readFile(join(root, 'runtime-policy.json'), 'utf8')) as {
+        schemaVersion: number;
+      };
+      assert.equal(persisted.schemaVersion, 3);
     });
   });
 
