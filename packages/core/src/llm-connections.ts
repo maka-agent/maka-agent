@@ -148,34 +148,6 @@ export function connectionEnabledModelIds(connection: {
 }
 
 /**
- * Anthropic ids that name the same model as another id, mapped to the form the
- * subscription catalog lists them under.
- *
- * This is renaming, not retirement: Anthropic publishes a pinned dated id and a
- * shorter "latest" alias for one model, so an inventory listing either form
- * still offers a selection stored in the other. Reconciliation compares ids
- * literally, so without this table a stored `claude-haiku-4-5-20251001` reads as
- * a model the catalog dropped, and repair falls through to the first live id —
- * moving a Haiku user onto Opus, across both model family and price tier, with
- * no prompt.
- *
- * Membership rule: only ids that name the *same* model as their target. A model
- * that was genuinely withdrawn (`claude-opus-4-1-20250805`, carrying
- * `lifecycle: 'deprecated'`) does NOT belong here — repairing that one onto a
- * different model is correct, because the original is gone.
- *
- * Pass it explicitly, and only for the provider it describes. These ids are
- * Anthropic's naming, not a global fact: a relay may serve `claude-*` ids as
- * opaque identifiers of its own, where the same string is a different model —
- * the rule connection storage already states when it prunes relay profiles
- * across endpoints.
- */
-export const CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES: Readonly<Record<string, string>> = {
-  'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
-  'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
-};
-
-/**
  * Resolve a stored id against one inventory. Whether an id is superseded is a
  * property of the inventory as well as of the caller: the API-key Anthropic
  * catalog deliberately lists `claude-sonnet-4-5-20250929` alongside its alias so

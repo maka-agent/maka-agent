@@ -1,5 +1,4 @@
 import {
-  CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
   isWiredOAuthProvider,
@@ -8,6 +7,7 @@ import {
   type ModelDiscoverySource,
 } from '@maka/core/llm-connections';
 import { connectionFallbackModelIds } from '@maka/core/model-catalog';
+import { CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES } from '@maka/core/model-metadata';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
 import type { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { isSubscriptionExperimentalEnabled } from './oauth/claude-subscription-helpers.js';

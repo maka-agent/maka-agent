@@ -1,9 +1,11 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { connectionFallbackModelIds } from '../model-catalog.js';
-import { lookupModelMetadata } from '../model-metadata.js';
 import {
   CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
+  lookupModelMetadata,
+} from '../model-metadata.js';
+import {
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
   PROVIDER_REGISTRY,
