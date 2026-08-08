@@ -131,9 +131,11 @@ test('an operational opener waits for an in-progress migration turn', async () =
         stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       },
     );
-    await waitForMessage(opener, 'acquiring');
-    const opened = waitForReady(opener);
+    await waitForMessage(opener, 'waiting');
+    const opening = waitForMessage(opener, 'opening');
     opener.send('open');
+    await opening;
+    const opened = waitForReady(opener);
     await assertPending(opened, 'operational opener');
 
     migrationHolder.send('close');

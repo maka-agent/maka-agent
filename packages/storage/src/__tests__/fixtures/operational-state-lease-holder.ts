@@ -12,13 +12,13 @@ const open = () => {
 };
 
 if (process.argv[3] === 'wait-for-open') {
-  process.send({ type: 'acquiring' });
+  process.send({ type: 'waiting' });
 } else {
   open();
 }
 process.on('message', (message) => {
   if (message === 'open' && !lease) {
-    open();
+    process.send?.({ type: 'opening' }, open);
     return;
   }
   if (message !== 'close') return;
