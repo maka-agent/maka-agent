@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { createSqliteArtifactStore } from '../artifact-store.js';
 import { SQLITE_CORE_EXECUTION_SCHEMA_VERSION } from '../sqlite-core-execution-schema.js';
 import { createProjectCatalog } from '../project-catalog.js';
+import { OPERATIONAL_STATE_SCHEMA_VERSION } from '../operational-state-store.js';
 import { resolveStorageRoot, type StorageRootKind } from '../root-authority.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 import { createSqliteRuntimeStore } from '../sqlite-runtime-store.js';
@@ -160,7 +161,7 @@ test('restores a v0.1.6 backup as current operational state', async () => {
       sessionMetadata: SQLITE_SESSION_METADATA_SCHEMA_VERSION,
       coreExecution: SQLITE_CORE_EXECUTION_SCHEMA_VERSION,
       workflow: SQLITE_WORKFLOW_SCHEMA_VERSION,
-      operational: 1,
+      operational: OPERATIONAL_STATE_SCHEMA_VERSION,
     });
     assert.deepEqual(readSchemaVersions(join(backupRoot, 'runtime.sqlite')), {
       runtime: 10,

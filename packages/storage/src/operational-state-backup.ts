@@ -25,6 +25,7 @@ import {
 import { createSqliteRuntimeStore } from './sqlite-runtime-store.js';
 import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version-authority-internal.js';
 import {
+  acquireRestoredOperationalStateDatabase,
   acquireOperationalStateDatabase,
   inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
@@ -190,7 +191,7 @@ export async function restoreOperationalStateBackup(
       path: stagingRoot,
       kind: input.kind,
     });
-    const databaseLease = acquireOperationalStateDatabase(stagingRoot);
+    const databaseLease = acquireRestoredOperationalStateDatabase(stagingRoot);
     let runtimeStore: ReturnType<typeof createSqliteRuntimeStore> | undefined;
     try {
       runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
@@ -378,6 +379,7 @@ function validateSqlite(
 
       const currentTables = [
         'operational_schema_migrations',
+        'operational_lock_authority',
         'runtime_events',
         'runtime_session_event_ordinals',
         'tool_journal_events',
@@ -450,6 +452,7 @@ function validateSqlite(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
       );
       const tableIntroductions = new Map<string, readonly [scope: string, version: number]>([
+        ['operational_lock_authority', ['operational', 2]],
         ['runtime_storage_root_binding', ['runtime', 9]],
         ['runtime_partial_segments', ['runtime', 10]],
         ['runtime_session_event_ordinals', ['runtime', 11]],

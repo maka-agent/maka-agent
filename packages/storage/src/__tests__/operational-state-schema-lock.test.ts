@@ -39,18 +39,44 @@ test('a live operational database lease excludes schema migration', async () => 
   }
 });
 
-test('recreates a missing owner lock after every owner has closed', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-recreate-'));
+test('rejects a replaced owner lock while the registered owner is live', {
+  skip: process.platform === 'win32' ? 'Windows cannot rename an open lock file' : false,
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-lock-replaced-'));
   const databasePath = join(root, 'runtime.sqlite');
+  const movedLockPath = join(root, 'owner.lock.moved');
+  let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    await rm(resolveOperationalStateSchemaLockPath(databasePath, 'owner'));
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
+    await rename(resolveOperationalStateSchemaLockPath(databasePath, 'owner'), movedLockPath);
+    rewindRuntimeSchema(databasePath);
 
-    acquireOperationalStateDatabase(root).close();
-
-    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION);
+    assert.throws(() => acquireOperationalStateDatabase(root), /lock authority changed/i);
+    assert.equal(readRuntimeVersion(databasePath), LEGACY_RUNTIME_SCHEMA_VERSION);
   } finally {
+    await stopChild(holder);
+    await rm(movedLockPath, { force: true });
+    await rm(resolveOperationalStateSchemaLockPath(databasePath, 'owner'), { force: true }).catch(
+      () => {},
+    );
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects two paths hard-linked to one operational database', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-hard-link-'));
+  const aliasRoot = `${root}-alias`;
+  const lease = acquireOperationalStateDatabase(root);
+  try {
+    await mkdir(aliasRoot);
+    await link(join(root, 'runtime.sqlite'), join(aliasRoot, 'runtime.sqlite'));
+
+    assert.throws(() => acquireOperationalStateDatabase(aliasRoot), /not one stable regular file/i);
+  } finally {
+    lease.close();
+    await rm(root, { recursive: true, force: true });
+    await rm(aliasRoot, { recursive: true, force: true });
   }
 });
 
@@ -74,10 +100,7 @@ test('replacing the workspace root cannot detach a live owner from its database 
 
     rewindRuntimeSchema(databasePath);
 
-    assert.throws(
-      () => acquireOperationalStateDatabase(root),
-      /close other Maka processes before retrying/i,
-    );
+    assert.throws(() => acquireOperationalStateDatabase(root), /not one stable regular file/i);
     assert.equal(readRuntimeVersion(databasePath), LEGACY_RUNTIME_SCHEMA_VERSION);
   } finally {
     await stopChild(holder);
