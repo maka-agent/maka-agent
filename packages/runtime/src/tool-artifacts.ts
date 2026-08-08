@@ -40,11 +40,44 @@ export function deriveToolArtifactCandidates(
       return deriveWriteArtifacts(args, result, input.cwd);
     case 'Edit':
       return deriveEditArtifacts(args);
+    case 'ApplyPatch':
+      return deriveApplyPatchArtifacts(result, input.cwd);
     case 'Bash':
       return deriveBashArtifacts(args, input.cwd);
     default:
       return [];
   }
+}
+
+function deriveApplyPatchArtifacts(
+  result: Record<string, unknown> | null,
+  cwd: string,
+): ToolArtifactCandidate[] {
+  const operations = Array.isArray(result?.operations) ? result.operations : [];
+  return operations.flatMap((operation): ToolArtifactCandidate[] => {
+    const value = objectRecord(operation);
+    const kind = value?.operation;
+    const path = value?.path;
+    if (
+      value?.status !== 'completed' ||
+      (kind !== 'add' && kind !== 'update') ||
+      typeof path !== 'string'
+    ) {
+      return [];
+    }
+    const sourcePath = isAbsolute(path) ? path : resolve(cwd, path);
+    const mimeType = mimeForPath(sourcePath);
+    return [
+      {
+        kind: kindForPath(sourcePath),
+        name: basename(sourcePath),
+        ...(mimeType ? { mimeType } : {}),
+        source: 'tool_result',
+        summary: `ApplyPatch ${kind} output`,
+        sourcePath,
+      },
+    ];
+  });
 }
 
 export async function recordToolArtifactsSafely(

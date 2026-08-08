@@ -133,18 +133,18 @@ async function settlePrepared(
           expectedToken,
         );
         tokens.set(step.path, written.token);
-        completed.push(written.path);
+        completed.push(step.path);
         operations.push({
           operation: step.operation,
-          path: written.path,
+          path: step.path,
           status: 'completed',
           bytes: written.bytes,
         });
         continue;
       }
-      const deleted = await fs.deletePath(step.path, expectedToken);
-      completed.push(deleted.path);
-      operations.push({ operation: 'delete', path: deleted.path, status: 'completed' });
+      await fs.deletePath(step.path, expectedToken);
+      completed.push(step.path);
+      operations.push({ operation: 'delete', path: step.path, status: 'completed' });
     } catch (error) {
       const unknown = mutationEffectUnknown(error);
       if (shouldRethrowBoundaryError(error, completed.length, unknown)) throw error;

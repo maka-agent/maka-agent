@@ -6,6 +6,7 @@ import {
   isToolCategory,
   permissionReasonForCategory,
 } from '../permission.js';
+import { MAKA_CATALOG_TOOLS } from '../tool-catalog.js';
 
 describe('legacy permission payload classification', () => {
   test('keeps historical command reviews conservatively categorized', () => {
@@ -18,9 +19,14 @@ describe('legacy permission payload classification', () => {
   test('keeps plan-mode tool availability classification independent of authorization', () => {
     expect(classifyToolUse({ toolName: 'Read', args: {} })).toBe('read');
     expect(classifyToolUse({ toolName: 'Write', args: {} })).toBe('file_write');
+    expect(classifyToolUse({ toolName: 'ApplyPatch', args: {} })).toBe('file_write');
     expect(classifyToolUse({ toolName: 'ExploreAgent', args: {}, categoryHint: 'subagent' })).toBe(
       'subagent',
     );
+  });
+
+  test('registers ApplyPatch in the shared product vocabulary', () => {
+    expect(MAKA_CATALOG_TOOLS.some((tool) => tool.name === 'ApplyPatch')).toBe(true);
   });
 
   test('keeps Client Capabilities behind a conservative permission floor', () => {
