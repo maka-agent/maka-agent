@@ -224,14 +224,14 @@ export async function restoreOperationalStateBackup(
     await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
     published = true;
-    publicationLock.close();
-    publicationLock = undefined;
     await resolveExistingStorageRoot({
       path: destinationRoot,
       kind: input.kind,
       expectedRootId: destinationCapability.rootId,
     });
     await syncDirectory(dirname(destinationRoot));
+    publicationLock.close();
+    publicationLock = undefined;
     return manifest;
   } catch (error) {
     await rm(published ? destinationRoot : stagingRoot, { recursive: true, force: true }).catch(
