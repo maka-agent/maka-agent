@@ -129,6 +129,7 @@ export {
   acquireOperationalStateDatabase,
   OPERATIONAL_STATE_DATABASE_NAME,
   OPERATIONAL_STATE_SCHEMA_VERSION,
+  resolveOperationalStateDatabasePath,
 } from './operational-state-store.js';
 export type {
   OperationalStateDatabaseLease,
