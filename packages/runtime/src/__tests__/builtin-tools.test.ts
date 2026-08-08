@@ -56,6 +56,7 @@ describe('builtin tool activity kinds', () => {
     expect(kinds).toEqual({
       Bash: 'command',
       Read: 'read',
+      ApplyPatch: 'edit',
       Write: 'edit',
       Edit: 'edit',
       FormatJson: 'edit',

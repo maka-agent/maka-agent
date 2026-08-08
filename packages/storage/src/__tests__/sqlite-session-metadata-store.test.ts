@@ -2670,6 +2670,7 @@ function fullHeader(overrides: Partial<SessionHeader> = {}): SessionHeader {
     permissionMode: 'ask',
     collaborationMode: 'agent',
     orchestrationMode: 'swarm',
+    fileEditToolset: 'edit_write',
     schemaVersion: 1,
     ...overrides,
   };
