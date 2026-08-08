@@ -139,8 +139,13 @@ test('an operational opener waits for an in-progress migration turn', async () =
     );
     await waitForReady(holder);
 
+    const startedAt = performance.now();
     const lease = acquireOperationalStateDatabase(root);
     lease.close();
+    assert.ok(
+      performance.now() - startedAt >= 5_000,
+      'the operational opener returned before the held migration turn was released',
+    );
     await waitForExit(holder);
   } finally {
     if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
