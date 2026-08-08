@@ -172,6 +172,49 @@ test('installs new invariants when upgrading the current main schema', async () 
   }
 });
 
+test('rejects current operational state missing a version-required trigger', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-missing-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger is missing: runtime_events_assign_session_ordinal/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects current operational state with a changed required trigger', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-changed-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      DROP TRIGGER session_messages_lock_connection;
+      CREATE TRIGGER session_messages_lock_connection
+      AFTER INSERT ON session_messages
+      BEGIN
+        SELECT 1;
+      END;
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger definition changed: session_messages_lock_connection/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rolls back every scope when operational migration publication fails', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
   const databasePath = join(root, 'runtime.sqlite');

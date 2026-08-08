@@ -2,6 +2,30 @@ import type { DatabaseSync } from 'node:sqlite';
 
 export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 23;
 
+const SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER = `
+  CREATE TRIGGER session_messages_lock_connection
+  AFTER INSERT ON session_messages
+  WHEN NEW.message_type = 'user'
+  BEGIN
+    UPDATE session_metadata
+    SET
+      payload_json = json_set(payload_json, '$.connectionLocked', json('true')),
+      metadata_version = metadata_version + 1,
+      committed_at = MAX(committed_at, NEW.message_ts)
+    WHERE
+      session_id = NEW.session_id
+      AND json_extract(payload_json, '$.connectionLocked') = 0;
+  END
+`;
+
+export const SQLITE_SESSION_METADATA_REQUIRED_TRIGGERS = [
+  {
+    name: 'session_messages_lock_connection',
+    introducedIn: 23,
+    sql: SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER,
+  },
+] as const;
+
 export const SQLITE_AGENT_GRAPH_CONTROL_TABLES = [
   'agent_graph_intent_claims',
   'agent_graph_schedule_updates',
@@ -853,20 +877,7 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
     23,
     `
-
-    CREATE TRIGGER session_messages_lock_connection
-    AFTER INSERT ON session_messages
-    WHEN NEW.message_type = 'user'
-    BEGIN
-      UPDATE session_metadata
-      SET
-        payload_json = json_set(payload_json, '$.connectionLocked', json('true')),
-        metadata_version = metadata_version + 1,
-        committed_at = MAX(committed_at, NEW.message_ts)
-      WHERE
-        session_id = NEW.session_id
-        AND json_extract(payload_json, '$.connectionLocked') = 0;
-    END;
+    ${SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER};
   `,
   ],
 ]);

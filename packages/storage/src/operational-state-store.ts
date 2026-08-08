@@ -7,11 +7,13 @@ import {
   configureSqliteRuntimeLockWait,
   migrateSqliteRuntimeDatabase,
   readUserVersion,
+  SQLITE_RUNTIME_REQUIRED_TRIGGERS,
   SQLITE_RUNTIME_SCHEMA_VERSION,
 } from './sqlite-runtime-schema.js';
 import {
   migrateSqliteSessionMetadataDatabase,
   readSqliteSessionMetadataSchemaVersion,
+  SQLITE_SESSION_METADATA_REQUIRED_TRIGGERS,
   SQLITE_SESSION_METADATA_SCHEMA_VERSION,
 } from './sqlite-session-metadata-schema.js';
 import {
@@ -20,6 +22,7 @@ import {
 } from './sqlite-core-execution-schema.js';
 import {
   migrateSqliteWorkflowDatabase,
+  SQLITE_WORKFLOW_REQUIRED_TRIGGERS,
   SQLITE_WORKFLOW_SCHEMA_VERSION,
 } from './sqlite-workflow-schema.js';
 import { migrateSqliteUsageDatabase, SQLITE_USAGE_SCHEMA_VERSION } from './sqlite-usage-schema.js';
@@ -65,6 +68,15 @@ const OPERATIONAL_SCHEMA_VERSIONS: ReadonlyMap<string, number> = new Map([
   ['automation', SQLITE_AUTOMATION_SCHEMA_VERSION],
   ['operational', OPERATIONAL_STATE_SCHEMA_VERSION],
 ] as const);
+
+const REQUIRED_SCHEMA_TRIGGERS = [
+  ...SQLITE_RUNTIME_REQUIRED_TRIGGERS.map((trigger) => ({ ...trigger, scope: 'runtime' })),
+  ...SQLITE_SESSION_METADATA_REQUIRED_TRIGGERS.map((trigger) => ({
+    ...trigger,
+    scope: 'session_metadata',
+  })),
+  ...SQLITE_WORKFLOW_REQUIRED_TRIGGERS.map((trigger) => ({ ...trigger, scope: 'workflow' })),
+] as const;
 
 const require = createRequire(import.meta.url);
 const owners = new Map<string, OperationalStateDatabaseOwner>();
@@ -317,6 +329,7 @@ export function inspectOperationalStateSchema(
   }
 
   if (!hasTable(database, 'operational_schema_migrations')) {
+    assertRequiredSchemaTriggers(database, versions);
     return { status: 'needs_migration', versions };
   }
   const rows = database
@@ -359,7 +372,39 @@ export function inspectOperationalStateSchema(
   if (registered.get('operational') === OPERATIONAL_STATE_SCHEMA_VERSION) {
     readOperationalLockAuthority(database);
   }
+  assertRequiredSchemaTriggers(database, versions);
   return { status: needsMigration ? 'needs_migration' : 'current', versions };
+}
+
+function assertRequiredSchemaTriggers(
+  database: DatabaseSync,
+  versions: ReadonlyMap<string, number>,
+): void {
+  const readTrigger = database.prepare(`
+    SELECT sql
+    FROM sqlite_master
+    WHERE type = 'trigger' AND name = ?
+  `);
+  for (const trigger of REQUIRED_SCHEMA_TRIGGERS) {
+    const version = versions.get(trigger.scope);
+    if (version === undefined || version < trigger.introducedIn) continue;
+    const row = readTrigger.get(trigger.name) as { sql?: unknown } | undefined;
+    if (!row) throw new Error(`required trigger is missing: ${trigger.name}`);
+    if (
+      typeof row.sql !== 'string' ||
+      normalizeSchemaSql(row.sql) !== normalizeSchemaSql(trigger.sql)
+    ) {
+      throw new Error(`required trigger definition changed: ${trigger.name}`);
+    }
+  }
+}
+
+function normalizeSchemaSql(sql: string): string {
+  return sql
+    .replace(/\bIF NOT EXISTS\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;$/, '');
 }
 
 function assertSupportedOperationalSchemaVersion(

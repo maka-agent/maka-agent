@@ -12,6 +12,48 @@ const SQLITE_INITIALIZATION_BUSY_TIMEOUT_MS = 5_000;
 const SQLITE_INITIALIZATION_RETRY_DELAY_MS = 10;
 const initializationRetryGate = new Int32Array(new SharedArrayBuffer(4));
 
+const RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER = `
+  CREATE TRIGGER runtime_events_assign_session_ordinal
+  AFTER INSERT ON runtime_events
+  BEGIN
+    INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
+    SELECT
+      NEW.session_id,
+      COALESCE(MAX(ordinal), 0) + 1,
+      NEW.event_id
+    FROM runtime_session_event_ordinals
+    WHERE session_id = NEW.session_id;
+  END
+`;
+
+const RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER = `
+  CREATE TRIGGER runtime_event_ordinal_retry
+  BEFORE INSERT ON runtime_session_event_ordinals
+  WHEN EXISTS (
+    SELECT 1
+    FROM runtime_session_event_ordinals
+    WHERE
+      event_id = NEW.event_id
+      AND session_id = NEW.session_id
+  )
+  BEGIN
+    SELECT RAISE(IGNORE);
+  END
+`;
+
+export const SQLITE_RUNTIME_REQUIRED_TRIGGERS = [
+  {
+    name: 'runtime_events_assign_session_ordinal',
+    introducedIn: 12,
+    sql: RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER,
+  },
+  {
+    name: 'runtime_event_ordinal_retry',
+    introducedIn: 12,
+    sql: RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER,
+  },
+] as const;
+
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
     1,
@@ -305,31 +347,8 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
     12,
     `
-
-    CREATE TRIGGER runtime_events_assign_session_ordinal
-    AFTER INSERT ON runtime_events
-    BEGIN
-      INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
-      SELECT
-        NEW.session_id,
-        COALESCE(MAX(ordinal), 0) + 1,
-        NEW.event_id
-      FROM runtime_session_event_ordinals
-      WHERE session_id = NEW.session_id;
-    END;
-
-    CREATE TRIGGER runtime_event_ordinal_retry
-    BEFORE INSERT ON runtime_session_event_ordinals
-    WHEN EXISTS (
-      SELECT 1
-      FROM runtime_session_event_ordinals
-      WHERE
-        event_id = NEW.event_id
-        AND session_id = NEW.session_id
-    )
-    BEGIN
-      SELECT RAISE(IGNORE);
-    END;
+    ${RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER};
+    ${RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER};
   `,
   ],
 ]);

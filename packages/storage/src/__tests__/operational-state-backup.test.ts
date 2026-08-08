@@ -223,12 +223,46 @@ test('rejects a current backup missing a required runtime authority table', asyn
     const sessions = createSessionStore(stateRoot);
     await sessions.close?.();
 
-    for (const table of ['runtime_session_event_ordinals', 'runtime_storage_root_binding']) {
-      const backupRoot = join(base, `backup-${table}`);
+    const backupRoot = join(base, 'backup');
+    await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
+    const database = new DatabaseSync(join(backupRoot, 'runtime.sqlite'));
+    try {
+      database.exec('DROP TABLE runtime_storage_root_binding');
+    } finally {
+      database.close();
+    }
+    await refreshDatabaseInventory(backupRoot);
+
+    await assert.rejects(
+      validateOperationalStateBackup(backupRoot),
+      (error: unknown) =>
+        error instanceof OperationalBackupError &&
+        error.code === 'corrupt_backup' &&
+        error.message.includes('required table is missing: runtime_storage_root_binding'),
+    );
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
+test('rejects a current backup missing a version-required trigger', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-required-trigger-'));
+  const stateRoot = join(base, 'state');
+  try {
+    const sessions = createSessionStore(stateRoot);
+    await sessions.close?.();
+
+    for (const trigger of [
+      'runtime_event_ordinal_retry',
+      'runtime_events_assign_session_ordinal',
+      'session_messages_lock_connection',
+      'workflow_quote_cleanup_fill_record',
+    ]) {
+      const backupRoot = join(base, `backup-${trigger}`);
       await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
       const database = new DatabaseSync(join(backupRoot, 'runtime.sqlite'));
       try {
-        database.exec(`DROP TABLE ${table}`);
+        database.exec(`DROP TRIGGER ${trigger}`);
       } finally {
         database.close();
       }
@@ -239,7 +273,7 @@ test('rejects a current backup missing a required runtime authority table', asyn
         (error: unknown) =>
           error instanceof OperationalBackupError &&
           error.code === 'corrupt_backup' &&
-          error.message.includes(`required table is missing: ${table}`),
+          error.message.includes(`required trigger is missing: ${trigger}`),
       );
     }
   } finally {
