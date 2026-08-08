@@ -112,7 +112,7 @@ interface SnapshotOfferBinding {
   readonly registration?: CapabilityRegistration;
 }
 
-type ClientCapabilityBoundTool = ReturnType<McpToolProvider['boundTools']>[number];
+type ClientCapabilityBoundTool = ReturnType<McpToolProvider['toolSnapshot']>['tools'][number];
 type ClientCapabilityToolBinding = ClientCapabilityBoundTool['binding'];
 
 export interface HostClientCapabilityCoordinatorOptions {
@@ -717,11 +717,15 @@ export class HostClientCapabilityCoordinator implements ClientCapabilityService 
           registration,
           tool,
         });
-        boundTools.push({ descriptor: tool.descriptor, binding });
+        boundTools.push(deepFreeze({ descriptor: structuredClone(tool.descriptor), binding }));
       }
     }
+    const snapshot = Object.freeze({
+      revision: this.#revision,
+      tools: Object.freeze(boundTools),
+    });
     return {
-      boundTools: () => boundTools,
+      toolSnapshot: () => snapshot,
       callTool: (binding, args, options) => {
         const selectedBinding = bindings.get(binding);
         if (!selectedBinding) {
@@ -1012,6 +1016,12 @@ function clientCapabilityToolBinding(
     )
     .digest('base64url');
   return `client-capability.${digest}` as ClientCapabilityToolBinding;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 function capabilityGroupId(offer: ClientCapabilityOffer): string {

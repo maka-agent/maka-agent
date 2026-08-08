@@ -141,6 +141,37 @@ describe('McpClientManager remote transport E2E', () => {
     });
   });
 
+  test('publishes one immutable callable snapshot after a real list-changed notification', async () => {
+    const fixture = await createRemoteFixture('sse');
+    const manager = createManager();
+    await manager.sync(remoteConfig(`${fixture.url}/sse`, 'auto'));
+    const initial = manager.toolSnapshot();
+
+    assert.equal(Object.isFrozen(initial), true);
+    assert.equal(Object.isFrozen(initial.tools), true);
+    assert.equal(Object.isFrozen(initial.tools[0]), true);
+    assert.equal(Object.isFrozen(initial.tools[0]?.descriptor.inputSchema), true);
+
+    fixture.setToolListMode('replacement');
+    await fixture.notifyToolListChanged();
+    await waitFor(() => manager.toolSnapshot().tools[0]?.descriptor.name === 'replacement');
+    const replacement = manager.toolSnapshot();
+    assert.equal(replacement.revision, initial.revision + 1);
+    assert.deepEqual(
+      replacement.tools.map(({ descriptor }) => descriptor.name),
+      ['replacement'],
+    );
+
+    fixture.setToolListMode('duplicate');
+    await fixture.notifyToolListChanged();
+    await waitFor(() => manager.status('remote')?.error?.includes('duplicate tool') === true);
+    assert.equal(manager.toolSnapshot(), replacement);
+    assert.deepEqual(await manager.callTool(replacement.tools[0]!.binding, { value: 'retained' }), {
+      content: [{ type: 'text', text: 'retained' }],
+      structuredContent: undefined,
+    });
+  });
+
   test('bounds raw Tool definitions without replacing the callable snapshot', async () => {
     const fixture = await createRemoteFixture('streamable-http');
     const manager = createManager();
@@ -159,11 +190,13 @@ describe('McpClientManager remote transport E2E', () => {
     const manager = createManager();
     await manager.sync(remoteConfig(fixture.url));
     const before = bindingFor(manager, 'remote', 'echo');
+    const beforeSnapshot = manager.toolSnapshot();
 
     fixture.setToolListMode('reordered');
     await manager.refreshTools('remote');
 
     assert.equal(bindingFor(manager, 'remote', 'echo'), before);
+    assert.equal(manager.toolSnapshot(), beforeSnapshot);
   });
 
   test('rotates a binding for a raw-only definition change and stale-fails before the wire', async () => {
@@ -252,7 +285,7 @@ describe('McpClientManager remote transport E2E', () => {
     const callsBefore = countProtocolMethod(fixture, 'tools/call');
 
     const closing = manager.close();
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
     await assert.rejects(manager.callTool(stale, {}), /client manager is closed/u);
     await assert.rejects(manager.refreshTools('remote'), /client manager is closed/u);
     assert.equal(countProtocolMethod(fixture, 'tools/call'), callsBefore);
@@ -281,7 +314,7 @@ describe('McpClientManager remote transport E2E', () => {
     await manager.sync(remoteConfig(fixture.url));
 
     assert.deepEqual(
-      manager.boundTools().map(({ descriptor }) => descriptor.name),
+      manager.toolSnapshot().tools.map(({ descriptor }) => descriptor.name),
       [''],
     );
     assert.deepEqual(
@@ -307,7 +340,7 @@ describe('McpClientManager remote transport E2E', () => {
     });
 
     assert.deepEqual(
-      manager.boundTools().map(({ descriptor }) => descriptor.serverId),
+      manager.toolSnapshot().tools.map(({ descriptor }) => descriptor.serverId),
       ['', ''],
     );
     await manager.callTool(bindingFor(manager, '', 'echo'), { value: 'empty-server' });
@@ -601,7 +634,7 @@ describe('McpClientManager stdio E2E', () => {
     await sync;
     await manager.sync({ version: 1, mcpServers: {} });
     assert.equal(manager.status('fixture'), undefined);
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
   });
 
   test('cancels installation after remote tool discovery starts', async () => {
@@ -623,7 +656,7 @@ describe('McpClientManager stdio E2E', () => {
 
     assert.equal(settledBeforeRelease, true);
     assert.equal(manager.status('remote')?.state, 'disconnected');
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
   });
 
   test('does not report a cancellable connect after connected status is published', async () => {
@@ -640,7 +673,7 @@ describe('McpClientManager stdio E2E', () => {
 
     assert.equal(cancelResult, false);
     assert.equal(manager.status('remote')?.state, 'connected');
-    assert.equal(manager.boundTools().length > 0, true);
+    assert.equal(manager.toolSnapshot().tools.length > 0, true);
   });
 
   test('close aborts an in-flight connection before it can publish tools', async () => {
@@ -649,11 +682,11 @@ describe('McpClientManager stdio E2E', () => {
     await waitFor(() => manager.status('fixture')?.state === 'connecting');
 
     const closing = manager.close();
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
     await Promise.all([sync, closing]);
 
     assert.equal(manager.status('fixture'), undefined);
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
   });
 
   test('captures and redacts a final stderr fragment without a newline', async () => {
@@ -711,7 +744,7 @@ describe('McpClientManager stdio E2E', () => {
       },
     });
     assert.equal(manager.status('fixture')?.state, 'disabled');
-    assert.deepEqual(manager.boundTools(), []);
+    assert.deepEqual(manager.toolSnapshot().tools, []);
     assert.equal((await manager.test('fixture')).ok, false);
     await manager.sync({ version: 1, mcpServers: {} });
     assert.equal(manager.status('fixture'), undefined);
@@ -750,8 +783,10 @@ function createManager(): McpClientManager {
 
 function bindingFor(manager: McpClientManager, serverId: string, toolName: string): McpToolBinding {
   const match = manager
-    .boundTools()
-    .find(({ descriptor }) => descriptor.serverId === serverId && descriptor.name === toolName);
+    .toolSnapshot()
+    .tools.find(
+      ({ descriptor }) => descriptor.serverId === serverId && descriptor.name === toolName,
+    );
   assert.ok(match, `missing bound MCP tool ${serverId}/${toolName}`);
   return match.binding;
 }
@@ -820,6 +855,7 @@ interface RemoteFixture {
   setToolListMode(mode: ToolListMode): void;
   setHttpFailure(method: string, body: string): void;
   holdNextToolList(): { started: Promise<void>; release(): void };
+  notifyToolListChanged(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -956,6 +992,11 @@ async function createRemoteFixture(
       nextToolListGate = { markStarted, waitForRelease };
       return { started, release };
     },
+    notifyToolListChanged: async () => {
+      const servers = [...sseTransports.values()].map(({ server }) => server);
+      if (servers.length === 0) throw new Error('no persistent MCP server is connected');
+      await Promise.all(servers.map((server) => server.sendToolListChanged()));
+    },
     close: async () => {
       await Promise.all(
         [...sseTransports.values()].map(async ({ transport, server }) => {
@@ -979,7 +1020,7 @@ function createProtocolServer(options: {
 }): McpServer {
   const server = new McpServer(
     { name: 'maka-remote-fixture', version: '1.0.0' },
-    { capabilities: options.advertiseTools ? { tools: {} } : {} },
+    { capabilities: options.advertiseTools ? { tools: { listChanged: true } } : {} },
   );
   server.setRequestHandler('tools/list', async () => {
     const mode = options.toolListMode();
