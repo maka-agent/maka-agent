@@ -151,6 +151,9 @@ function assertPrivateDirectory(path: string): void {
   if (!status.isDirectory())
     throw new Error(`Operational schema lock root is not a directory: ${path}`);
   if (process.platform !== 'win32') {
+    if (typeof process.getuid === 'function' && status.uid !== process.getuid()) {
+      throw new Error(`Operational schema lock root is not owned by the current user: ${path}`);
+    }
     chmodSync(path, 0o700);
     if ((lstatSync(path).mode & 0o077) !== 0) {
       throw new Error(`Operational schema lock root is not private: ${path}`);
