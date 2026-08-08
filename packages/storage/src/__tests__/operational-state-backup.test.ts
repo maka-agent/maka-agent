@@ -6,8 +6,12 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { createSqliteArtifactStore } from '../artifact-store.js';
+import { SQLITE_CORE_EXECUTION_SCHEMA_VERSION } from '../sqlite-core-execution-schema.js';
 import { createProjectCatalog } from '../project-catalog.js';
+import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
+import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from '../sqlite-session-metadata-schema.js';
 import { createSessionStore } from '../session-store.js';
+import { SQLITE_WORKFLOW_SCHEMA_VERSION } from '../sqlite-workflow-schema.js';
 import {
   createOperationalStateBackup,
   OPERATIONAL_BACKUP_MANIFEST_FILE,
@@ -133,18 +137,23 @@ test('restores a v0.1.6 backup as current operational state', async () => {
     await restoreOperationalStateBackup({ backupRoot, destinationRoot: restoreRoot });
 
     assert.deepEqual(readSchemaVersions(join(restoreRoot, 'runtime.sqlite')), {
-      runtime: 11,
-      sessionMetadata: 22,
+      runtime: SQLITE_RUNTIME_SCHEMA_VERSION,
+      sessionMetadata: SQLITE_SESSION_METADATA_SCHEMA_VERSION,
+      coreExecution: SQLITE_CORE_EXECUTION_SCHEMA_VERSION,
+      workflow: SQLITE_WORKFLOW_SCHEMA_VERSION,
       operational: 1,
     });
     assert.deepEqual(readSchemaVersions(join(backupRoot, 'runtime.sqlite')), {
       runtime: 10,
       sessionMetadata: 21,
+      coreExecution: 1,
+      workflow: 3,
       operational: 1,
     });
     const restored = createSessionStore(restoreRoot);
     try {
       assert.equal((await restored.readMessages(session.id))[0]?.id, 'message-1');
+      assert.equal((await restored.readHeaderSnapshot(session.id)).connectionLocked, true);
     } finally {
       await restored.close?.();
     }
@@ -227,12 +236,18 @@ async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void>
       SET version = CASE scope
         WHEN 'runtime' THEN 10
         WHEN 'session_metadata' THEN 21
+        WHEN 'core_execution' THEN 1
+        WHEN 'workflow' THEN 3
         WHEN 'operational' THEN 1
         ELSE version
       END;
       DROP TABLE runtime_session_event_ordinals;
+      DROP TABLE core_root_turn_start_rejections;
+      ALTER TABLE workflow_quote_companion_cleanup DROP COLUMN record_json;
       PRAGMA user_version = 10;
       UPDATE session_metadata_schema SET version = 21 WHERE scope = 'session_metadata';
+      UPDATE session_metadata
+      SET payload_json = json_set(payload_json, '$.connectionLocked', json('false'));
       PRAGMA journal_mode = DELETE;
     `);
   } finally {
@@ -262,6 +277,8 @@ async function refreshDatabaseInventory(backupRoot: string): Promise<void> {
 function readSchemaVersions(databasePath: string): {
   runtime: number;
   sessionMetadata: number;
+  coreExecution: number;
+  workflow: number;
   operational: number;
 } {
   const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -278,7 +295,17 @@ function readSchemaVersions(databasePath: string): {
         .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'operational'`)
         .get() as { version: number }
     ).version;
-    return { runtime, sessionMetadata, operational };
+    const coreExecution = (
+      database
+        .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'core_execution'`)
+        .get() as { version: number }
+    ).version;
+    const workflow = (
+      database
+        .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'workflow'`)
+        .get() as { version: number }
+    ).version;
+    return { runtime, sessionMetadata, coreExecution, workflow, operational };
   } finally {
     database.close();
   }
