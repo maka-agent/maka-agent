@@ -39,7 +39,15 @@ import {
 } from './operational-state-schema-lock.js';
 
 export const OPERATIONAL_STATE_DATABASE_NAME = 'runtime.sqlite';
-export const OPERATIONAL_STATE_SCHEMA_VERSION = 1;
+export const OPERATIONAL_STATE_SCHEMA_VERSION = 2;
+
+const CREATE_OPERATIONAL_SCHEMA_REGISTRY = `
+  CREATE TABLE operational_schema_migrations (
+    scope TEXT NOT NULL PRIMARY KEY CHECK (typeof(scope) = 'text' AND length(scope) > 0),
+    version INTEGER NOT NULL CHECK (typeof(version) = 'integer' AND version >= 0),
+    applied_at INTEGER NOT NULL CHECK (typeof(applied_at) = 'integer' AND applied_at >= 0)
+  ) WITHOUT ROWID;
+`;
 
 /** Resolve the authoritative on-disk path of the operational-state database. */
 export function resolveOperationalStateDatabasePath(workspaceRoot: string): string {
@@ -264,11 +272,16 @@ function inspectOperationalSchema(database: DatabaseSync): 'current' | 'needs_mi
 
   if (!hasTable(database, 'operational_schema_migrations')) return 'needs_migration';
   const rows = database
-    .prepare('SELECT scope, version FROM operational_schema_migrations')
-    .all() as Array<{ scope?: unknown; version?: unknown }>;
+    .prepare('SELECT scope, version, applied_at FROM operational_schema_migrations')
+    .all() as Array<{ scope?: unknown; version?: unknown; applied_at?: unknown }>;
   const registered = new Map<string, number>();
-  for (const { scope, version } of rows) {
-    if (typeof scope !== 'string') continue;
+  for (const { scope, version, applied_at: appliedAt } of rows) {
+    if (typeof scope !== 'string') {
+      throw new Error(
+        'Operational schema registry has an invalid scope; ' +
+          'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
+      );
+    }
     const supportedVersion = OPERATIONAL_SCHEMA_VERSIONS.get(scope);
     if (supportedVersion === undefined) {
       throw new Error(
@@ -279,6 +292,12 @@ function inspectOperationalSchema(database: DatabaseSync): 'current' | 'needs_mi
     if (typeof version !== 'number' || !Number.isSafeInteger(version) || version < 0) {
       throw new Error(
         `Operational schema ${scope} has invalid version ${String(version)}; ` +
+          'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
+      );
+    }
+    if (typeof appliedAt !== 'number' || !Number.isSafeInteger(appliedAt) || appliedAt < 0) {
+      throw new Error(
+        `Operational schema ${scope} has invalid applied_at ${String(appliedAt)}; ` +
           'Maka did not migrate or delete the database. Restore or repair this workspace before opening it.',
       );
     }
@@ -324,13 +343,7 @@ function migrateOperationalStateDatabase(db: DatabaseSync, now: () => number): v
     migrateSqliteUsageDatabase(db);
     migrateSqliteArtifactDatabase(db);
     migrateSqliteAutomationDatabase(db);
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS operational_schema_migrations (
-        scope TEXT PRIMARY KEY,
-        version INTEGER NOT NULL CHECK (version >= 0),
-        applied_at INTEGER NOT NULL CHECK (applied_at >= 0)
-      );
-    `);
+    migrateOperationalSchemaRegistry(db);
     const appliedAt = now();
     for (const [scope, version] of OPERATIONAL_SCHEMA_VERSIONS) {
       registerSchema(db, scope, version, appliedAt);
@@ -340,6 +353,27 @@ function migrateOperationalStateDatabase(db: DatabaseSync, now: () => number): v
     rollback(db);
     throw error;
   }
+}
+
+function migrateOperationalSchemaRegistry(db: DatabaseSync): void {
+  if (!hasTable(db, 'operational_schema_migrations')) {
+    db.exec(CREATE_OPERATIONAL_SCHEMA_REGISTRY);
+    return;
+  }
+  const current = db
+    .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'operational'`)
+    .get() as { version?: unknown } | undefined;
+  if (current?.version === OPERATIONAL_STATE_SCHEMA_VERSION) return;
+  if (hasTable(db, 'operational_schema_migrations_v1')) {
+    throw new Error('Operational schema registry migration staging table already exists');
+  }
+  db.exec('ALTER TABLE operational_schema_migrations RENAME TO operational_schema_migrations_v1');
+  db.exec(CREATE_OPERATIONAL_SCHEMA_REGISTRY);
+  db.exec(`
+    INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM operational_schema_migrations_v1;
+    DROP TABLE operational_schema_migrations_v1;
+  `);
 }
 
 function registerSchema(db: DatabaseSync, scope: string, version: number, appliedAt: number): void {

@@ -167,6 +167,7 @@ test('rejects a newer scope before migrating an older scope', async () => {
     lease.close();
 
     const database = new DatabaseSync(databasePath);
+    replaceRegistryWithLegacySchema(database);
     rewindRuntimeSchema(database);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'usage'`)
@@ -311,6 +312,7 @@ test('rejects an invalid registered schema version before migrating', async () =
     lease.close();
 
     const database = new DatabaseSync(databasePath);
+    replaceRegistryWithLegacySchema(database);
     rewindRuntimeSchema(database);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'usage'`)
@@ -336,9 +338,160 @@ test('rejects an invalid registered schema version before migrating', async () =
   }
 });
 
+test('rejects an invalid registry scope before migrating', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-invalid-scope-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    replaceRegistryWithLegacySchema(database);
+    rewindRuntimeSchema(database);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database
+      .prepare(
+        `INSERT INTO operational_schema_migrations(scope, version, applied_at) VALUES (NULL, 1, 1)`,
+      )
+      .run();
+    database.close();
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /invalid scope/i);
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
+        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+      );
+      assert.equal(
+        (
+          preserved
+            .prepare(
+              'SELECT COUNT(*) AS count FROM operational_schema_migrations WHERE scope IS NULL',
+            )
+            .get() as { count: number }
+        ).count,
+        1,
+      );
+    } finally {
+      preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects an invalid registry timestamp before migrating', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-invalid-applied-at-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    replaceRegistryWithLegacySchema(database);
+    rewindRuntimeSchema(database);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET applied_at = 1.5 WHERE scope = 'usage'`)
+      .run();
+    database.close();
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /invalid applied_at 1.5/i);
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
+        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+      );
+      assert.equal(
+        (
+          preserved
+            .prepare(`SELECT applied_at FROM operational_schema_migrations WHERE scope = 'usage'`)
+            .get() as { applied_at: number }
+        ).applied_at,
+        1.5,
+      );
+    } finally {
+      preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('upgrades the registry schema to enforce its validated row shape', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-registry-schema-upgrade-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const legacy = new DatabaseSync(databasePath);
+    replaceRegistryWithLegacySchema(legacy);
+    legacy.close();
+
+    acquireOperationalStateDatabase(root).close();
+
+    const upgraded = new DatabaseSync(databasePath);
+    try {
+      assert.equal(
+        (
+          upgraded
+            .prepare(
+              `SELECT version FROM operational_schema_migrations WHERE scope = 'operational'`,
+            )
+            .get() as { version: number }
+        ).version,
+        2,
+      );
+      assert.throws(
+        () =>
+          upgraded
+            .prepare(
+              `INSERT INTO operational_schema_migrations(scope, version, applied_at) VALUES (NULL, 1, 1)`,
+            )
+            .run(),
+        /NOT NULL constraint failed/i,
+      );
+      assert.throws(
+        () =>
+          upgraded
+            .prepare(
+              `UPDATE operational_schema_migrations SET applied_at = 1.5 WHERE scope = 'usage'`,
+            )
+            .run(),
+        /CHECK constraint failed/i,
+      );
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 function rewindRuntimeSchema(database: DatabaseSync): void {
   database.exec('DROP TABLE runtime_session_event_ordinals');
   database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+}
+
+function replaceRegistryWithLegacySchema(database: DatabaseSync): void {
+  database.exec(`
+    ALTER TABLE operational_schema_migrations RENAME TO operational_schema_migrations_current;
+    CREATE TABLE operational_schema_migrations (
+      scope TEXT PRIMARY KEY,
+      version INTEGER NOT NULL CHECK (version >= 0),
+      applied_at INTEGER NOT NULL CHECK (applied_at >= 0)
+    );
+    INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM operational_schema_migrations_current;
+    UPDATE operational_schema_migrations SET version = 1 WHERE scope = 'operational';
+    DROP TABLE operational_schema_migrations_current;
+  `);
 }
 
 function sessionHeader(): SessionHeader {
