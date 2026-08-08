@@ -102,4 +102,20 @@ export function migrateSqliteWorkflowDatabase(db: DatabaseSync): void {
       WHERE record_json IS NULL
     `).run();
   }
+  db.exec(`
+    CREATE TRIGGER IF NOT EXISTS workflow_quote_cleanup_fill_record
+    AFTER INSERT ON workflow_quote_companion_cleanup
+    WHEN NEW.record_json IS NULL
+    BEGIN
+      UPDATE workflow_quote_companion_cleanup
+      SET record_json = json_object(
+        'version', 1,
+        'sessionId', NEW.session_id,
+        'trackedAt', NEW.tracked_at,
+        'phase', 'cleanup',
+        'cancelRequested', json('true')
+      )
+      WHERE session_id = NEW.session_id;
+    END;
+  `);
 }

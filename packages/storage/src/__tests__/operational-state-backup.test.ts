@@ -335,6 +335,7 @@ async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void>
       END;
       DROP TRIGGER runtime_events_assign_session_ordinal;
       DROP TRIGGER session_messages_lock_connection;
+      DROP TRIGGER workflow_quote_cleanup_fill_record;
       DROP TABLE runtime_session_event_ordinals;
       DROP TABLE core_root_turn_start_rejections;
       ALTER TABLE workflow_quote_companion_cleanup DROP COLUMN record_json;
