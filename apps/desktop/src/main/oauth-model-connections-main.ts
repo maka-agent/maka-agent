@@ -6,6 +6,8 @@ import {
   type LlmConnection,
   type ModelDiscoverySource,
 } from '@maka/core/llm-connections';
+import { connectionFallbackModelIds } from '@maka/core/model-catalog';
+import { modelIdAliasesForProvider } from '@maka/core/model-metadata';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
 import type { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { isSubscriptionExperimentalEnabled } from './oauth/claude-subscription-helpers.js';
@@ -72,7 +74,18 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
     }
 
     const defaults = PROVIDER_DEFAULTS['claude-subscription'];
-    const fallbackModels = defaults.fallbackModels.map((id) => ({ id }));
+    // Session-scoped subscription tokens cannot reach /v1/models, so this
+    // provider declares fallback-only discovery and can never hold a fetched
+    // snapshot. Rebuild the inventory from the curated catalog instead of
+    // pinning whatever was persisted: a stale copy on disk both hides newly
+    // curated models (claude-opus-5) and makes reconciliation drop them back
+    // out of enabledModelIds the moment the user selects one. Same reasoning
+    // as the rebuilt fallback snapshot in syncOpenAiCodexConnection.
+    //
+    // Read through connectionFallbackModelIds, the same authority the settings
+    // catalog projects from, so the list a user is offered and the list their
+    // selection is reconciled against cannot drift apart.
+    const fallbackModels = connectionFallbackModelIds('claude-subscription').map((id) => ({ id }));
     const displayName = 'Claude OAuth';
     const now = Date.now();
     const connection: LlmConnection = {
@@ -80,10 +93,16 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       name: existing?.name ?? displayName,
       providerType: 'claude-subscription',
       baseUrl: defaults.baseUrl,
-      ...syncedSelection(existing, existing?.models?.length ? existing.models : fallbackModels),
+      // Only this provider's sync supplies the alias table: the ids in it are
+      // Anthropic's naming, and reconciliation is shared with every provider
+      // that fetches an inventory — including relays whose `claude-*` ids are
+      // their own opaque identifiers.
+      ...syncedSelection(existing, fallbackModels, {
+        aliases: modelIdAliasesForProvider('claude-subscription'),
+      }),
       enabled: true,
-      models: existing?.models?.length ? existing.models : fallbackModels,
-      modelSource: existing?.modelSource ?? 'fallback',
+      models: fallbackModels,
+      modelSource: 'fallback',
       lastTestStatus: 'verified',
       lastTestAt: new Date(now).toISOString(),
       lastTestMessage: 'Claude OAuth 已登录。',
@@ -642,6 +661,7 @@ function normalizeOpenAiCodexModels(
 function syncedSelection(
   existing: LlmConnection | null | undefined,
   models: readonly { id: string }[],
+  options?: { readonly aliases?: Readonly<Record<string, string>> },
 ): { defaultModel: string; enabledModelIds: string[] } {
   return reconcileConnectionAfterModelFetch(
     {
@@ -650,5 +670,6 @@ function syncedSelection(
       hasModelInventory: existing !== null && existing !== undefined,
     },
     models,
+    options,
   );
 }

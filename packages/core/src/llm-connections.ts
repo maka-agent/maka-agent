@@ -148,6 +148,24 @@ export function connectionEnabledModelIds(connection: {
 }
 
 /**
+ * Resolve a stored id against one inventory. Whether an id is superseded is a
+ * property of the inventory as well as of the caller: the API-key Anthropic
+ * catalog deliberately lists `claude-sonnet-4-5-20250929` alongside its alias so
+ * users can pin a release, while the subscription catalog lists aliases only. So
+ * this rewrites only when a caller supplied an alias table, the stored id is
+ * absent from the inventory, AND its alias is present.
+ */
+function supersededModelId(
+  modelId: string,
+  live: ReadonlySet<string>,
+  aliases: Readonly<Record<string, string>> | undefined,
+): string {
+  if (aliases === undefined || live.has(modelId)) return modelId;
+  const alias = aliases[modelId];
+  return alias !== undefined && live.has(alias) ? alias : modelId;
+}
+
+/**
  * THE rule for a connection's model selection:
  * **`defaultModel` is either absent, or a member of `enabledModelIds`.**
  *
@@ -214,6 +232,14 @@ export function reconcileConnectionAfterModelFetch(
     hasModelInventory?: boolean;
   },
   models: readonly { id?: unknown }[],
+  options?: {
+    /**
+     * Ids this provider has renamed, mapped to their current form. Omitted by
+     * default: model ids are opaque to this function, so nothing is rewritten
+     * unless a caller that knows the provider's naming supplies the table.
+     */
+    readonly aliases?: Readonly<Record<string, string>>;
+  },
 ): {
   defaultModel: string;
   enabledModelIds: string[];
@@ -228,9 +254,25 @@ export function reconcileConnectionAfterModelFetch(
     liveIds.push(id);
   }
 
-  const previousDefault =
-    typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '';
-  const previousEnabled = connectionEnabledModelIds(connection);
+  // Migrate before matching: a superseded id names a model the inventory still
+  // offers under its current id, so comparing it literally would classify a
+  // live model as retired and fall through to "first live id" — silently
+  // moving the user to an unrelated model family.
+  const previousDefault = supersededModelId(
+    typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '',
+    live,
+    options?.aliases,
+  );
+  // Dedupe after mapping, not before: a connection holding both forms of one
+  // model collapses onto a single id here, and one of the returns below hands
+  // this list straight back without passing it through connectionEnabledModelIds.
+  const previousEnabled = [
+    ...new Set(
+      connectionEnabledModelIds(connection).map((id) =>
+        supersededModelId(id, live, options?.aliases),
+      ),
+    ),
+  ];
 
   if (liveIds.length === 0) {
     const defaultModel = previousDefault;

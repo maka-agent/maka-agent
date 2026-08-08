@@ -186,6 +186,23 @@ export function buildModelCatalogEntries(input: BuildModelCatalogInput): ModelCa
   return entries;
 }
 
+/**
+ * The one inventory a provider falls back to when no fetched catalog applies:
+ * the curated list when there is one, the registry's own list otherwise.
+ *
+ * Single authority on purpose. The catalog resolved this here while connection
+ * sync read `PROVIDER_DEFAULTS[...].fallbackModels` directly, so the two agreed
+ * only as long as both lists were edited together — and when they diverged, a
+ * model the settings sheet offered was filtered back out on the next sync.
+ */
+export function connectionFallbackModelIds(providerType: ProviderType): readonly string[] {
+  return (
+    curatedCatalogFallbackModelsForProvider(providerType) ??
+    PROVIDER_DEFAULTS[providerType]?.fallbackModels ??
+    []
+  );
+}
+
 export function buildConnectionModelCatalogEntries(
   input: BuildConnectionModelCatalogInput,
 ): ModelCatalogEntry[] {
@@ -196,8 +213,7 @@ export function buildConnectionModelCatalogEntries(
   // Mirrors `isFakeBackend` in connection-readiness.ts.
   if (!defaults) return [];
   const supportsModelDiscovery = providerSupportsModelDiscovery(connection.providerType);
-  const catalogFallbackModels = curatedCatalogFallbackModelsForProvider(connection.providerType);
-  const fallbackModels = [...(catalogFallbackModels ?? defaults.fallbackModels)];
+  const fallbackModels = [...connectionFallbackModelIds(connection.providerType)];
   return buildModelCatalogEntries({
     providerType: connection.providerType,
     connectionSlug: connection.slug,

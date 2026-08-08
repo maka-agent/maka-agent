@@ -479,6 +479,54 @@ function displayMetadataOnly(
   ) as Record<string, ModelMetadata>;
 }
 
+/**
+ * Anthropic ids that name the same model as another id, mapped to the form the
+ * subscription catalog lists them under.
+ *
+ * This is renaming, not retirement: Anthropic publishes a pinned dated id and a
+ * shorter "latest" alias for one model, so an inventory listing either form
+ * still offers a selection stored in the other. Reconciliation compares ids
+ * literally, so without this table a stored `claude-haiku-4-5-20251001` reads as
+ * a model the catalog dropped, and repair falls through to the first live id —
+ * moving a Haiku user onto Opus, across both model family and price tier, with
+ * no prompt.
+ *
+ * Membership rule: only ids that name the *same* model as their target. A model
+ * that was genuinely withdrawn (`claude-opus-4-1-20250805`, carrying
+ * `lifecycle: 'deprecated'`) does NOT belong here — repairing that one onto a
+ * different model is correct, because the original is gone.
+ *
+ * Pass it explicitly, and only for the provider it describes. These ids are
+ * Anthropic's naming, not a global fact: a relay may serve `claude-*` ids as
+ * opaque identifiers of its own, where the same string is a different model —
+ * the rule connection storage already states when it prunes relay profiles
+ * across endpoints.
+ *
+ * Lives beside CURATED_CATALOG_FALLBACK_MODELS because every target here must
+ * be an id that list offers; a rename pointing at nothing sends reconciliation
+ * back to the "first live id" fallback this table exists to prevent.
+ */
+export const CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES: Readonly<Record<string, string>> = {
+  'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
+  'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
+};
+
+/**
+ * The rename table that applies to one provider's inventory, or undefined when
+ * its ids carry no such guarantee.
+ *
+ * Reconciliation is shared by every provider that commits a fetched inventory,
+ * so the alias table has to be selected by provider rather than assumed. Any
+ * path that reconciles a selection resolves it through here — the desktop sync
+ * and the Runtime Host catalog reach the same answer instead of one of them
+ * quietly keeping the old literal comparison.
+ */
+export function modelIdAliasesForProvider(
+  providerType: ProviderType,
+): Readonly<Record<string, string>> | undefined {
+  return providerType === 'claude-subscription' ? CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES : undefined;
+}
+
 const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
   anthropic: [
     'claude-sonnet-4-6',
@@ -494,7 +542,7 @@ const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly str
     'claude-sonnet-4-6',
     'claude-opus-4-8',
     'claude-haiku-4-5',
-    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-4-5',
   ],
   openai: ['gpt-5.5', 'gpt-5.5-pro', 'gpt-5.4', 'gpt-5.4-mini', 'gpt-5'],
   deepseek: ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-reasoner', 'deepseek-chat'],

@@ -1765,13 +1765,16 @@ const providerRegistry = {
     baseUrl: 'https://api.anthropic.com',
     authKind: 'oauth_token',
     backendKind: 'ai-sdk',
+    // One id form only. Mixing pinned dated ids with "latest" aliases in one
+    // curated list is what let a stored dated selection read as retired; see
+    // CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES.
     fallbackModels: [
       'claude-opus-5',
       'claude-sonnet-5',
       'claude-sonnet-4-6',
       'claude-opus-4-8',
       'claude-haiku-4-5',
-      'claude-sonnet-4-5-20250929',
+      'claude-sonnet-4-5',
     ],
     status: 'phase3-experimental',
     protocol: 'anthropic',
