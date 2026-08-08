@@ -185,6 +185,17 @@
         "floor": "Focus ownership is independent of viewport geometry."
       }
     },
+    "composerInlineSuggestion": {
+      "storyId": "product-shell-official-appshell--composer-inline-suggestion",
+      "productionHost": "ChatView > Composer > ChatComposerInput + inline-suggestion mirror",
+      "state": "Draft prefixing a past prompt, with the rest offered as ghost text",
+      "viewports": ["wide"],
+      "colorSchemes": ["light", "dark"],
+      "viewportOptOuts": {
+        "compact": "The play asserts key routing and caret placement, neither of which is viewport-dependent.",
+        "floor": "The play asserts key routing and caret placement, neither of which is viewport-dependent."
+      }
+    },
     "askUserQuestion": {
       "storyId": "product-ask-user-question--pending-decisions",
       "productionHost": "UserQuestionPrompt (the ChatComposerRegion takeover is out of scope)",

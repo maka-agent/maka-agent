@@ -18,7 +18,7 @@
  * and keeps this.
  */
 
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import type { ComposerTextPort } from './chat-input-behavior.js';
 import {
   type ComposerHistoryState,
@@ -26,7 +26,12 @@ import {
   reconcileHistorySync,
   rememberComposerHistoryEntry,
 } from './composer-helpers.js';
-import { readGlobalInputHistory, saveGlobalInputHistoryEntry } from './input-history.js';
+import {
+  readGlobalInputHistory,
+  saveGlobalInputHistoryEntry,
+  subscribeGlobalInputHistory,
+} from './input-history.js';
+import { matchPromptHistory } from './prompt-history-match.js';
 
 export interface ComposerHistoryApi {
   /**
@@ -53,6 +58,15 @@ export interface ComposerHistoryApi {
    * stop further key handling.
    */
   handleArrowKey(event: KeyboardEvent<Element>): boolean;
+  /**
+   * What would finish `draft` if it were taken from history, or null.
+   *
+   * Lives here because this hook is the history's only owner: a second holder
+   * would need its own copy of the entries, and a copy is exactly what lets a
+   * prompt cleared from Settings · 数据 be completed back into a draft. The
+   * decision itself is `matchPromptHistory`, pure and tested on its own.
+   */
+  matchCompletion(draft: string): string | null;
 }
 
 export function useComposerHistory(input: {
@@ -61,6 +75,23 @@ export function useComposerHistory(input: {
   saveCurrentDraft(value?: string): void;
 }): ComposerHistoryApi {
   const promptHistoryRef = useRef<ComposerHistoryState>({ entries: readGlobalInputHistory() ?? [], index: -1, savedDraft: '' });
+  // Re-render on a write, so an offer drawn from an entry that has just been
+  // cleared from Settings · 数据 leaves the screen with it rather than waiting
+  // for the next keystroke to recompute.
+  const [, setHistoryRevision] = useState(0);
+
+  useEffect(() => subscribeGlobalInputHistory(() => {
+    const synced = readGlobalInputHistory();
+    // A failed read keeps what we have, for the same reason
+    // `readGlobalInputHistory` returns null rather than an empty list.
+    if (synced === null) return;
+    promptHistoryRef.current = { ...promptHistoryRef.current, entries: synced };
+    setHistoryRevision((revision) => revision + 1);
+  }), []);
+
+  function matchCompletion(draft: string): string | null {
+    return matchPromptHistory(draft, promptHistoryRef.current.entries);
+  }
 
   function resetNavigation() {
     promptHistoryRef.current = {
@@ -123,5 +154,5 @@ export function useComposerHistory(input: {
     return true;
   }
 
-  return { resetNavigation, rememberSentEntry, handleArrowKey };
+  return { resetNavigation, rememberSentEntry, handleArrowKey, matchCompletion };
 }

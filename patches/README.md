@@ -54,3 +54,13 @@ a non-blank value keeps deciding exactly as before.
 (the "blank UA-CH" test, which fakes `platform: ''` + `MacIntel` via an init
 script) passes without the patch — that means Astryx's own probe learned to
 distrust the blank.
+
+## `@astryxdesign/core`: an offered completion must live inside the editor it is offered in
+
+Serves [#1874](https://github.com/maka-agent/maka-agent/pull/1874); upstreamed as [facebook/astryx#4822](https://github.com/facebook/astryx/issues/4822). Adds `inlineCompletion` / `inlineCompletionLabel` to `ChatComposerInput`: text offered as a continuation of the value, drawn dim after the caret and committed with Tab.
+
+The prop exists because the alternative is worse in a way that is not a matter of taste. Drawn *outside* the editor — an absolutely positioned mirror of the draft — the preview and the insertion are two different layouts that agree only by luck: measured, a one-row field offering a 116-character completion showed 57 characters and Tab inserted all 116, so 59 characters entered the draft having never been on screen. Wrapping, growth, scrolling, the caret, the composition state and whether a trigger menu already owns Tab are all facts the editor holds and a sibling can only infer. Inside the editor there is nothing to infer and nothing to keep in sync: the offer is a `contenteditable=false` span in the real flow, skipped by `serialize` so it can never reach the value, and it wraps and scrolls because it is the same text in the same box. Accepting it is one ordinary `insertTextAtCursor` + `emitChange`.
+
+The same ownership is what makes it announceable: the editor knows when an offer is actually on screen, so it can carry the polite live region — `inlineCompletionLabel` supplies the instruction, because "press Tab to accept" is product copy a component library has no business inventing.
+
+**Delete it when** [facebook/astryx#4822](https://github.com/facebook/astryx/issues/4822) ships and `packages/ui/src/__tests__/astryx-inline-completion.test.tsx` passes against an unpatched package. Both cases fail loudly there: an upstream that does not know the prop lets it fall into `...rest` and React renders a stray `inlinecompletion` attribute on the root. The behaviour the seam exists for — Tab commits, Escape dismisses, nothing is offered that is not visible — needs a caret and a focused editor, so it is pinned by the `composer-inline-suggestion` play story in the Storybook smoke run instead.
