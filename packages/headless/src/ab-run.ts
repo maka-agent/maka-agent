@@ -127,7 +127,12 @@ function isSystemicProviderFailure(event: FixedPromptTaskWalEvent): boolean {
       : event.type === 'task_budget_exhausted'
         ? event.evidenceErrorClass
         : undefined;
-  return errorClass === 'provider_billing' || errorClass === 'auth';
+  return (
+    errorClass === 'provider_billing' ||
+    errorClass === 'provider_permission' ||
+    errorClass === 'usage_limit' ||
+    errorClass === 'auth'
+  );
 }
 
 async function runCohort(
