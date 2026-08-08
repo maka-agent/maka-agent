@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { validateSandboxBoundaryExpansion } from '@maka/core';
 
-// v6 adds no-follow create/replace/delete mutations for ApplyPatch settlement.
-export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 6 as const;
+// v5 adds no-follow create/replace/delete mutations for ApplyPatch settlement.
+export const FILESYSTEM_WORKER_PROTOCOL_VERSION = 5 as const;
 
 const path = z.string().min(1).max(4096);
 const cwd = z.string().min(1).max(4096);
