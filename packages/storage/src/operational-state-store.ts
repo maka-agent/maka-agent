@@ -186,8 +186,7 @@ function openOperationalStateDatabase(
     if (opened) return opened;
   }
 
-  const workspaceRoot = dirname(databasePath);
-  const migrationLock = tryAcquireOperationalStateMigrationLock(workspaceRoot);
+  const migrationLock = tryAcquireOperationalStateMigrationLock(databasePath);
   if (!migrationLock) {
     const opened = openCurrentOperationalStateDatabase(databasePath);
     if (opened) return opened;
@@ -197,6 +196,7 @@ function openOperationalStateDatabase(
   try {
     const Database = loadDatabaseSync();
     migrationDatabase = new Database(databasePath);
+    migrationLock.assertCurrentDatabasePath();
     configureSqliteRuntimeLockWait(migrationDatabase);
     if (inspectOperationalSchema(migrationDatabase) === 'needs_migration') {
       configureSqliteRuntimeDatabase(migrationDatabase);
@@ -218,11 +218,12 @@ function openOperationalStateDatabase(
 function openCurrentOperationalStateDatabase(
   databasePath: string,
 ): { database: DatabaseSync; schemaLock: OperationalStateSchemaLock } | undefined {
-  const schemaLock = waitForOperationalStateSchemaUseLock(dirname(databasePath));
+  const schemaLock = waitForOperationalStateSchemaUseLock(databasePath);
   let database: DatabaseSync | undefined;
   try {
     const Database = loadDatabaseSync();
     database = new Database(databasePath);
+    schemaLock.assertCurrentDatabasePath();
     // This connection-only pragma lets preflight wait without changing a rejected database.
     configureSqliteRuntimeLockWait(database);
     if (inspectOperationalSchema(database) === 'needs_migration') {

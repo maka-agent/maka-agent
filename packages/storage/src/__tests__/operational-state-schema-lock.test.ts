@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -43,6 +43,44 @@ test('a live operational database lease excludes schema migration', async () => 
   } finally {
     if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
     await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('replacing the workspace root cannot detach a live owner from its database migration lock', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-root-replacement-'));
+  const movedRoot = `${root}-moved`;
+  const databasePath = join(root, 'runtime.sqlite');
+  let holder: ChildProcess | undefined;
+  try {
+    acquireOperationalStateDatabase(root).close();
+    holder = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    await waitForReady(holder);
+
+    await rename(root, movedRoot);
+    await mkdir(root);
+    await link(join(movedRoot, 'runtime.sqlite'), databasePath);
+
+    const database = new DatabaseSync(databasePath);
+    database.exec('DROP TABLE runtime_session_event_ordinals');
+    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /close other Maka processes before retrying/i,
+    );
+    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+  } finally {
+    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await rm(root, { recursive: true, force: true });
+    await rm(movedRoot, { recursive: true, force: true });
   }
 });
 

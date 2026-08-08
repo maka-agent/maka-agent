@@ -1,6 +1,8 @@
 /// <reference path="./fs-native-extensions.d.ts" />
 
+import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   closeSync,
   constants as fsConstants,
   fchmodSync,
@@ -9,10 +11,11 @@ import {
   mkdirSync,
   openSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { tryLock, unlock } from 'fs-native-extensions';
+import { resolveRootControlNamespace } from './root-authority.js';
 
-const OPERATIONAL_STATE_SCHEMA_LOCK_FILE = 'runtime.sqlite.schema.lock';
+const OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY = 'operational-schema-locks';
 const OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS = 5_000;
 const OPERATIONAL_STATE_SCHEMA_LOCK_RETRY_MS = 25;
 const schemaLockRetryGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
@@ -20,15 +23,16 @@ const MIGRATION_BLOCKED_MESSAGE =
   'Operational state requires a schema migration. The database was not modified; close other Maka processes before retrying.';
 
 export interface OperationalStateSchemaLock {
+  assertCurrentDatabasePath(): void;
   close(): void;
 }
 
 export function waitForOperationalStateSchemaUseLock(
-  workspaceRoot: string,
+  databasePath: string,
 ): OperationalStateSchemaLock {
   const deadline = Date.now() + OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS;
   while (true) {
-    const lock = tryAcquireOperationalStateSchemaLock(workspaceRoot, true);
+    const lock = tryAcquireOperationalStateSchemaLock(databasePath, true);
     if (lock) return lock;
     if (Date.now() >= deadline) throw new Error(MIGRATION_BLOCKED_MESSAGE);
     Atomics.wait(
@@ -41,9 +45,9 @@ export function waitForOperationalStateSchemaUseLock(
 }
 
 export function tryAcquireOperationalStateMigrationLock(
-  workspaceRoot: string,
+  databasePath: string,
 ): OperationalStateSchemaLock | undefined {
-  return tryAcquireOperationalStateSchemaLock(workspaceRoot, false);
+  return tryAcquireOperationalStateSchemaLock(databasePath, false);
 }
 
 export function operationalStateMigrationBlockedError(): Error {
@@ -51,45 +55,87 @@ export function operationalStateMigrationBlockedError(): Error {
 }
 
 function tryAcquireOperationalStateSchemaLock(
-  workspaceRoot: string,
+  databasePath: string,
   shared: boolean,
 ): OperationalStateSchemaLock | undefined {
-  const canonicalRoot = resolve(workspaceRoot);
-  mkdirSync(canonicalRoot, { recursive: true });
-  const path = join(canonicalRoot, OPERATIONAL_STATE_SCHEMA_LOCK_FILE);
-  const fd = openSync(
-    path,
+  const canonicalDatabasePath = resolve(databasePath);
+  mkdirSync(dirname(canonicalDatabasePath), { recursive: true });
+  const databaseFd = openSync(
+    canonicalDatabasePath,
     fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
     0o600,
   );
+  let lockFd: number | undefined;
   let acquired = false;
   try {
-    if (process.platform !== 'win32') fchmodSync(fd, 0o600);
-    assertStableRegularFile(fd, path);
-    acquired = tryLock(fd, { shared });
+    if (process.platform !== 'win32') fchmodSync(databaseFd, 0o600);
+    const databaseIdentity = assertStableRegularFile(databaseFd, canonicalDatabasePath);
+    const lockPath = resolveOperationalStateLockPath(databaseIdentity.dev, databaseIdentity.ino);
+    lockFd = openSync(
+      lockPath,
+      fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
+      0o600,
+    );
+    if (process.platform !== 'win32') fchmodSync(lockFd, 0o600);
+    assertStableRegularFile(lockFd, lockPath);
+    acquired = tryLock(lockFd, { shared });
     if (!acquired) {
-      closeSync(fd);
+      closeSync(lockFd);
+      closeSync(databaseFd);
       return undefined;
     }
-    assertStableRegularFile(fd, path);
+    assertStableRegularFile(lockFd, lockPath);
+    assertStableRegularFile(databaseFd, canonicalDatabasePath);
+    const acquiredLockFd = lockFd;
+
+    let closed = false;
+    return Object.freeze({
+      assertCurrentDatabasePath: () => {
+        if (closed) throw new Error('Operational schema lock is closed');
+        assertStableRegularFile(databaseFd, canonicalDatabasePath);
+      },
+      close: () => {
+        if (closed) return;
+        closed = true;
+        releaseLock(acquiredLockFd);
+        closeSync(acquiredLockFd);
+        closeSync(databaseFd);
+      },
+    });
   } catch (error) {
-    if (acquired) releaseLock(fd);
-    closeSync(fd);
+    if (lockFd !== undefined) {
+      if (acquired) releaseLock(lockFd);
+      closeSync(lockFd);
+    }
+    closeSync(databaseFd);
     throw error;
   }
-
-  let closed = false;
-  return Object.freeze({
-    close: () => {
-      if (closed) return;
-      closed = true;
-      releaseLock(fd);
-      closeSync(fd);
-    },
-  });
 }
 
-function assertStableRegularFile(fd: number, path: string): void {
+function resolveOperationalStateLockPath(dev: bigint, ino: bigint): string {
+  const controlRoot = resolve(resolveRootControlNamespace());
+  const lockDirectory = join(controlRoot, OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY);
+  mkdirSync(controlRoot, { recursive: true, mode: 0o700 });
+  mkdirSync(lockDirectory, { recursive: true, mode: 0o700 });
+  assertPrivateDirectory(controlRoot);
+  assertPrivateDirectory(lockDirectory);
+  const identity = createHash('sha256').update(`${dev.toString()}:${ino.toString()}`).digest('hex');
+  return join(lockDirectory, `${identity}.lock`);
+}
+
+function assertPrivateDirectory(path: string): void {
+  const status = lstatSync(path);
+  if (!status.isDirectory())
+    throw new Error(`Operational schema lock root is not a directory: ${path}`);
+  if (process.platform !== 'win32') {
+    chmodSync(path, 0o700);
+    if ((lstatSync(path).mode & 0o077) !== 0) {
+      throw new Error(`Operational schema lock root is not private: ${path}`);
+    }
+  }
+}
+
+function assertStableRegularFile(fd: number, path: string): { dev: bigint; ino: bigint } {
   const handleStat = fstatSync(fd, { bigint: true });
   const pathStat = lstatSync(path, { bigint: true });
   if (
@@ -98,8 +144,9 @@ function assertStableRegularFile(fd: number, path: string): void {
     handleStat.dev !== pathStat.dev ||
     handleStat.ino !== pathStat.ino
   ) {
-    throw new Error(`Operational schema lock is not one stable regular file: ${path}`);
+    throw new Error(`Operational schema authority is not one stable regular file: ${path}`);
   }
+  return { dev: handleStat.dev, ino: handleStat.ino };
 }
 
 function releaseLock(fd: number): void {
