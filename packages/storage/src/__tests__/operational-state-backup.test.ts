@@ -275,10 +275,7 @@ test('rejects a v0.1.6 backup missing a table required by that release', async (
   }
 });
 
-test('releases the operational database when restored runtime capabilities are invalid', {
-  skip:
-    process.platform === 'win32' ? 'Windows does not expose a process file-descriptor list' : false,
-}, async () => {
+test('releases the operational database when restored runtime capabilities are invalid', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-invalid-capability-'));
   const stateRoot = join(base, 'state');
   const backupRoot = join(base, 'backup');
@@ -297,7 +294,8 @@ test('releases the operational database when restored runtime capabilities are i
     }
     await refreshDatabaseInventory(backupRoot);
 
-    const openFileDescriptors = await countOpenFileDescriptors();
+    const openFileDescriptors =
+      process.platform === 'win32' ? undefined : await countOpenFileDescriptors();
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const destinationRoot = join(base, `restore-${attempt}`);
       await assert.rejects(
@@ -313,7 +311,9 @@ test('releases the operational database when restored runtime capabilities are i
         [],
       );
     }
-    assert.equal(await countOpenFileDescriptors(), openFileDescriptors);
+    if (openFileDescriptors !== undefined) {
+      assert.equal(await countOpenFileDescriptors(), openFileDescriptors);
+    }
   } finally {
     await rm(base, { recursive: true, force: true });
   }
