@@ -25,6 +25,7 @@ import {
   createSessionStore,
   openRuntimeEventPersistence,
 } from '../packages/storage/dist/index.js';
+import { pricingModelKey } from '../packages/core/dist/usage-stats/pricing.js';
 
 const apiKey = process.env.DEEPSEEK_API_KEY;
 if (!apiKey) {
@@ -677,7 +678,7 @@ async function runPhase7ToolScenario(input) {
     turn.assistantText.includes(input.sentinel),
   );
   const finalArchiveReads = archiveReads.filter((read) => read.requestTurnId === 'phase7-recover');
-  const pricingId = `${connection.providerType}:${input.model}`;
+  const pricingId = pricingModelKey(connection.providerType, input.model);
   return {
     matrixCase: input.matrixCase,
     mode: input.mode,
@@ -1346,7 +1347,7 @@ async function runPhase10HistoryCompactScenario(input) {
     'Recover the Phase 10 sentinel again from prior context. Do not explain. Answer only the sentinel.',
   );
 
-  const pricingId = `${connection.providerType}:${input.model}`;
+  const pricingId = pricingModelKey(connection.providerType, input.model);
   return {
     matrixCase: input.matrixCase,
     mode: input.mode,
@@ -1763,7 +1764,7 @@ async function runPhase8SynthesisScenario(input) {
   const rawEvidenceUsageEvent = rawEvidenceTurn?.events.find(
     (event) => event.type === 'token_usage',
   );
-  const pricingId = `${connection.providerType}:${input.model}`;
+  const pricingId = pricingModelKey(connection.providerType, input.model);
   const coveredRecordOffset =
     input.mode === 'synthesis_read_write'
       ? rawEvidenceTurn
