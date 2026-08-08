@@ -473,6 +473,14 @@ describe('ModelAdapter stream and error normalization', () => {
     const billingError = Object.assign(new Error('provider request failed'), { statusCode: 402 });
     assert.equal(adapter.classifyError(billingError), 'ProviderBilling');
     assert.equal(adapter.makeErrorEvent('turn-1', billingError).reason, 'provider_billing');
+    const usageLimitError = Object.assign(new Error('Your weekly usage limit has been reached'), {
+      statusCode: 403,
+    });
+    const usageLimitEvent = adapter.makeErrorEvent('turn-1', usageLimitError);
+    assert.equal(adapter.classifyError(usageLimitError), 'UsageLimit');
+    assert.equal(usageLimitEvent.reason, 'usage_limit');
+    assert.equal(usageLimitEvent.message, 'Usage limit reached');
+    assert.equal(adapter.normalizeFailure(usageLimitError).retryable, false);
     assert.equal(
       adapter.makeErrorEvent('turn-1', new Error('Model stream idle timeout after 120000ms'))
         .reason,

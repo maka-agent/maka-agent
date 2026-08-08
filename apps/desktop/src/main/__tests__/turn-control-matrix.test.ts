@@ -42,7 +42,8 @@ const FIXTURE_ERROR_CLASSES = [
   'timeout',
   'auth',
   '401',
-  '403',
+  'provider_permission',
+  'usage_limit',
   'rate_limit',
   'rate_exceeded',
   'network',
@@ -66,6 +67,8 @@ const FIXTURE_ERROR_CLASSES = [
 const RAW_ENUM_ERROR_CLASSES = [
   'timeout',
   'auth',
+  'provider_permission',
+  'usage_limit',
   'rate_limit',
   'rate_exceeded',
   'network',
@@ -89,6 +92,31 @@ describe('turn-control-history matrix', () => {
       // Documents the exact seed → label binding so a reviewer reading
       // the fixture knows what copy to expect.
       assert.match(describeTurnErrorClass('timeout'), /请求超时/);
+    });
+
+    it('directs account limits to plan or allowance recovery instead of sign-in', () => {
+      const recovery = deriveFailedTurnRecovery({
+        errorClass: 'usage_limit',
+        partialOutputRetained: false,
+        toolActivityCount: 0,
+        erroredToolCount: 0,
+      });
+      assert.equal(recovery.action, 'check_account');
+      assert.match(recovery.label, /额度|套餐|恢复时间/);
+      assert.doesNotMatch(recovery.label, /登录/);
+    });
+
+    it('does not reinterpret a bare 403 as authentication', () => {
+      assert.equal(describeTurnErrorClass('403'), '未知错误');
+      assert.equal(
+        deriveFailedTurnRecovery({
+          errorClass: '403',
+          partialOutputRetained: false,
+          toolActivityCount: 0,
+          erroredToolCount: 0,
+        }).action,
+        'retry',
+      );
     });
   });
 

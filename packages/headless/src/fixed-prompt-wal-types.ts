@@ -99,10 +99,12 @@ export interface FixedPromptTaskInfraFailedEvent {
   errorClass:
     | 'infra_error'
     | 'provider_billing'
+    | 'provider_permission'
     | 'auth'
     | 'rate_limit'
     | 'provider_unavailable'
-    | 'network';
+    | 'network'
+    | 'usage_limit';
   error: string;
   providerTelemetryPath?: string;
 }

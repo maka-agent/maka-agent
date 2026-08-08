@@ -1675,6 +1675,8 @@ describe('fixed prompt controller', () => {
 
   for (const { label, errorClass, withTsv } of [
     { label: 'provider billing failures', errorClass: 'provider_billing', withTsv: true },
+    { label: 'provider permission failures', errorClass: 'provider_permission', withTsv: false },
+    { label: 'subscription usage limits', errorClass: 'usage_limit', withTsv: false },
     { label: 'a pre-execution authentication failure', errorClass: 'auth', withTsv: false },
   ]) {
     test(`stops immediately and leaves ${label} unscored`, async () => {

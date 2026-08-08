@@ -376,9 +376,11 @@ export type ModelFailureKind =
   | 'context_overflow'
   | 'network'
   | 'provider_billing'
+  | 'provider_permission'
   | 'provider_unavailable'
   | 'rate_limit'
   | 'timeout'
+  | 'usage_limit'
   | 'unknown';
 
 export interface ModelFailure {

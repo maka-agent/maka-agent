@@ -1521,13 +1521,25 @@ function controllerStopReason(input: {
 
 function isSystemicProviderFailure(
   errorClass: string | undefined,
-): errorClass is 'provider_billing' | 'auth' {
-  return errorClass === 'provider_billing' || errorClass === 'auth';
+): errorClass is 'provider_billing' | 'provider_permission' | 'usage_limit' | 'auth' {
+  return (
+    errorClass === 'provider_billing' ||
+    errorClass === 'provider_permission' ||
+    errorClass === 'usage_limit' ||
+    errorClass === 'auth'
+  );
 }
 
 function isProviderInfraFailure(
   errorClass: string | undefined,
-): errorClass is 'provider_billing' | 'auth' | 'rate_limit' | 'provider_unavailable' | 'network' {
+): errorClass is
+  | 'provider_billing'
+  | 'provider_permission'
+  | 'usage_limit'
+  | 'auth'
+  | 'rate_limit'
+  | 'provider_unavailable'
+  | 'network' {
   return (
     isSystemicProviderFailure(errorClass) ||
     errorClass === 'rate_limit' ||
