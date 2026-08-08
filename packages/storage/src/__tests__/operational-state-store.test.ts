@@ -336,7 +336,7 @@ test('rejects duplicate operational schema registrations', async () => {
 });
 
 test('rejecting operational state preserves database permissions', {
-  skip: process.platform === 'win32',
+  skip: process.platform === 'win32' ? 'POSIX file permissions are not available' : false,
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-rejected-mode-'));
   const databasePath = join(root, 'runtime.sqlite');

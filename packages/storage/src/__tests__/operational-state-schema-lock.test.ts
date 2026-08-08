@@ -53,7 +53,10 @@ test('recreates a missing owner lock after every owner has closed', async () => 
 });
 
 test('replacing the workspace root cannot detach a live owner from its database migration lock', {
-  skip: process.platform === 'win32',
+  skip:
+    process.platform === 'win32'
+      ? 'Windows cannot rename a directory containing an open SQLite database'
+      : false,
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-root-replacement-'));
   const movedRoot = `${root}-moved`;
