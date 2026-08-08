@@ -41,11 +41,9 @@ typography:
   code: { fontSize: "14px", fontWeight: 400, lineHeight: 1.4286 }
   badge-label: { fontSize: "12px", fontWeight: 500, lineHeight: 1.6667 }
 rounded:
-  inner: "4px"
   control: "6px"
   card: "10px"
   container: "12px"
-  page: "16px"
   pill: "999px"
 spacing: { space-0-5: "2px", space-1: "4px", space-1-5: "6px", space-2: "8px", space-2-5: "10px", space-3: "12px", space-4: "16px", space-5: "20px", space-6: "24px", space-8: "32px", space-10: "40px", space-12: "48px", space-16: "64px" }
 components:
@@ -93,7 +91,7 @@ Depth is a ladder, not a decoration. Every background resolves to one of four se
 Prose uses exactly three tiers — `--foreground`, `--foreground-secondary`, `--muted-foreground` — spaced at an even ~2× contrast rhythm against `--surface-raised`, every one of them clearing WCAG AA in both modes. Any new tier must hold that rhythm and that floor.
 
 - **The Three-Tier Reading Rule.** Prose uses primary, secondary, or muted. Neutral washes are surfaces, not extra text tiers. `--foreground-dimmed` is an alias of secondary and must never regain its own definition (contract-tested).
-- **The One Colorspace Rule.** Every derivation inside a token family uses one colorspace (`oklch` for ink, contract-tested). Mixing `srgb` and `oklch` derivations produces "same literal, different value" drift.
+- **The One Colorspace Rule.** Every derivation inside a token family uses one colorspace (`oklch` for ink, contract-tested). Mixing `srgb` and `oklch` derivations produces "same literal, different value" drift. One surface still breaks this: dark `--surface-overlay` derives through an `srgb` mix. It is a standing defect, not a precedent — and the frontmatter records it as an `oklch` approximation, so read that tier from source.
 - **Links use the solid accent tier** (`--accent-solid`), never raw `--accent` — the accent identifies interaction; the solid tier is the only accent variant that clears text contrast on every palette.
 
 ## 4. Borders
@@ -122,16 +120,14 @@ Default surfaces are flat. Depth comes first from the surface ladder, then a lin
 
 Nothing interactive is square. One ladder, assigned monotonically by box height:
 
-| Radius | Tier | Assign to |
-|---|---|---|
-| 4px | inner | chips, keycaps, nested inlays inside a control |
-| 6px | control | product-drawn compact controls — segmented items, small chips, input wrappers (≤ 36px tall) |
-| 10px | card | cards, rows-as-cards, list containers; also Astryx `Button` and `Input` |
-| 12px | container | modals, panels, portal surfaces |
-| 16px | page | page-level plates and hero surfaces |
-| full | pill | badges, pills, circular controls |
+| Radius | Maka tier | Astryx tier | Assign to |
+|---|---|---|---|
+| 6px | control | inner | chips, keycaps, nested inlays, and product-drawn compact controls |
+| 10px | card | element | cards, rows-as-cards, list containers; Astryx `Button`, `Input`, `SegmentedControl` |
+| 12px | container | container | modals, panels, portal surfaces; Astryx `Card`, `Dialog`, `DropdownMenu` |
+| full | pill | full | badges, pills, circular controls |
 
-- **The Astryx Offset.** Maka's tier names are assigned by box height and do not line up name-for-name with Astryx's radius scale — Maka's `card` value *is* Astryx `--radius-element`. Astryx primitives own their own geometry (§9), so a native `Button` lands on the card tier while a product-drawn control beside it lands on the control tier. Read the tier from the box, never from the token name in the other system.
+- **The Two-Name Rule.** These are one ladder under two vocabularies: each Maka tier and the Astryx tier beside it are the same number, not merely similar. `--radius-control` *is* `--radius-inner`, `--radius-surface` *is* `--radius-element`, `--radius-modal` *is* `--radius-container`. A product rule and an Astryx primitive on the same row therefore agree by construction — but the names never line up, so resolve a tier from the box, never from the token name that sounds right. Astryx's `--radius-page` (28px) has no Maka tier and no product consumer; anything reaching for a page-level radius is inventing a rung.
 - **The Full-Bleed Rule.** `border-radius: 0` is legal only on true full-bleed rows — an element flush with its container on both sides. Radius and gap move together: if it has breathing room, it has corners.
 - **Proportional marks.** Product-drawn icon plates use ratio-owned radius (~25–27% of the box edge), recorded in prose because Stitch accepts only absolute units.
 
@@ -156,7 +152,7 @@ The palette is cool-neutral and quiet; color is generated to spec, not picked by
 
 - **Brand mark** is fixed `#71a8fd`; it identifies Maka and is never the general CTA color.
 - **Interaction accent** follows the active palette for focus, selection, and live state; **links and accent-colored text use the solid tier** (§3).
-- **Status families** (success / active / attention / error / neutral — there is no "info" status semantic) are generated, not picked: one lightness per mode, each hue keeping its own chroma, every member clearing AA. The residual contrast spread within a mode is hue physics — at equal lightness, yellow carries more luminance than blue — and flattening it would abandon the shared-lightness premise that makes them a family. A louder band at ~90% gamut chroma exists only for 8px status dots: dots must read at a glance, washes must not shout.
+- **Status families** — `--info`, `--success`, `--warning`, `--destructive` — are generated, not picked: one lightness per mode, each hue keeping its own chroma, every member clearing AA. The residual contrast spread within a mode is hue physics — at equal lightness, yellow carries more luminance than blue — and flattening it would abandon the shared-lightness premise that makes them a family. A louder band at ~90% gamut chroma exists only for 8px status dots: dots must read at a glance, washes must not shout. These are colors; what a state *means* is a separate vocabulary (§9).
 - **Tinted surfaces** (status washes behind rows and banners) derive from the same status hues; hand-rolled `oklch()` status washes at call sites are forbidden — consume the family.
 - **Identity colors** (avatars, channel marks) live in one 4.2–4.8:1 contrast band; desaturation for muted states happens at constant OKLab lightness.
 
@@ -168,7 +164,8 @@ Use Astryx primitives as the default seam. New work composes product meaning thr
 
 - **Controls:** Maka uses a 20/24/28/32/36/40px height ruler with 32px as the default; Astryx owns the 28/32/36px variants. Hover is restrained; press may use `scale(0.98)`; keyboard focus is always visible. At most one inverted (filled) element per control.
 - **Fields:** labels, descriptions, and validation belong to the field primitive; input focus belongs to its control. Keep disabled reasons discoverable through the owning control's tooltip; do not rebuild field chrome around a bare input.
-- **Badges and status:** Badge is 20px high and pill-shaped. Choose semantic variants by meaning, not hue; use status dots for success, active, attention, error, or neutral.
+- **Badges and status:** Badge is 20px high and pill-shaped. Choose variants by meaning, not hue.
+- **Status vocabulary:** what a state means is named once, in `packages/ui/src/status-vocabulary.ts`, and every status dot resolves its color through it — a surface never maps its own domain state onto a color. The semantics are `success` (proven healthy), `active` (the system is working), `attention` (waiting on a person), `error` (broken now), `neutral` (a settled fact); collapsing `active` and `attention` is the mistake that vocabulary exists to prevent. It deliberately has no `info` — two callers meant opposite things by it — but that is a statement about *dot semantics*, not about the `--info` color, which is live and which Astryx's Badge exposes as a pill. Two vocabularies, because there are genuinely two.
 - **Cards:** Astryx Card uses container radius, 12px default padding, and no resting elevation. Astryx components own their geometry.
 - **Workspace:** conversation, tool activity, artifacts, browser state, and generated files stay connected to the task that produced them. Assistant messages remain quiet and avatar-free.
 - **Custom companion:** a desktop pet is the sole mascot exception: user-supplied, disabled by default, decorative, pointer-transparent, hidden from assistive technology, and reduced-motion aware. It never conveys required status or speaks for the agent.
