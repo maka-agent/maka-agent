@@ -1,4 +1,5 @@
 import { isThinkingLevel } from '../model-thinking.js';
+import { isFileEditToolset } from '../file-edit-toolset.js';
 import { CHAT_DEFAULT_PERMISSION_MODES } from '../settings.js';
 import { normalizeSubagentSettings } from '../subagent-settings.js';
 import type {
@@ -253,8 +254,8 @@ function normalizeChatDefaults(value: unknown): RuntimePolicy['chatDefaults'] {
   const item = exactRecord(
     value,
     'chat defaults',
-    ['permissionMode', 'thinkingLevel'],
-    ['permissionMode'],
+    ['permissionMode', 'fileEditToolset', 'thinkingLevel'],
+    ['permissionMode', 'fileEditToolset'],
   );
   if (!(CHAT_DEFAULT_PERMISSION_MODES as readonly unknown[]).includes(item.permissionMode)) {
     throw domainError('chat default permission mode is invalid');
@@ -262,8 +263,12 @@ function normalizeChatDefaults(value: unknown): RuntimePolicy['chatDefaults'] {
   if (item.thinkingLevel !== undefined && !isThinkingLevel(item.thinkingLevel)) {
     throw domainError('chat default thinking level is invalid');
   }
+  if (!isFileEditToolset(item.fileEditToolset)) {
+    throw domainError('chat default file-edit toolset is invalid');
+  }
   return {
     permissionMode: item.permissionMode as RuntimePolicy['chatDefaults']['permissionMode'],
+    fileEditToolset: item.fileEditToolset,
     ...(item.thinkingLevel === undefined ? {} : { thinkingLevel: item.thinkingLevel }),
   };
 }

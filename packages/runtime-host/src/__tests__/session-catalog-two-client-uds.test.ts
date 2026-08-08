@@ -82,6 +82,7 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
       );
       assert.equal(created.id, createInput.sessionId);
       assert.equal(created.permissionMode, 'ask');
+      assert.equal(created.fileEditToolset, 'edit_write');
       assert.equal(created.labelsTruncated, false);
       assert.deepEqual(
         await desktop.request('runtime.resource.query', {
@@ -203,11 +204,27 @@ test('two Clients share stable Session creation, CAS configuration, and catalog 
         expectedRevision: policy.revision,
         operation: {
           kind: 'set_chat_defaults',
-          value: { permissionMode: 'bypass' },
+          value: { permissionMode: 'bypass', fileEditToolset: 'apply_patch' },
         },
       });
       assert.equal(changedPolicy.kind, 'committed');
       assert.deepEqual(await tui.request('session.create', createInput), created);
+      const changedDefaults = requireSessionProjection(
+        await tui.request('session.create', {
+          ...createInput,
+          sessionId: 'changed-defaults-session',
+        }),
+      );
+      assert.equal(changedDefaults.permissionMode, 'bypass');
+      assert.equal(changedDefaults.fileEditToolset, 'apply_patch');
+      const explicitToolset = requireSessionProjection(
+        await tui.request('session.create', {
+          ...createInput,
+          sessionId: 'explicit-toolset-session',
+          fileEditToolset: 'edit_write',
+        }),
+      );
+      assert.equal(explicitToolset.fileEditToolset, 'edit_write');
 
       const subscription = await tui.openSessionSubscription({
         sessionId: created.id,

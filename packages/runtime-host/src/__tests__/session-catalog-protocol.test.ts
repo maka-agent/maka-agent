@@ -315,6 +315,37 @@ describe('Session catalog protocol', () => {
     );
   });
 
+  test('accepts only declared file-edit toolsets at Session creation', () => {
+    const decoded = decodeClientFrame({
+      requestId: 'request-file-edit-toolset',
+      operation: 'session.create',
+      input: {
+        sessionId: 'session-file-edit-toolset',
+        cwd: '/workspace',
+        modelTarget: { kind: 'default' },
+        fileEditToolset: 'apply_patch',
+      },
+    });
+    if ('kind' in decoded || decoded.operation !== 'session.create') {
+      assert.fail('Expected Session create frame');
+    }
+    assert.equal(decoded.input.fileEditToolset, 'apply_patch');
+    assert.throws(
+      () =>
+        decodeClientFrame({
+          requestId: 'request-invalid-file-edit-toolset',
+          operation: 'session.create',
+          input: {
+            sessionId: 'session-invalid-file-edit-toolset',
+            cwd: '/workspace',
+            modelTarget: { kind: 'default' },
+            fileEditToolset: 'unknown',
+          },
+        }),
+      isProtocolError,
+    );
+  });
+
   test('correlates committed and conflicting update outputs with the request Session', () => {
     const session = projection();
     assert.deepEqual(

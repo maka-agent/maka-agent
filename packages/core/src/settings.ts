@@ -1,4 +1,9 @@
 import { isThinkingLevel, type ThinkingLevel } from './model-thinking.js';
+import {
+  DEFAULT_FILE_EDIT_TOOLSET,
+  isFileEditToolset,
+  type FileEditToolset,
+} from './file-edit-toolset.js';
 import type { OnboardingMilestone } from './onboarding.js';
 import { sanitizeOnboardingMilestones } from './onboarding.js';
 import type { WebSearchSettingsPatch, WebSearchSettings } from './web-search.js';
@@ -252,6 +257,7 @@ export function isChatDefaultPermissionMode(value: unknown): value is ChatDefaul
 /** Seeds new sessions' starting permission mode (Settings → 通用 → 默认权限模式). */
 export interface ChatDefaultsSettings {
   permissionMode: ChatDefaultPermissionMode;
+  fileEditToolset: FileEditToolset;
   /**
    * Seeds new sessions' thinking level. `undefined` means "whatever the model
    * does on its own" — the absence of a preference, not a level.
@@ -692,7 +698,7 @@ function defaultProjectPreferencesSettings(): ProjectPreferencesSettings {
 }
 
 function defaultChatDefaultsSettings(): ChatDefaultsSettings {
-  return { permissionMode: 'ask' };
+  return { permissionMode: 'ask', fileEditToolset: 'edit_write' };
 }
 
 // Closed-enum fail-closed, same reasoning as appearance.palette /
@@ -712,6 +718,9 @@ function normalizeChatDefaultsSettings(settings: ChatDefaultsSettings): ChatDefa
         : isChatDefaultPermissionMode(settings.permissionMode)
           ? settings.permissionMode
           : 'ask',
+    fileEditToolset: isFileEditToolset(settings.fileEditToolset)
+      ? settings.fileEditToolset
+      : DEFAULT_FILE_EDIT_TOOLSET,
   };
 }
 
