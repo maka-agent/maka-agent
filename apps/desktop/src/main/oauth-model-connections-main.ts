@@ -7,7 +7,7 @@ import {
   type ModelDiscoverySource,
 } from '@maka/core/llm-connections';
 import { connectionFallbackModelIds } from '@maka/core/model-catalog';
-import { CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES } from '@maka/core/model-metadata';
+import { modelIdAliasesForProvider } from '@maka/core/model-metadata';
 import type { ConnectionStore, CredentialStore } from '@maka/storage';
 import type { ClaudeSubscriptionService } from './oauth/claude-subscription-service.js';
 import { isSubscriptionExperimentalEnabled } from './oauth/claude-subscription-helpers.js';
@@ -98,7 +98,7 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       // that fetches an inventory — including relays whose `claude-*` ids are
       // their own opaque identifiers.
       ...syncedSelection(existing, fallbackModels, {
-        aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
+        aliases: modelIdAliasesForProvider('claude-subscription'),
       }),
       enabled: true,
       models: fallbackModels,

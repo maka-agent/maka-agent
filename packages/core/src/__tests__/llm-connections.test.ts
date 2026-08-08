@@ -4,6 +4,7 @@ import { connectionFallbackModelIds } from '../model-catalog.js';
 import {
   CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
   lookupModelMetadata,
+  modelIdAliasesForProvider,
 } from '../model-metadata.js';
 import {
   CATALOG_PROVIDER_TYPES,
@@ -342,4 +343,22 @@ test('an id is only rewritten for a caller that supplied the alias table', () =>
     ),
     { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
   );
+});
+
+test('the alias table is selected by provider, and only one provider claims it', () => {
+  // Reconciliation is shared, so every path that commits a fetched inventory has
+  // to resolve the table the same way. Selecting it by provider is what lets the
+  // desktop sync and the Runtime Host catalog agree without either restating it.
+  assert.equal(
+    modelIdAliasesForProvider('claude-subscription'),
+    CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
+  );
+  for (const providerType of Object.keys(PROVIDER_REGISTRY) as ProviderType[]) {
+    if (providerType === 'claude-subscription') continue;
+    assert.equal(
+      modelIdAliasesForProvider(providerType),
+      undefined,
+      `${providerType} must keep its model ids opaque`,
+    );
+  }
 });

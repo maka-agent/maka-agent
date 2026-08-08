@@ -511,6 +511,24 @@ export const CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES: Readonly<Record<string, strin
   'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
 };
 
+/**
+ * The rename table that applies to one provider's inventory, or undefined when
+ * its ids carry no such guarantee.
+ *
+ * Reconciliation is shared by every provider that commits a fetched inventory,
+ * so the alias table has to be selected by provider rather than assumed. Any
+ * path that reconciles a selection resolves it through here — the desktop sync
+ * and the Runtime Host catalog reach the same answer instead of one of them
+ * quietly keeping the old literal comparison.
+ */
+export function modelIdAliasesForProvider(
+  providerType: ProviderType,
+): Readonly<Record<string, string>> | undefined {
+  return providerType === 'claude-subscription'
+    ? CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES
+    : undefined;
+}
+
 const CURATED_CATALOG_FALLBACK_MODELS: Partial<Record<ProviderType, readonly string[]>> = {
   anthropic: [
     'claude-sonnet-4-6',
