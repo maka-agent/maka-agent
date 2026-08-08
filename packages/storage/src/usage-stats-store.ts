@@ -1,7 +1,10 @@
 import { join } from 'node:path';
 import type { UsageRange, UsageStats } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
-import { OPERATIONAL_STATE_DATABASE_NAME } from './operational-state-store.js';
+import {
+  acquireOperationalStateDatabase,
+  OPERATIONAL_STATE_DATABASE_NAME,
+} from './operational-state-store.js';
 import { createSqliteSessionMetadataStore } from './sqlite-session-metadata-store.js';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
@@ -119,30 +122,34 @@ export async function readUsageStats(
 async function readStoredSessions(
   workspaceRoot: string,
 ): Promise<Array<{ header: UsageSessionHeader; messages: UsageMessage[] }>> {
-  const metadata = createSqliteSessionMetadataStore(
-    join(workspaceRoot, OPERATIONAL_STATE_DATABASE_NAME),
-  );
   try {
-    const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
-    for (const { header } of await metadata.list()) {
-      const messages = (await metadata.readMessages(header.id)).flatMap((value) => {
-        const message = normalizeUsageMessage(value);
-        return message ? [message] : [];
-      });
-      sessions.push({
-        header: {
-          id: header.id,
-          llmConnectionSlug: header.llmConnectionSlug,
-          model: header.model,
-        },
-        messages,
-      });
+    const databaseLease = acquireOperationalStateDatabase(workspaceRoot);
+    const metadata = createSqliteSessionMetadataStore(
+      join(workspaceRoot, OPERATIONAL_STATE_DATABASE_NAME),
+      { databaseLease },
+    );
+    try {
+      const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
+      for (const { header } of await metadata.list()) {
+        const messages = (await metadata.readMessages(header.id)).flatMap((value) => {
+          const message = normalizeUsageMessage(value);
+          return message ? [message] : [];
+        });
+        sessions.push({
+          header: {
+            id: header.id,
+            llmConnectionSlug: header.llmConnectionSlug,
+            model: header.model,
+          },
+          messages,
+        });
+      }
+      return sessions;
+    } finally {
+      metadata.close();
     }
-    return sessions;
   } catch {
     return [];
-  } finally {
-    metadata.close();
   }
 }
 
