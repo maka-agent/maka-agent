@@ -15,6 +15,7 @@ import { CommandPalette } from './command-palette';
 import { useAppShellCommands, type AppShellCommandListOptions } from './app-shell-command-actions';
 import type { UiLocaleUpdateGate } from './settings/ui-locale-update-gate';
 import { getShellRemainingCopy } from './locales/shell-remaining-copy.js';
+import { desktopPricingSettingsPort } from './settings/runtime-host-pricing-port';
 import { ExternalSessionImportDialog } from './external-session-import-dialog.js';
 
 // Settings is a large surface (providers, OAuth, network, bots, daily-review,
@@ -134,6 +135,7 @@ export function AppShellOverlays(props: {
             onOpenDailyReview={props.onOpenDailyReview}
             onOpenKeyboardHelp={props.onOpenKeyboardHelp}
             onOpenSession={props.onOpenSettingsSession}
+            pricingPort={desktopPricingSettingsPort}
           />
         </Suspense>
       )}

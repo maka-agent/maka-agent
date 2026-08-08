@@ -85,6 +85,11 @@ import type { ExternalSessionImportIpcResult } from './external-session-import-r
 import type { Result } from '@maka/core/result';
 import type { CreateSessionRequestInput } from '@maka/core';
 import type {
+  DesktopPricingMutationInput,
+  DesktopPricingMutationOutcome,
+  DesktopPricingSnapshot,
+} from '../shared/runtime-host-pricing.js';
+import type {
   McpConfigFile,
   McpServerConfig,
   McpServerStatus,
@@ -475,6 +480,10 @@ export interface MakaBridge {
     testNetworkProxy(input?: TestProxyInput): Promise<SettingsTestResult>;
     testBotChannel(provider: BotProvider): Promise<SettingsTestResult>;
     usageStats(range?: UsageRange): Promise<UsageStats>;
+    pricing: {
+      loadSnapshot(): Promise<DesktopPricingSnapshot>;
+      applyMutation(input: DesktopPricingMutationInput): Promise<DesktopPricingMutationOutcome>;
+    };
     bots: {
       listStatuses(): Promise<Record<BotProvider, BotStatus>>;
       restart(provider: BotProvider): Promise<BotStatus>;

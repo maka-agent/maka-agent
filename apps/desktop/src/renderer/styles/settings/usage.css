@@ -55,6 +55,56 @@
   font-variant-numeric: tabular-nums;
 }
 
+.settingsUsagePricingHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.settingsUsagePricingHeader > div {
+  display: grid;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.settingsUsagePricingHeader small,
+.settingsUsagePricingLoading {
+  color: var(--muted-foreground);
+  font: var(--maka-text-supporting);
+}
+
+.settingsUsagePricingForm {
+  display: grid;
+  gap: var(--space-3);
+  padding-block: var(--space-3);
+  border-block: var(--border-width-hairline) solid var(--border);
+}
+
+.settingsUsagePricingRateFields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.settingsUsagePricingFormActions,
+.settingsUsagePricingRowActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1-5);
+}
+
+.settingsUsagePricingRowActions {
+  white-space: nowrap;
+}
+
+.settingsUsagePricingError {
+  margin: 0;
+  color: var(--destructive-text);
+  font: var(--maka-text-supporting);
+}
+
 /* Astryx Card establishes the table's surface and resets its container-bleed
    boundary. Astryx Table owns horizontal scrolling inside that boundary. */
 .settingsUsageTable {
@@ -123,6 +173,21 @@
 @media (max-width: 900px) {
   .settingsUsageDetailToggle {
     justify-content: flex-start;
+  }
+
+  .settingsUsagePricingHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settingsUsagePricingRateFields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 560px) {
+  .settingsUsagePricingRateFields {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

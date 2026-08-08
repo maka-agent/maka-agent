@@ -30,6 +30,7 @@ import {
 } from '@maka/core';
 import { SettingsSurface } from '../../src/renderer/settings/settings-surface';
 import { createUiLocaleUpdateGate } from '../../src/renderer/settings/ui-locale-update-gate';
+import type { DesktopPricingSettingsPort } from '../../src/shared/runtime-host-pricing';
 import type { ConnectionsBridge } from '../../src/renderer/settings/providers-panel';
 import { withScopedMakaBridge } from '../maka-bridge';
 const STORY_PLATFORM = 'darwin' as const;
@@ -211,6 +212,23 @@ const usageStats: UsageStats = {
   ],
   pricing: [{ provider: 'zai-coding-plan', model: 'glm-4.7', inputPerMTokUsd: 0, outputPerMTokUsd: 0 }],
 };
+
+const pricingPort = {
+  async loadPricingSnapshot() {
+    return {
+      hostEpoch: 'storybook',
+      connectionId: 'storybook',
+      revision: 0,
+      entries: [],
+    };
+  },
+  async applyPricingMutation() {
+    return {
+      kind: 'reconciliation_unavailable' as const,
+      reason: 'outcome_unknown' as const,
+    };
+  },
+} satisfies DesktopPricingSettingsPort;
 
 const emptyUsageStats: UsageStats = {
   summary: {
@@ -884,6 +902,7 @@ function SettingsStory(props: {
           initialFocusRef={initialFocusRef}
           onOpenDailyReview={noop}
           onOpenSession={noop}
+          pricingPort={pricingPort}
         />
       </div>
     </ToastProvider>

@@ -13,6 +13,7 @@ import { useUiLocale } from '@maka/ui';
 import { getSettingsSharedCopy } from '../locales/settings-shared-copy';
 import { SettingsSurface } from './settings-surface';
 import type { UiLocaleUpdateGate } from './ui-locale-update-gate';
+import type { DesktopPricingSettingsPort } from '../../shared/runtime-host-pricing';
 
 export { SETTINGS_NAV } from './settings-nav';
 export type { SettingsNavGroup } from './settings-nav';
@@ -59,6 +60,7 @@ export function SettingsModal(props: {
    * source conversation. Settings owns the table, shell owns navigation.
    */
   onOpenSession?(sessionId: string): void;
+  pricingPort: DesktopPricingSettingsPort;
 }) {
   const locale = useUiLocale();
   const copy = getSettingsSharedCopy(locale);
@@ -113,6 +115,7 @@ export function SettingsModal(props: {
         onOpenDailyReview={props.onOpenDailyReview}
         onOpenKeyboardHelp={props.onOpenKeyboardHelp}
         onOpenSession={props.onOpenSession}
+        pricingPort={props.pricingPort}
       />
     </div>
   );

@@ -95,6 +95,7 @@ import { registerRuntimeHostMemoryIpc } from "./runtime-host-memory-ipc-main.js"
 import { registerRuntimeHostOAuthIpc } from "./runtime-host-oauth-ipc-main.js";
 import { RuntimeHostOAuthPresentation } from "./runtime-host-oauth-presentation.js";
 import { registerRuntimeHostPermissionsIpc } from "./runtime-host-permissions-ipc-main.js";
+import { registerRuntimeHostPricingIpc } from "./runtime-host-pricing-ipc-main.js";
 import { registerRuntimeHostSearchIpc } from "./runtime-host-search-ipc-main.js";
 import { createRuntimeHostProjectSessionCatalog } from "./runtime-host-project-session-catalog.js";
 import { toDesktopHostSessionSummary } from "./runtime-host-session-catalog-ipc-main.js";
@@ -581,6 +582,7 @@ function registerHostClientIpc(
     },
   } satisfies Parameters<typeof registerRuntimeHostSettingsIpc>[0];
   registerRuntimeHostSettingsIpc(settingsIpcDeps);
+  registerRuntimeHostPricingIpc({ ipcMain: scopedIpc, client });
   registerRuntimeHostConfigIpc({
     ipcMain: scopedIpc,
     client,
