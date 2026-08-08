@@ -355,15 +355,6 @@ function migrateOperationalStateDatabase(db: DatabaseSync, now: () => number): v
   }
 }
 
-export function migrateOperationalStateDatabaseCopy(databasePath: string): void {
-  const opened = openOperationalStateDatabase(databasePath, Date.now);
-  closeOperationalStateResources(
-    opened.database,
-    opened.schemaLock,
-    'Unable to close the restored operational state database',
-  );
-}
-
 function registerSchema(db: DatabaseSync, scope: string, version: number, appliedAt: number): void {
   const existing = db
     .prepare('SELECT version FROM operational_schema_migrations WHERE scope = ?')

@@ -27,7 +27,6 @@ import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version
 import {
   acquireOperationalStateDatabase,
   inspectOperationalStateSchema,
-  migrateOperationalStateDatabaseCopy,
   OPERATIONAL_STATE_DATABASE_NAME,
 } from './operational-state-store.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
@@ -187,7 +186,6 @@ export async function restoreOperationalStateBackup(
       throw new OperationalBackupError('corrupt_backup', 'Restored file inventory does not match');
     }
     const databasePath = resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME);
-    migrateOperationalStateDatabaseCopy(databasePath);
     const destinationCapability = await resolveStorageRoot({
       path: stagingRoot,
       kind: input.kind,
