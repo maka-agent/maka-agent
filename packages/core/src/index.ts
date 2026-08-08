@@ -1880,6 +1880,25 @@ export {
   unknownBoundToolNames,
 } from './tool-catalog.js';
 
+// apply-patch.ts — pure ApplyPatch parsing and mutation planning.
+export type {
+  ApplyPatchContentOutcome,
+  ApplyPatchHunk,
+  ApplyPatchParseError,
+  ApplyPatchParseOutcome,
+  ApplyPatchPathState,
+  ApplyPatchUpdateChunk,
+  PlannedPatchMutation,
+} from './apply-patch.js';
+export {
+  applyUpdateChunksToContent,
+  assertSafePatchPath,
+  canonicalApplyPatchPath,
+  canonicalizeApplyPatchHunks,
+  parseApplyPatch,
+  planApplyPatchMutations,
+} from './apply-patch.js';
+
 // attachments.ts
 export {
   ATTACHMENT_RESOURCE_PREFIX,
