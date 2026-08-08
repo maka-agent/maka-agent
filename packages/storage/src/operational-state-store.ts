@@ -203,7 +203,7 @@ function openOperationalStateDatabase(
       migrationDatabase = new Database(databasePath);
       migrationLock.assertCurrentDatabasePath();
       configureSqliteRuntimeLockWait(migrationDatabase);
-      if (inspectOperationalSchema(migrationDatabase) === 'needs_migration') {
+      if (inspectOperationalStateSchema(migrationDatabase) === 'needs_migration') {
         configureSqliteRuntimeDatabase(migrationDatabase);
         migrateOperationalStateDatabase(migrationDatabase, now);
       }
@@ -233,7 +233,7 @@ function openCurrentOperationalStateDatabase(
     schemaLock.assertCurrentDatabasePath();
     // This connection-only pragma lets preflight wait without changing a rejected database.
     configureSqliteRuntimeLockWait(database);
-    if (inspectOperationalSchema(database) === 'needs_migration') {
+    if (inspectOperationalStateSchema(database) === 'needs_migration') {
       database.close();
       database = undefined;
       schemaLock.close();
@@ -251,7 +251,9 @@ function openCurrentOperationalStateDatabase(
   }
 }
 
-function inspectOperationalSchema(database: DatabaseSync): 'current' | 'needs_migration' {
+export function inspectOperationalStateSchema(
+  database: DatabaseSync,
+): 'current' | 'needs_migration' {
   let needsMigration = false;
   const runtimeVersion = readUserVersion(database);
   assertSupportedOperationalSchemaVersion('runtime', runtimeVersion, SQLITE_RUNTIME_SCHEMA_VERSION);

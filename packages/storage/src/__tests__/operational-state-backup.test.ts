@@ -102,7 +102,7 @@ test('backs up and restores runtime.sqlite plus artifact bytes', async () => {
   }
 });
 
-test('restores a supported older backup as current operational state', async () => {
+test('restores a v0.1.6 backup as current operational state', async () => {
   const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-upgrade-'));
   const stateRoot = join(base, 'state');
   const backupRoot = join(base, 'backup');
@@ -128,12 +128,20 @@ test('restores a supported older backup as current operational state', async () 
     });
     await sessions.close?.();
     await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
-    await rewriteAsOperationalSchemaV1Backup(backupRoot);
+    await rewriteAsV016OperationalBackup(backupRoot);
 
     await restoreOperationalStateBackup({ backupRoot, destinationRoot: restoreRoot });
 
-    assert.equal(readOperationalSchemaVersion(join(restoreRoot, 'runtime.sqlite')), 2);
-    assert.equal(readOperationalSchemaVersion(join(backupRoot, 'runtime.sqlite')), 1);
+    assert.deepEqual(readSchemaVersions(join(restoreRoot, 'runtime.sqlite')), {
+      runtime: 11,
+      sessionMetadata: 22,
+      operational: 2,
+    });
+    assert.deepEqual(readSchemaVersions(join(backupRoot, 'runtime.sqlite')), {
+      runtime: 10,
+      sessionMetadata: 21,
+      operational: 1,
+    });
     const restored = createSessionStore(restoreRoot);
     try {
       assert.equal((await restored.readMessages(session.id))[0]?.id, 'message-1');
@@ -179,7 +187,7 @@ test('rejects a backup whose SQLite Artifact metadata has no matching payload', 
   }
 });
 
-async function rewriteAsOperationalSchemaV1Backup(backupRoot: string): Promise<void> {
+async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void> {
   const databasePath = join(backupRoot, 'runtime.sqlite');
   const database = new DatabaseSync(databasePath);
   try {
@@ -192,8 +200,17 @@ async function rewriteAsOperationalSchemaV1Backup(backupRoot: string): Promise<v
       );
       INSERT INTO operational_schema_migrations(scope, version, applied_at)
         SELECT scope, version, applied_at FROM operational_schema_migrations_current;
-      UPDATE operational_schema_migrations SET version = 1 WHERE scope = 'operational';
+      UPDATE operational_schema_migrations
+      SET version = CASE scope
+        WHEN 'runtime' THEN 10
+        WHEN 'session_metadata' THEN 21
+        WHEN 'operational' THEN 1
+        ELSE version
+      END;
       DROP TABLE operational_schema_migrations_current;
+      DROP TABLE runtime_session_event_ordinals;
+      PRAGMA user_version = 10;
+      UPDATE session_metadata_schema SET version = 21 WHERE scope = 'session_metadata';
       PRAGMA journal_mode = DELETE;
     `);
   } finally {
@@ -215,14 +232,26 @@ async function rewriteAsOperationalSchemaV1Backup(backupRoot: string): Promise<v
   await writeFile(manifestPath, `${JSON.stringify({ ...manifest, files }, null, 2)}\n`);
 }
 
-function readOperationalSchemaVersion(databasePath: string): number {
+function readSchemaVersions(databasePath: string): {
+  runtime: number;
+  sessionMetadata: number;
+  operational: number;
+} {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
-    return (
+    const runtime = (database.prepare('PRAGMA user_version').get() as { user_version: number })
+      .user_version;
+    const sessionMetadata = (
+      database
+        .prepare(`SELECT version FROM session_metadata_schema WHERE scope = 'session_metadata'`)
+        .get() as { version: number }
+    ).version;
+    const operational = (
       database
         .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'operational'`)
         .get() as { version: number }
     ).version;
+    return { runtime, sessionMetadata, operational };
   } finally {
     database.close();
   }

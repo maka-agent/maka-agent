@@ -19,16 +19,9 @@ import { withArtifactWriterLock } from './artifact-writer-lock.js';
 import { decodeStoredMessageForRecovery } from './execution-record-codec.js';
 import {
   acquireOperationalStateDatabase,
+  inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
-  OPERATIONAL_STATE_SCHEMA_VERSION,
 } from './operational-state-store.js';
-import { SQLITE_ARTIFACT_SCHEMA_VERSION } from './sqlite-artifact-schema.js';
-import { SQLITE_AUTOMATION_SCHEMA_VERSION } from './sqlite-automation-schema.js';
-import { SQLITE_CORE_EXECUTION_SCHEMA_VERSION } from './sqlite-core-execution-schema.js';
-import { SQLITE_RUNTIME_SCHEMA_VERSION } from './sqlite-runtime-schema.js';
-import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadata-schema.js';
-import { SQLITE_USAGE_SCHEMA_VERSION } from './sqlite-usage-schema.js';
-import { SQLITE_WORKFLOW_SCHEMA_VERSION } from './sqlite-workflow-schema.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 
 export const OPERATIONAL_BACKUP_FORMAT = 'maka-operational-backup';
@@ -350,33 +343,12 @@ function validateSqlite(
       if (database.prepare('PRAGMA foreign_key_check').all().length > 0) {
         throw new Error('foreign_key_check failed');
       }
-      const expected = new Map<string, number>([
-        ['runtime', SQLITE_RUNTIME_SCHEMA_VERSION],
-        ['session_metadata', SQLITE_SESSION_METADATA_SCHEMA_VERSION],
-        ['core_execution', SQLITE_CORE_EXECUTION_SCHEMA_VERSION],
-        ['workflow', SQLITE_WORKFLOW_SCHEMA_VERSION],
-        ['usage', SQLITE_USAGE_SCHEMA_VERSION],
-        ['artifact', SQLITE_ARTIFACT_SCHEMA_VERSION],
-        ['automation', SQLITE_AUTOMATION_SCHEMA_VERSION],
-        ['operational', OPERATIONAL_STATE_SCHEMA_VERSION],
-      ]);
-      const rows = database
-        .prepare('SELECT scope, version FROM operational_schema_migrations')
-        .all() as Array<{ scope?: unknown; version?: unknown }>;
-      if (rows.length !== expected.size || rows.some((entry) => !matchesExpectedVersion(entry))) {
+      const schema = inspectOperationalStateSchema(database);
+      if (requiredSchema === 'current' && schema !== 'current') {
         throw new Error('operational schema versions do not match');
       }
 
-      function matchesExpectedVersion(entry: { scope?: unknown; version?: unknown }): boolean {
-        if (typeof entry.scope !== 'string') return false;
-        const expectedVersion = expected.get(entry.scope);
-        if (entry.version === expectedVersion) return true;
-        return (
-          requiredSchema === 'migratable' && entry.scope === 'operational' && entry.version === 1
-        );
-      }
-
-      const requiredTables = [
+      const currentTables = [
         'operational_schema_migrations',
         'runtime_events',
         'tool_journal_events',
@@ -447,9 +419,11 @@ function validateSqlite(
       const tableExists = database.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
       );
-      for (const table of requiredTables) {
-        if (tableExists.get(table) === undefined) {
-          throw new Error(`required table is missing: ${table}`);
+      if (schema === 'current') {
+        for (const table of currentTables) {
+          if (tableExists.get(table) === undefined) {
+            throw new Error(`required table is missing: ${table}`);
+          }
         }
       }
 
