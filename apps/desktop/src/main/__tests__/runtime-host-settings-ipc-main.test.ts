@@ -43,3 +43,40 @@ test('persists a project-only patch in the client-owned settings document', asyn
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('persists the default file-edit toolset in Runtime Policy', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-runtime-host-settings-'));
+  try {
+    const settingsStore = createSettingsStore(root);
+    let policy = createDefaultRuntimePolicy();
+    const client = {
+      queryRuntimePolicy: async () => ({ revision: 0, policy }),
+      queryCredential: async () => null,
+      deleteCredential: async () => { throw new Error('not used'); },
+      setCredential: async () => { throw new Error('not used'); },
+      testNetworkProxy: async () => { throw new Error('not used'); },
+      updateRuntimePolicy: async (buildOperation) => {
+        const operation = buildOperation(policy);
+        assert.equal(operation.kind, 'set_chat_defaults');
+        if (operation.kind !== 'set_chat_defaults') throw new Error('unexpected mutation');
+        policy = { ...policy, chatDefaults: operation.value };
+        return { revision: 1, policy };
+      },
+    } satisfies RuntimeHostSettingsIpcDeps['client'];
+
+    const result = await updateRuntimeHostSettings(
+      {
+        ipcMain: { handle() {} },
+        client,
+        settingsStore,
+        applyClientSettings: async () => {},
+      },
+      { chatDefaults: { fileEditToolset: 'apply_patch' } },
+    );
+
+    assert.equal(policy.chatDefaults.fileEditToolset, 'apply_patch');
+    assert.equal(result.chatDefaults.fileEditToolset, 'apply_patch');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
