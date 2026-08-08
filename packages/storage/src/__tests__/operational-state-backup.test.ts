@@ -135,7 +135,7 @@ test('restores a v0.1.6 backup as current operational state', async () => {
     assert.deepEqual(readSchemaVersions(join(restoreRoot, 'runtime.sqlite')), {
       runtime: 11,
       sessionMetadata: 22,
-      operational: 2,
+      operational: 1,
     });
     assert.deepEqual(readSchemaVersions(join(backupRoot, 'runtime.sqlite')), {
       runtime: 10,
@@ -192,22 +192,12 @@ async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void>
   const database = new DatabaseSync(databasePath);
   try {
     database.exec(`
-      ALTER TABLE operational_schema_migrations RENAME TO operational_schema_migrations_current;
-      CREATE TABLE operational_schema_migrations (
-        scope TEXT PRIMARY KEY,
-        version INTEGER NOT NULL CHECK (version >= 0),
-        applied_at INTEGER NOT NULL CHECK (applied_at >= 0)
-      );
-      INSERT INTO operational_schema_migrations(scope, version, applied_at)
-        SELECT scope, version, applied_at FROM operational_schema_migrations_current;
       UPDATE operational_schema_migrations
       SET version = CASE scope
         WHEN 'runtime' THEN 10
         WHEN 'session_metadata' THEN 21
-        WHEN 'operational' THEN 1
         ELSE version
       END;
-      DROP TABLE operational_schema_migrations_current;
       DROP TABLE runtime_session_event_ordinals;
       PRAGMA user_version = 10;
       UPDATE session_metadata_schema SET version = 21 WHERE scope = 'session_metadata';
