@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { connectionFallbackModelIds } from '../model-catalog.js';
 import { lookupModelMetadata } from '../model-metadata.js';
 import {
-  SUPERSEDED_MODEL_ID_ALIASES,
+  CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
   CATALOG_PROVIDER_TYPES,
   PROVIDER_DEFAULTS,
   PROVIDER_REGISTRY,
@@ -235,6 +235,7 @@ test('a superseded model id migrates to the inventory that still offers it', () 
         hasModelInventory: true,
       },
       [{ id: 'claude-opus-5' }, { id: 'claude-haiku-4-5' }],
+      { aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES },
     ),
     { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
   );
@@ -247,6 +248,7 @@ test('a superseded model id migrates to the inventory that still offers it', () 
         hasModelInventory: true,
       },
       [{ id: 'claude-haiku-4-5' }],
+      { aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES },
     ),
     { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
   );
@@ -261,6 +263,7 @@ test('a superseded model id migrates to the inventory that still offers it', () 
         hasModelInventory: true,
       },
       [{ id: 'claude-haiku-4-5' }, { id: 'claude-opus-5' }],
+      { aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES },
     ),
     { defaultModel: '', enabledModelIds: ['claude-haiku-4-5'] },
   );
@@ -274,6 +277,7 @@ test('a superseded model id migrates to the inventory that still offers it', () 
         hasModelInventory: true,
       },
       [{ id: 'claude-opus-5' }],
+      { aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES },
     ),
     { defaultModel: 'claude-opus-5', enabledModelIds: ['claude-opus-5'] },
   );
@@ -285,7 +289,7 @@ test('the superseded-id table only ever aliases a rename, never a retirement', (
       ...connectionFallbackModelIds(providerType),
     ]),
   );
-  for (const [supersededId, target] of Object.entries(SUPERSEDED_MODEL_ID_ALIASES)) {
+  for (const [supersededId, target] of Object.entries(CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES)) {
     // A target nothing lists would send reconciliation straight back to the
     // "first live id" fallback this table exists to prevent.
     assert.ok(
@@ -301,4 +305,39 @@ test('the superseded-id table only ever aliases a rename, never a retirement', (
       `${supersededId} is deprecated, so it is retired rather than renamed`,
     );
   }
+});
+
+test('an id is only rewritten for a caller that supplied the alias table', () => {
+  // A relay serves `claude-*` ids as its own opaque identifiers, so the same
+  // string on a different endpoint is a different model — the rule connection
+  // storage states when it prunes relay profiles across endpoints. Without an
+  // alias table this repairs against the live list like any other id, leaving
+  // a relay profile keyed on the stored id intact.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'claude-haiku-4-5-20251001',
+        enabledModelIds: ['claude-haiku-4-5-20251001'],
+        hasModelInventory: true,
+      },
+      // The alias is deliberately NOT first: without aliasing this falls through
+      // to the first live id, so the two behaviours give different answers and
+      // the assertion can actually fail.
+      [{ id: 'relay-only-model' }, { id: 'claude-haiku-4-5' }],
+    ),
+    { defaultModel: 'relay-only-model', enabledModelIds: ['relay-only-model'] },
+  );
+  // Same inputs, with the table supplied: now the rename is honoured.
+  assert.deepEqual(
+    reconcileConnectionAfterModelFetch(
+      {
+        defaultModel: 'claude-haiku-4-5-20251001',
+        enabledModelIds: ['claude-haiku-4-5-20251001'],
+        hasModelInventory: true,
+      },
+      [{ id: 'relay-only-model' }, { id: 'claude-haiku-4-5' }],
+      { aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES },
+    ),
+    { defaultModel: 'claude-haiku-4-5', enabledModelIds: ['claude-haiku-4-5'] },
+  );
 });

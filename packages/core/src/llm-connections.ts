@@ -148,8 +148,8 @@ export function connectionEnabledModelIds(connection: {
 }
 
 /**
- * Model ids that name the same model as another id, mapped to the form a
- * curated inventory is more likely to list them under.
+ * Anthropic ids that name the same model as another id, mapped to the form the
+ * subscription catalog lists them under.
  *
  * This is renaming, not retirement: Anthropic publishes a pinned dated id and a
  * shorter "latest" alias for one model, so an inventory listing either form
@@ -163,23 +163,33 @@ export function connectionEnabledModelIds(connection: {
  * that was genuinely withdrawn (`claude-opus-4-1-20250805`, carrying
  * `lifecycle: 'deprecated'`) does NOT belong here — repairing that one onto a
  * different model is correct, because the original is gone.
+ *
+ * Pass it explicitly, and only for the provider it describes. These ids are
+ * Anthropic's naming, not a global fact: a relay may serve `claude-*` ids as
+ * opaque identifiers of its own, where the same string is a different model —
+ * the rule connection storage already states when it prunes relay profiles
+ * across endpoints.
  */
-export const SUPERSEDED_MODEL_ID_ALIASES: Readonly<Record<string, string>> = {
+export const CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES: Readonly<Record<string, string>> = {
   'claude-haiku-4-5-20251001': 'claude-haiku-4-5',
   'claude-sonnet-4-5-20250929': 'claude-sonnet-4-5',
 };
 
 /**
  * Resolve a stored id against one inventory. Whether an id is superseded is a
- * property of the inventory, not of the id: the API-key Anthropic catalog
- * deliberately lists `claude-sonnet-4-5-20250929` alongside its alias so users
- * can pin a release, while the subscription catalog lists aliases only. So this
- * rewrites only when the stored id is absent AND its alias is present — the
- * exact case where a literal comparison would misread a rename as a removal.
+ * property of the inventory as well as of the caller: the API-key Anthropic
+ * catalog deliberately lists `claude-sonnet-4-5-20250929` alongside its alias so
+ * users can pin a release, while the subscription catalog lists aliases only. So
+ * this rewrites only when a caller supplied an alias table, the stored id is
+ * absent from the inventory, AND its alias is present.
  */
-function supersededModelId(modelId: string, live: ReadonlySet<string>): string {
-  if (live.has(modelId)) return modelId;
-  const alias = SUPERSEDED_MODEL_ID_ALIASES[modelId];
+function supersededModelId(
+  modelId: string,
+  live: ReadonlySet<string>,
+  aliases: Readonly<Record<string, string>> | undefined,
+): string {
+  if (aliases === undefined || live.has(modelId)) return modelId;
+  const alias = aliases[modelId];
   return alias !== undefined && live.has(alias) ? alias : modelId;
 }
 
@@ -250,6 +260,14 @@ export function reconcileConnectionAfterModelFetch(
     hasModelInventory?: boolean;
   },
   models: readonly { id?: unknown }[],
+  options?: {
+    /**
+     * Ids this provider has renamed, mapped to their current form. Omitted by
+     * default: model ids are opaque to this function, so nothing is rewritten
+     * unless a caller that knows the provider's naming supplies the table.
+     */
+    readonly aliases?: Readonly<Record<string, string>>;
+  },
 ): {
   defaultModel: string;
   enabledModelIds: string[];
@@ -271,12 +289,17 @@ export function reconcileConnectionAfterModelFetch(
   const previousDefault = supersededModelId(
     typeof connection.defaultModel === 'string' ? connection.defaultModel.trim() : '',
     live,
+    options?.aliases,
   );
   // Dedupe after mapping, not before: a connection holding both forms of one
   // model collapses onto a single id here, and one of the returns below hands
   // this list straight back without passing it through connectionEnabledModelIds.
   const previousEnabled = [
-    ...new Set(connectionEnabledModelIds(connection).map((id) => supersededModelId(id, live))),
+    ...new Set(
+      connectionEnabledModelIds(connection).map((id) =>
+        supersededModelId(id, live, options?.aliases),
+      ),
+    ),
   ];
 
   if (liveIds.length === 0) {

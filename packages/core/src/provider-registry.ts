@@ -1767,7 +1767,7 @@ const providerRegistry = {
     backendKind: 'ai-sdk',
     // One id form only. Mixing pinned dated ids with "latest" aliases in one
     // curated list is what let a stored dated selection read as retired; see
-    // SUPERSEDED_MODEL_ID_ALIASES.
+    // CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES.
     fallbackModels: [
       'claude-opus-5',
       'claude-sonnet-5',

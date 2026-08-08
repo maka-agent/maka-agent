@@ -1,4 +1,5 @@
 import {
+  CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
   CODEX_SUBSCRIPTION_UNSUPPORTED_CHATGPT_MODELS,
   PROVIDER_DEFAULTS,
   isWiredOAuthProvider,
@@ -92,7 +93,13 @@ export function createOAuthModelConnectionsMainService(deps: OAuthModelConnectio
       name: existing?.name ?? displayName,
       providerType: 'claude-subscription',
       baseUrl: defaults.baseUrl,
-      ...syncedSelection(existing, fallbackModels),
+      // Only this provider's sync supplies the alias table: the ids in it are
+      // Anthropic's naming, and reconciliation is shared with every provider
+      // that fetches an inventory — including relays whose `claude-*` ids are
+      // their own opaque identifiers.
+      ...syncedSelection(existing, fallbackModels, {
+        aliases: CLAUDE_SUBSCRIPTION_MODEL_ID_ALIASES,
+      }),
       enabled: true,
       models: fallbackModels,
       modelSource: 'fallback',
@@ -654,6 +661,7 @@ function normalizeOpenAiCodexModels(
 function syncedSelection(
   existing: LlmConnection | null | undefined,
   models: readonly { id: string }[],
+  options?: { readonly aliases?: Readonly<Record<string, string>> },
 ): { defaultModel: string; enabledModelIds: string[] } {
   return reconcileConnectionAfterModelFetch(
     {
@@ -662,5 +670,6 @@ function syncedSelection(
       hasModelInventory: existing !== null && existing !== undefined,
     },
     models,
+    options,
   );
 }
