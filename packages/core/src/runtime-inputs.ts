@@ -18,6 +18,7 @@ import type { OrchestrationMode, TurnOrchestration } from './orchestration.js';
 import type { SessionStartMode } from './explore-agent.js';
 import type { SubagentWorkspaceBinding } from './subagent-workspace.js';
 import type { ToolMode } from './tool-mode.js';
+import type { FileEditToolset } from './file-edit-toolset.js';
 
 export type { TurnOrchestration } from './orchestration.js';
 
@@ -38,6 +39,8 @@ export interface CreateSessionInput {
   /** Per-model reasoning-depth variant; `undefined` = model default. */
   thinkingLevel?: ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Defaults to `edit_write` and remains fixed for the Session. */
+  fileEditToolset?: FileEditToolset;
   /** Defaults to `agent`. */
   collaborationMode?: CollaborationMode;
   /** Defaults to `default`. Orthogonal to Agent/Plan collaboration mode. */

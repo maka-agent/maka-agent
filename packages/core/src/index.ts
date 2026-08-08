@@ -11,6 +11,7 @@ export * from './mcp.js';
 export * from './collaboration.js';
 export * from './orchestration.js';
 export * from './tool-mode.js';
+export * from './file-edit-toolset.js';
 export * from './swarm-command.js';
 export * from './graph-command.js';
 export * from './plan.js';

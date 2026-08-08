@@ -23,6 +23,8 @@ import {
   decodeStoredMessageForRecovery,
   deriveTurnRecords,
   isCollaborationMode,
+  DEFAULT_FILE_EDIT_TOOLSET,
+  isFileEditToolset,
   isOrchestrationMode,
   isPermissionMode,
   isSessionBlockedReason,
@@ -936,6 +938,7 @@ function buildSessionHeader(
     connectionLocked: false,
     model: input.model ?? 'default',
     permissionMode: input.permissionMode,
+    fileEditToolset: input.fileEditToolset ?? DEFAULT_FILE_EDIT_TOOLSET,
     collaborationMode: input.collaborationMode ?? 'agent',
     orchestrationMode: input.orchestrationMode ?? 'default',
     ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
@@ -988,6 +991,7 @@ export function normalizeSessionHeader(
     typeof header.connectionLocked === 'boolean' &&
     typeof header.model === 'string' &&
     isPermissionMode(header.permissionMode) &&
+    (header.fileEditToolset === undefined || isFileEditToolset(header.fileEditToolset)) &&
     isCollaborationMode(header.collaborationMode) &&
     isOrchestrationMode(header.orchestrationMode) &&
     header.schemaVersion === 1;
@@ -997,9 +1001,17 @@ export function normalizeSessionHeader(
   const normalizedName = normalizeSessionName(header.name);
   if (header.blockedReason === undefined) {
     const { blockedReason: _blockedReason, ...withoutBlockedReason } = header;
-    return { ...withoutBlockedReason, name: normalizedName };
+    return {
+      ...withoutBlockedReason,
+      name: normalizedName,
+      fileEditToolset: header.fileEditToolset ?? DEFAULT_FILE_EDIT_TOOLSET,
+    };
   }
-  return { ...header, name: normalizedName };
+  return {
+    ...header,
+    name: normalizedName,
+    fileEditToolset: header.fileEditToolset ?? DEFAULT_FILE_EDIT_TOOLSET,
+  };
 }
 
 function isValidRevisionLineage(header: SessionHeader): boolean {
@@ -1178,6 +1190,7 @@ function toSummary(header: SessionHeader, messages: StoredMessage[] = []): Sessi
     connectionLocked: header.connectionLocked,
     model: header.model,
     permissionMode: header.permissionMode,
+    fileEditToolset: header.fileEditToolset ?? DEFAULT_FILE_EDIT_TOOLSET,
     collaborationMode: header.collaborationMode ?? 'agent',
     orchestrationMode: header.orchestrationMode ?? 'default',
     ...(header.thinkingLevel !== undefined ? { thinkingLevel: header.thinkingLevel } : {}),
