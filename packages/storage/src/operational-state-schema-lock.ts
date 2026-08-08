@@ -30,9 +30,33 @@ export interface OperationalStateSchemaLock {
 export function waitForOperationalStateSchemaUseLock(
   databasePath: string,
 ): OperationalStateSchemaLock {
+  return waitForOperationalStateSchemaLock(databasePath, 'owner', true);
+}
+
+export function waitForOperationalStateMigrationTurn(
+  databasePath: string,
+): OperationalStateSchemaLock {
+  return waitForOperationalStateSchemaLock(databasePath, 'migration-turn', false);
+}
+
+export function tryAcquireOperationalStateMigrationLock(
+  databasePath: string,
+): OperationalStateSchemaLock | undefined {
+  return tryAcquireOperationalStateSchemaLock(databasePath, 'owner', false);
+}
+
+export function operationalStateMigrationBlockedError(): Error {
+  return new Error(MIGRATION_BLOCKED_MESSAGE);
+}
+
+function waitForOperationalStateSchemaLock(
+  databasePath: string,
+  role: 'owner' | 'migration-turn',
+  shared: boolean,
+): OperationalStateSchemaLock {
   const deadline = Date.now() + OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS;
   while (true) {
-    const lock = tryAcquireOperationalStateSchemaLock(databasePath, true);
+    const lock = tryAcquireOperationalStateSchemaLock(databasePath, role, shared);
     if (lock) return lock;
     if (Date.now() >= deadline) throw new Error(MIGRATION_BLOCKED_MESSAGE);
     Atomics.wait(
@@ -44,18 +68,9 @@ export function waitForOperationalStateSchemaUseLock(
   }
 }
 
-export function tryAcquireOperationalStateMigrationLock(
-  databasePath: string,
-): OperationalStateSchemaLock | undefined {
-  return tryAcquireOperationalStateSchemaLock(databasePath, false);
-}
-
-export function operationalStateMigrationBlockedError(): Error {
-  return new Error(MIGRATION_BLOCKED_MESSAGE);
-}
-
 function tryAcquireOperationalStateSchemaLock(
   databasePath: string,
+  role: 'owner' | 'migration-turn',
   shared: boolean,
 ): OperationalStateSchemaLock | undefined {
   const canonicalDatabasePath = resolve(databasePath);
@@ -70,7 +85,11 @@ function tryAcquireOperationalStateSchemaLock(
   try {
     if (process.platform !== 'win32') fchmodSync(databaseFd, 0o600);
     const databaseIdentity = assertStableRegularFile(databaseFd, canonicalDatabasePath);
-    const lockPath = resolveOperationalStateLockPath(databaseIdentity.dev, databaseIdentity.ino);
+    const lockPath = resolveOperationalStateLockPath(
+      databaseIdentity.dev,
+      databaseIdentity.ino,
+      role,
+    );
     lockFd = openSync(
       lockPath,
       fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
@@ -112,7 +131,11 @@ function tryAcquireOperationalStateSchemaLock(
   }
 }
 
-function resolveOperationalStateLockPath(dev: bigint, ino: bigint): string {
+function resolveOperationalStateLockPath(
+  dev: bigint,
+  ino: bigint,
+  role: 'owner' | 'migration-turn',
+): string {
   const controlRoot = resolve(resolveRootControlNamespace());
   const lockDirectory = join(controlRoot, OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY);
   mkdirSync(controlRoot, { recursive: true, mode: 0o700 });
@@ -120,7 +143,8 @@ function resolveOperationalStateLockPath(dev: bigint, ino: bigint): string {
   assertPrivateDirectory(controlRoot);
   assertPrivateDirectory(lockDirectory);
   const identity = createHash('sha256').update(`${dev.toString()}:${ino.toString()}`).digest('hex');
-  return join(lockDirectory, `${identity}.lock`);
+  const suffix = role === 'owner' ? '' : '.migration-turn';
+  return join(lockDirectory, `${identity}${suffix}.lock`);
 }
 
 function assertPrivateDirectory(path: string): void {

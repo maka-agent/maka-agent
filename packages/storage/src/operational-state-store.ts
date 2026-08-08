@@ -35,6 +35,7 @@ import {
   operationalStateMigrationBlockedError,
   type OperationalStateSchemaLock,
   tryAcquireOperationalStateMigrationLock,
+  waitForOperationalStateMigrationTurn,
   waitForOperationalStateSchemaUseLock,
 } from './operational-state-schema-lock.js';
 
@@ -194,33 +195,36 @@ function openOperationalStateDatabase(
     if (opened) return opened;
   }
 
-  const migrationLock = tryAcquireOperationalStateMigrationLock(databasePath);
-  if (!migrationLock) {
-    const opened = openCurrentOperationalStateDatabase(databasePath);
-    if (opened) return opened;
-    throw operationalStateMigrationBlockedError();
-  }
-  let migrationDatabase: DatabaseSync | undefined;
+  const migrationTurn = waitForOperationalStateMigrationTurn(databasePath);
   try {
-    const Database = loadDatabaseSync();
-    migrationDatabase = new Database(databasePath);
-    migrationLock.assertCurrentDatabasePath();
-    configureSqliteRuntimeLockWait(migrationDatabase);
-    if (inspectOperationalSchema(migrationDatabase) === 'needs_migration') {
-      configureSqliteRuntimeDatabase(migrationDatabase);
-      migrateOperationalStateDatabase(migrationDatabase, now);
-    }
-  } finally {
-    closeOperationalStateResources(
-      migrationDatabase,
-      migrationLock,
-      'Unable to close the operational schema migration owner',
-    );
-  }
+    const current = openCurrentOperationalStateDatabase(databasePath);
+    if (current) return current;
 
-  const opened = openCurrentOperationalStateDatabase(databasePath);
-  if (!opened) throw new Error('Operational schema migration did not reach the current version');
-  return opened;
+    const migrationLock = tryAcquireOperationalStateMigrationLock(databasePath);
+    if (!migrationLock) throw operationalStateMigrationBlockedError();
+    let migrationDatabase: DatabaseSync | undefined;
+    try {
+      const Database = loadDatabaseSync();
+      migrationDatabase = new Database(databasePath);
+      migrationLock.assertCurrentDatabasePath();
+      configureSqliteRuntimeLockWait(migrationDatabase);
+      if (inspectOperationalSchema(migrationDatabase) === 'needs_migration') {
+        configureSqliteRuntimeDatabase(migrationDatabase);
+        migrateOperationalStateDatabase(migrationDatabase, now);
+      }
+    } finally {
+      closeOperationalStateResources(
+        migrationDatabase,
+        migrationLock,
+        'Unable to close the operational schema migration owner',
+      );
+    }
+    const opened = openCurrentOperationalStateDatabase(databasePath);
+    if (!opened) throw new Error('Operational schema migration did not reach the current version');
+    return opened;
+  } finally {
+    migrationTurn.close();
+  }
 }
 
 function openCurrentOperationalStateDatabase(
