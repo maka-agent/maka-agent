@@ -11,6 +11,8 @@ import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from '../sqlite-session-metada
 import { SQLITE_USAGE_SCHEMA_VERSION } from '../sqlite-usage-schema.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
+const LEGACY_RUNTIME_SCHEMA_VERSION = 10;
+
 test('shares one operational database and produces an online backup', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-state-'));
   const backupPath = join(root, 'backup.sqlite');
@@ -86,7 +88,7 @@ test('migrates older operational state without losing sessions or messages', asy
     rewindRuntimeSchema(database);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+      .run(LEGACY_RUNTIME_SCHEMA_VERSION);
     database.close();
 
     const reopenedLease = acquireOperationalStateDatabase(root);
@@ -111,6 +113,65 @@ test('migrates older operational state without losing sessions or messages', asy
   }
 });
 
+test('installs new invariants when upgrading the current main schema', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-current-main-upgrade-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const main = new DatabaseSync(databasePath);
+    main.exec(`
+      DROP TRIGGER IF EXISTS runtime_event_ordinal_retry;
+      DROP TRIGGER IF EXISTS runtime_events_assign_session_ordinal;
+      DROP TRIGGER IF EXISTS session_messages_lock_connection;
+      DROP TRIGGER IF EXISTS workflow_quote_cleanup_fill_record;
+      PRAGMA user_version = 11;
+      UPDATE session_metadata_schema
+      SET version = 22
+      WHERE scope = 'session_metadata';
+      UPDATE operational_schema_migrations
+      SET version = CASE scope
+        WHEN 'runtime' THEN 11
+        WHEN 'session_metadata' THEN 22
+        WHEN 'workflow' THEN 4
+        ELSE version
+      END;
+    `);
+    main.close();
+
+    const upgraded = acquireOperationalStateDatabase(root);
+    try {
+      assert.deepEqual(
+        upgraded.database
+          .prepare(`
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND name IN (
+                'runtime_event_ordinal_retry',
+                'runtime_events_assign_session_ordinal',
+                'session_messages_lock_connection',
+                'workflow_quote_cleanup_fill_record'
+              )
+            ORDER BY name
+          `)
+          .all()
+          .map((row) => (row as { name: string }).name),
+        [
+          'runtime_event_ordinal_retry',
+          'runtime_events_assign_session_ordinal',
+          'session_messages_lock_connection',
+          'workflow_quote_cleanup_fill_record',
+        ],
+      );
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rolls back every scope when operational migration publication fails', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
   const databasePath = join(root, 'runtime.sqlite');
@@ -121,7 +182,7 @@ test('rolls back every scope when operational migration publication fails', asyn
     rewindRuntimeSchema(database);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+      .run(LEGACY_RUNTIME_SCHEMA_VERSION);
     database.exec(`
       CREATE TRIGGER reject_runtime_registry_upgrade
       BEFORE UPDATE OF version ON operational_schema_migrations
@@ -138,7 +199,7 @@ test('rolls back every scope when operational migration publication fails', asyn
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
       assert.equal(
         (
@@ -182,7 +243,7 @@ test('rejects a newer scope before migrating an older scope', async () => {
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -255,7 +316,7 @@ test('rejects newer session metadata before migrating older runtime state', asyn
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -383,7 +444,7 @@ test('rejects an invalid registered schema version before migrating', async () =
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -396,7 +457,7 @@ test('rejects an invalid registered schema version before migrating', async () =
 function rewindRuntimeSchema(database: DatabaseSync): void {
   database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
   database.exec('DROP TABLE runtime_session_event_ordinals');
-  database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+  database.exec(`PRAGMA user_version = ${LEGACY_RUNTIME_SCHEMA_VERSION}`);
 }
 
 function sessionHeader(): SessionHeader {

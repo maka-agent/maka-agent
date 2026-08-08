@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 22;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 23;
 
 export const SQLITE_AGENT_GRAPH_CONTROL_TABLES = [
   'agent_graph_intent_claims',
@@ -848,6 +848,11 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
           messages.session_id = session_metadata.session_id
           AND messages.message_type = 'user'
       );
+  `,
+  ],
+  [
+    23,
+    `
 
     CREATE TRIGGER session_messages_lock_connection
     AFTER INSERT ON session_messages

@@ -286,6 +286,77 @@ describe('SqliteRuntimeStore', () => {
     });
   });
 
+  it('accepts the explicit ordinal retry from an already-open schema 11 writer', async () => {
+    await withStore(async (store, dbPath) => {
+      store.close();
+
+      const legacy = new DatabaseSync(dbPath);
+      legacy.exec(`
+        DROP TRIGGER runtime_event_ordinal_retry;
+        DROP TRIGGER runtime_events_assign_session_ordinal;
+        PRAGMA user_version = 11;
+      `);
+      const upgraded = createSqliteRuntimeStore(dbPath);
+      try {
+        legacy.exec('BEGIN IMMEDIATE');
+        legacy
+          .prepare(`
+            INSERT INTO runtime_events (
+              event_id, session_id, invocation_id, run_id, turn_id, event_seq,
+              event_kind, payload_json, committed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            'legacy-event',
+            'session-1',
+            'invocation-1',
+            'run-1',
+            'turn-1',
+            1,
+            'message',
+            '{}',
+            1,
+          );
+        const next = legacy
+          .prepare(`
+            SELECT COALESCE(MAX(ordinal), 0) + 1 AS ordinal
+            FROM runtime_session_event_ordinals
+            WHERE session_id = ?
+          `)
+          .get('session-1') as { ordinal: number };
+        legacy
+          .prepare(`
+            INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
+            VALUES (?, ?, ?)
+          `)
+          .run('session-1', next.ordinal, 'legacy-event');
+        legacy.exec('COMMIT');
+
+        assert.deepEqual(
+          legacy
+            .prepare(`
+              SELECT ordinal, event_id
+              FROM runtime_session_event_ordinals
+              WHERE session_id = ?
+            `)
+            .all('session-1')
+            .map((row) => ({ ...row })),
+          [{ ordinal: 1, event_id: 'legacy-event' }],
+        );
+      } catch (error) {
+        try {
+          legacy.exec('ROLLBACK');
+        } catch {
+          // Preserve the compatibility failure.
+        }
+        throw error;
+      } finally {
+        upgraded.close();
+        legacy.close();
+      }
+    });
+  });
+
   it('assigns stable Session ordinals in commit order across Runs', async () => {
     await withStore(async (store, dbPath) => {
       const first = functionCallEvent({ id: 'ordinal-1', ts: 20 });

@@ -1,6 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_RUNTIME_SCHEMA_VERSION = 11;
+export const SQLITE_RUNTIME_SCHEMA_VERSION = 12;
 export const RUNTIME_RECOVERY_AUTHORITY_CAPABILITY = 'runtime_recovery_authority';
 export const RUNTIME_RECOVERY_AUTHORITY_CAPABILITY_VERSION = 1;
 export const RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY = 'runtime_continuation_authority';
@@ -299,6 +299,11 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       ),
       event_id
     FROM runtime_events;
+  `,
+  ],
+  [
+    12,
+    `
 
     CREATE TRIGGER runtime_events_assign_session_ordinal
     AFTER INSERT ON runtime_events
@@ -310,6 +315,19 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
         NEW.event_id
       FROM runtime_session_event_ordinals
       WHERE session_id = NEW.session_id;
+    END;
+
+    CREATE TRIGGER runtime_event_ordinal_retry
+    BEFORE INSERT ON runtime_session_event_ordinals
+    WHEN EXISTS (
+      SELECT 1
+      FROM runtime_session_event_ordinals
+      WHERE
+        event_id = NEW.event_id
+        AND session_id = NEW.session_id
+    )
+    BEGIN
+      SELECT RAISE(IGNORE);
     END;
   `,
   ],

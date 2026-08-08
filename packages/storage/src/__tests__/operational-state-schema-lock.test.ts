@@ -10,6 +10,8 @@ import { acquireOperationalStateDatabase } from '../operational-state-store.js';
 import { resolveOperationalStateSchemaLockPath } from '../operational-state-schema-lock.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 
+const LEGACY_RUNTIME_SCHEMA_VERSION = 10;
+
 test('a live operational database lease excludes schema migration', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-schema-lock-'));
   const databasePath = join(root, 'runtime.sqlite');
@@ -24,7 +26,7 @@ test('a live operational database lease excludes schema migration', async () => 
       () => acquireOperationalStateDatabase(root),
       /close other Maka processes before retrying/i,
     );
-    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    assert.equal(readRuntimeVersion(databasePath), LEGACY_RUNTIME_SCHEMA_VERSION);
 
     holder.send('close');
     await waitForExit(holder);
@@ -76,7 +78,7 @@ test('replacing the workspace root cannot detach a live owner from its database 
       () => acquireOperationalStateDatabase(root),
       /close other Maka processes before retrying/i,
     );
-    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    assert.equal(readRuntimeVersion(databasePath), LEGACY_RUNTIME_SCHEMA_VERSION);
   } finally {
     await stopChild(holder);
     await rm(root, { recursive: true, force: true });
@@ -107,7 +109,7 @@ test('different XDG state homes cannot split one operational lock domain', {
     } finally {
       unexpectedLease?.close();
     }
-    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+    assert.equal(readRuntimeVersion(databasePath), LEGACY_RUNTIME_SCHEMA_VERSION);
   } finally {
     await stopChild(holder);
     await rm(root, { recursive: true, force: true });
@@ -156,10 +158,10 @@ function rewindRuntimeSchema(databasePath: string): void {
   try {
     database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
     database.exec('DROP TABLE runtime_session_event_ordinals');
-    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+    database.exec(`PRAGMA user_version = ${LEGACY_RUNTIME_SCHEMA_VERSION}`);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+      .run(LEGACY_RUNTIME_SCHEMA_VERSION);
   } finally {
     database.close();
   }
