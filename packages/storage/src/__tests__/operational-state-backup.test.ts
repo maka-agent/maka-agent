@@ -187,6 +187,37 @@ test('rejects a backup whose SQLite Artifact metadata has no matching payload', 
   }
 });
 
+test('rejects a current backup missing a required runtime authority table', async () => {
+  const base = await mkdtemp(join(tmpdir(), 'maka-operational-backup-required-table-'));
+  const stateRoot = join(base, 'state');
+  try {
+    const sessions = createSessionStore(stateRoot);
+    await sessions.close?.();
+
+    for (const table of ['runtime_session_event_ordinals', 'runtime_storage_root_binding']) {
+      const backupRoot = join(base, `backup-${table}`);
+      await createOperationalStateBackup({ stateRoot, destinationRoot: backupRoot });
+      const database = new DatabaseSync(join(backupRoot, 'runtime.sqlite'));
+      try {
+        database.exec(`DROP TABLE ${table}`);
+      } finally {
+        database.close();
+      }
+      await refreshDatabaseInventory(backupRoot);
+
+      await assert.rejects(
+        validateOperationalStateBackup(backupRoot),
+        (error: unknown) =>
+          error instanceof OperationalBackupError &&
+          error.code === 'corrupt_backup' &&
+          error.message.includes(`required table is missing: ${table}`),
+      );
+    }
+  } finally {
+    await rm(base, { recursive: true, force: true });
+  }
+});
+
 async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void> {
   const databasePath = join(backupRoot, 'runtime.sqlite');
   const database = new DatabaseSync(databasePath);
@@ -208,6 +239,11 @@ async function rewriteAsV016OperationalBackup(backupRoot: string): Promise<void>
     database.close();
   }
 
+  await refreshDatabaseInventory(backupRoot);
+}
+
+async function refreshDatabaseInventory(backupRoot: string): Promise<void> {
+  const databasePath = join(backupRoot, 'runtime.sqlite');
   const manifestPath = join(backupRoot, OPERATIONAL_BACKUP_MANIFEST_FILE);
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as OperationalBackupManifest;
   const bytes = await readFile(databasePath);

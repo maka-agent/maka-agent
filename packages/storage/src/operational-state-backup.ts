@@ -351,11 +351,13 @@ function validateSqlite(
       const currentTables = [
         'operational_schema_migrations',
         'runtime_events',
+        'runtime_session_event_ordinals',
         'tool_journal_events',
         'tool_operations',
         'runtime_partial_snapshots',
         'runtime_partial_segments',
         'runtime_capabilities',
+        'runtime_storage_root_binding',
         'runtime_continuation_claims',
         'runtime_workspace_epochs',
         'runtime_workspace_versions',
