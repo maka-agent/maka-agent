@@ -1,7 +1,10 @@
 import { join } from 'node:path';
 import type { UsageRange, UsageStats } from '@maka/core';
 import type { SessionHeader } from '@maka/core/session';
-import { OPERATIONAL_STATE_DATABASE_NAME } from './operational-state-store.js';
+import {
+  acquireOperationalStateDatabase,
+  OPERATIONAL_STATE_DATABASE_NAME,
+} from './operational-state-store.js';
 import { createSqliteSessionMetadataStore } from './sqlite-session-metadata-store.js';
 
 type UsageSessionHeader = Pick<SessionHeader, 'id' | 'llmConnectionSlug' | 'model'>;
@@ -119,8 +122,10 @@ export async function readUsageStats(
 async function readStoredSessions(
   workspaceRoot: string,
 ): Promise<Array<{ header: UsageSessionHeader; messages: UsageMessage[] }>> {
+  const databaseLease = acquireOperationalStateDatabase(workspaceRoot);
   const metadata = createSqliteSessionMetadataStore(
     join(workspaceRoot, OPERATIONAL_STATE_DATABASE_NAME),
+    { databaseLease },
   );
   try {
     const sessions: Array<{ header: UsageSessionHeader; messages: UsageMessage[] }> = [];
@@ -139,8 +144,6 @@ async function readStoredSessions(
       });
     }
     return sessions;
-  } catch {
-    return [];
   } finally {
     metadata.close();
   }

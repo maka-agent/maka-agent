@@ -1,15 +1,58 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_RUNTIME_SCHEMA_VERSION = 11;
+export const SQLITE_RUNTIME_SCHEMA_VERSION = 12;
 export const RUNTIME_RECOVERY_AUTHORITY_CAPABILITY = 'runtime_recovery_authority';
 export const RUNTIME_RECOVERY_AUTHORITY_CAPABILITY_VERSION = 1;
 export const RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY = 'runtime_continuation_authority';
 export const RUNTIME_CONTINUATION_AUTHORITY_CAPABILITY_VERSION = 1;
 export const RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY = 'runtime_workspace_version_authority';
 export const RUNTIME_WORKSPACE_VERSION_AUTHORITY_CAPABILITY_VERSION = 1;
+export const RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY = 'runtime_legacy_root_adoption';
 const SQLITE_INITIALIZATION_BUSY_TIMEOUT_MS = 5_000;
 const SQLITE_INITIALIZATION_RETRY_DELAY_MS = 10;
 const initializationRetryGate = new Int32Array(new SharedArrayBuffer(4));
+
+const RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER = `
+  CREATE TRIGGER runtime_events_assign_session_ordinal
+  AFTER INSERT ON runtime_events
+  BEGIN
+    INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
+    SELECT
+      NEW.session_id,
+      COALESCE(MAX(ordinal), 0) + 1,
+      NEW.event_id
+    FROM runtime_session_event_ordinals
+    WHERE session_id = NEW.session_id;
+  END
+`;
+
+const RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER = `
+  CREATE TRIGGER runtime_event_ordinal_retry
+  BEFORE INSERT ON runtime_session_event_ordinals
+  WHEN EXISTS (
+    SELECT 1
+    FROM runtime_session_event_ordinals
+    WHERE
+      event_id = NEW.event_id
+      AND session_id = NEW.session_id
+  )
+  BEGIN
+    SELECT RAISE(IGNORE);
+  END
+`;
+
+export const SQLITE_RUNTIME_REQUIRED_TRIGGERS = [
+  {
+    name: 'runtime_events_assign_session_ordinal',
+    introducedIn: 12,
+    sql: RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER,
+  },
+  {
+    name: 'runtime_event_ordinal_retry',
+    introducedIn: 12,
+    sql: RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER,
+  },
+] as const;
 
 const MIGRATIONS: ReadonlyMap<number, string> = new Map([
   [
@@ -301,6 +344,13 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
     FROM runtime_events;
   `,
   ],
+  [
+    12,
+    `
+    ${RUNTIME_EVENTS_ASSIGN_SESSION_ORDINAL_TRIGGER};
+    ${RUNTIME_EVENT_ORDINAL_RETRY_TRIGGER};
+  `,
+  ],
 ]);
 
 export function configureSqliteRuntimeDatabase(db: DatabaseSync): void {
@@ -318,7 +368,10 @@ export function configureSqliteRuntimeLockWait(db: DatabaseSync): void {
   db.exec(`PRAGMA busy_timeout = ${SQLITE_INITIALIZATION_BUSY_TIMEOUT_MS}`);
 }
 
-export function migrateSqliteRuntimeDatabase(db: DatabaseSync): void {
+export function migrateSqliteRuntimeDatabase(
+  db: DatabaseSync,
+  options: { transaction?: 'self' | 'caller' } = {},
+): void {
   const observedVersion = readUserVersion(db);
   if (observedVersion > SQLITE_RUNTIME_SCHEMA_VERSION) {
     throw new Error(
@@ -331,7 +384,8 @@ export function migrateSqliteRuntimeDatabase(db: DatabaseSync): void {
   // Any pending upgrade is serialized by one write transaction, then re-reads
   // user_version under that lock so a concurrent opener cannot apply a
   // migration another process just committed.
-  db.exec('BEGIN IMMEDIATE');
+  const ownsTransaction = options.transaction !== 'caller';
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     const current = readUserVersion(db);
     if (current > SQLITE_RUNTIME_SCHEMA_VERSION) {
@@ -345,9 +399,16 @@ export function migrateSqliteRuntimeDatabase(db: DatabaseSync): void {
       db.exec(sql);
       db.exec(`PRAGMA user_version = ${version}`);
     }
-    db.exec('COMMIT');
+    if (current > 0 && current < 9) {
+      db.prepare(`
+        INSERT INTO runtime_capabilities(capability, version)
+        VALUES (?, 1)
+        ON CONFLICT(capability) DO NOTHING
+      `).run(RUNTIME_LEGACY_ROOT_ADOPTION_CAPABILITY);
+    }
+    if (ownsTransaction) db.exec('COMMIT');
   } catch (error) {
-    rollback(db);
+    if (ownsTransaction) rollback(db);
     throw error;
   }
 }

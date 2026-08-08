@@ -1,6 +1,30 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 22;
+export const SQLITE_SESSION_METADATA_SCHEMA_VERSION = 23;
+
+const SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER = `
+  CREATE TRIGGER session_messages_lock_connection
+  AFTER INSERT ON session_messages
+  WHEN NEW.message_type = 'user'
+  BEGIN
+    UPDATE session_metadata
+    SET
+      payload_json = json_set(payload_json, '$.connectionLocked', json('true')),
+      metadata_version = metadata_version + 1,
+      committed_at = MAX(committed_at, NEW.message_ts)
+    WHERE
+      session_id = NEW.session_id
+      AND json_extract(payload_json, '$.connectionLocked') = 0;
+  END
+`;
+
+export const SQLITE_SESSION_METADATA_REQUIRED_TRIGGERS = [
+  {
+    name: 'session_messages_lock_connection',
+    introducedIn: 23,
+    sql: SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER,
+  },
+] as const;
 
 export const SQLITE_AGENT_GRAPH_CONTROL_TABLES = [
   'agent_graph_intent_claims',
@@ -850,6 +874,12 @@ const MIGRATIONS: ReadonlyMap<number, string> = new Map([
       );
   `,
   ],
+  [
+    23,
+    `
+    ${SESSION_MESSAGES_LOCK_CONNECTION_TRIGGER};
+  `,
+  ],
 ]);
 
 export function configureSqliteSessionMetadataDatabase(db: DatabaseSync): void {
@@ -859,14 +889,18 @@ export function configureSqliteSessionMetadataDatabase(db: DatabaseSync): void {
   db.exec('PRAGMA foreign_keys = ON');
 }
 
-export function migrateSqliteSessionMetadataDatabase(db: DatabaseSync): void {
+export function migrateSqliteSessionMetadataDatabase(
+  db: DatabaseSync,
+  options: { transaction?: 'self' | 'caller' } = {},
+): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS session_metadata_schema (
       scope TEXT PRIMARY KEY,
       version INTEGER NOT NULL CHECK (version >= 0)
     )
   `);
-  db.exec('BEGIN IMMEDIATE');
+  const ownsTransaction = options.transaction !== 'caller';
+  if (ownsTransaction) db.exec('BEGIN IMMEDIATE');
   try {
     const current = readSqliteSessionMetadataSchemaVersion(db);
     if (current > SQLITE_SESSION_METADATA_SCHEMA_VERSION) {
@@ -888,9 +922,9 @@ export function migrateSqliteSessionMetadataDatabase(db: DatabaseSync): void {
         ON CONFLICT(scope) DO UPDATE SET version = excluded.version
       `).run(version);
     }
-    db.exec('COMMIT');
+    if (ownsTransaction) db.exec('COMMIT');
   } catch (error) {
-    rollback(db);
+    if (ownsTransaction) rollback(db);
     throw error;
   }
 }

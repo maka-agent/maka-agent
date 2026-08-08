@@ -183,6 +183,79 @@ describe('workspace version persistence authority', () => {
     }
   });
 
+  it('adopts pre-binding schema 8 data exactly once after migration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-legacy-root-adoption-'));
+    const dbPath = join(root, 'runtime.sqlite');
+    const initial = createSqliteRuntimeStore(dbPath);
+    try {
+      const event: RuntimeEvent = {
+        id: 'legacy-runtime-event',
+        sessionId: 'session-existing',
+        invocationId: 'invocation-existing',
+        runId: 'run-existing',
+        turnId: 'turn-existing',
+        ts: 1,
+        partial: false,
+        role: 'user',
+        author: 'user',
+        content: { kind: 'text', text: 'legacy state' },
+      };
+      await initial.appendRuntimeEvent(event.sessionId, event.runId, event);
+    } finally {
+      initial.close();
+    }
+
+    const legacy = new DatabaseSync(dbPath);
+    try {
+      legacy.exec(`
+        DROP TRIGGER runtime_event_ordinal_retry;
+        DROP TRIGGER runtime_events_assign_session_ordinal;
+        DROP TABLE runtime_session_event_ordinals;
+        DROP TABLE runtime_partial_segments;
+        DROP TABLE runtime_storage_root_binding;
+        PRAGMA user_version = 8;
+      `);
+    } finally {
+      legacy.close();
+    }
+
+    const migrated = createSqliteRuntimeStore(dbPath);
+    try {
+      assert.doesNotThrow(() =>
+        bindWorkspaceBaselineAuthorityStoreRootInternal(migrated, TEST_STORAGE_ROOT_ID),
+      );
+      const database = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        assert.deepEqual(
+          {
+            ...(database
+              .prepare(`
+              SELECT root_id, protocol_version
+              FROM runtime_storage_root_binding
+            `)
+              .get() as { root_id: string; protocol_version: number }),
+          },
+          { root_id: TEST_STORAGE_ROOT_ID, protocol_version: 1 },
+        );
+        assert.equal(
+          database
+            .prepare(`
+              SELECT 1
+              FROM runtime_capabilities
+              WHERE capability = 'runtime_legacy_root_adoption'
+            `)
+            .get(),
+          undefined,
+        );
+      } finally {
+        database.close();
+      }
+    } finally {
+      migrated.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   for (const failpoint of [
     'after_workspace_epoch_event_insert',
     'after_workspace_version_event_insert',

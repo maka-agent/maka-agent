@@ -18,17 +18,21 @@ import { decodeArtifactRecordJsons } from './artifact-metadata-codec.js';
 import { withArtifactWriterLock } from './artifact-writer-lock.js';
 import { decodeStoredMessageForRecovery } from './execution-record-codec.js';
 import {
+  resolveExistingStorageRoot,
+  resolveStorageRoot,
+  type StorageRootKind,
+} from './root-authority.js';
+import { createSqliteRuntimeStore } from './sqlite-runtime-store.js';
+import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version-authority-internal.js';
+import {
+  acquireRestoredOperationalStateDatabase,
   acquireOperationalStateDatabase,
+  copyOperationalStateDatabaseForRestore,
+  inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
-  OPERATIONAL_STATE_SCHEMA_VERSION,
+  type OperationalStateDatabaseRestoreCopy,
 } from './operational-state-store.js';
-import { SQLITE_ARTIFACT_SCHEMA_VERSION } from './sqlite-artifact-schema.js';
-import { SQLITE_AUTOMATION_SCHEMA_VERSION } from './sqlite-automation-schema.js';
-import { SQLITE_CORE_EXECUTION_SCHEMA_VERSION } from './sqlite-core-execution-schema.js';
-import { SQLITE_RUNTIME_SCHEMA_VERSION } from './sqlite-runtime-schema.js';
-import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from './sqlite-session-metadata-schema.js';
-import { SQLITE_USAGE_SCHEMA_VERSION } from './sqlite-usage-schema.js';
-import { SQLITE_WORKFLOW_SCHEMA_VERSION } from './sqlite-workflow-schema.js';
+import type { OperationalStatePublicationLock } from './operational-state-schema-lock.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 
 export const OPERATIONAL_BACKUP_FORMAT = 'maka-operational-backup';
@@ -75,6 +79,7 @@ export interface CreateOperationalBackupInput {
 export interface RestoreOperationalBackupInput {
   readonly backupRoot: string;
   readonly destinationRoot: string;
+  readonly kind: StorageRootKind;
 }
 
 export async function createOperationalStateBackup(
@@ -168,13 +173,24 @@ export async function restoreOperationalStateBackup(
   await assertMissing(destinationRoot, 'restore destination');
   const manifest = await validateOperationalStateBackup(backupRoot);
   const stagingRoot = `${destinationRoot}.${process.pid}.${randomUUID()}.tmp`;
+  let published = false;
+  let publicationLock: OperationalStatePublicationLock | undefined;
   try {
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+    let databaseCopy: OperationalStateDatabaseRestoreCopy | undefined;
     for (const file of manifest.files) {
       const source = resolveInside(backupRoot, file.path);
       const destination = resolveInside(stagingRoot, file.path);
       await mkdir(dirname(destination), { recursive: true });
-      await copyFile(source, destination);
+      if (file.path === OPERATIONAL_STATE_DATABASE_NAME) {
+        databaseCopy = await copyOperationalStateDatabaseForRestore(
+          source,
+          destination,
+          destinationRoot,
+        );
+      } else {
+        await copyFile(source, destination);
+      }
       await chmod(destination, 0o600);
       await syncFile(destination);
       await syncDirectoryChain(dirname(destination), stagingRoot);
@@ -183,15 +199,47 @@ export async function restoreOperationalStateBackup(
     if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) {
       throw new OperationalBackupError('corrupt_backup', 'Restored file inventory does not match');
     }
-    validateSqlite(resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME), manifest.files);
+    const databasePath = resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME);
+    const destinationCapability = await resolveStorageRoot({
+      path: stagingRoot,
+      kind: input.kind,
+    });
+    if (!databaseCopy)
+      throw new OperationalBackupError('corrupt_backup', 'Backup database is missing');
+    const databaseLease = acquireRestoredOperationalStateDatabase(databaseCopy);
+    let runtimeStore: ReturnType<typeof createSqliteRuntimeStore> | undefined;
+    try {
+      runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
+      await adoptRestoredWorkspaceAuthorityRootInternal(runtimeStore, destinationCapability);
+      await mkdir(dirname(destinationRoot), { recursive: true });
+      publicationLock = databaseLease.prepareForPublication();
+    } finally {
+      if (runtimeStore) runtimeStore.close();
+      else databaseLease.close();
+    }
+    normalizeStandaloneSqliteSnapshot(databasePath);
+    await chmod(databasePath, 0o600);
+    await syncFile(databasePath);
+    validateSqlite(databasePath, await inventory(stagingRoot), 'current');
     await syncDirectoryChain(stagingRoot, stagingRoot);
-    await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
+    published = true;
+    await resolveExistingStorageRoot({
+      path: destinationRoot,
+      kind: input.kind,
+      expectedRootId: destinationCapability.rootId,
+    });
     await syncDirectory(dirname(destinationRoot));
+    publicationLock.close();
+    publicationLock = undefined;
     return manifest;
   } catch (error) {
-    await rm(stagingRoot, { recursive: true, force: true }).catch(() => {});
+    await rm(published ? destinationRoot : stagingRoot, { recursive: true, force: true }).catch(
+      () => {},
+    );
     throw error;
+  } finally {
+    publicationLock?.close();
   }
 }
 
@@ -322,7 +370,11 @@ async function copyRegularTree(
   await syncDirectoryChain(dirname(destination), destinationRoot);
 }
 
-function validateSqlite(path: string, files: readonly OperationalBackupFile[]): void {
+function validateSqlite(
+  path: string,
+  files: readonly OperationalBackupFile[],
+  requiredSchema: 'migratable' | 'current' = 'migratable',
+): void {
   try {
     const metadata = lstatSync(path);
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
@@ -340,36 +392,22 @@ function validateSqlite(path: string, files: readonly OperationalBackupFile[]): 
       if (database.prepare('PRAGMA foreign_key_check').all().length > 0) {
         throw new Error('foreign_key_check failed');
       }
-      const expected = new Map<string, number>([
-        ['runtime', SQLITE_RUNTIME_SCHEMA_VERSION],
-        ['session_metadata', SQLITE_SESSION_METADATA_SCHEMA_VERSION],
-        ['core_execution', SQLITE_CORE_EXECUTION_SCHEMA_VERSION],
-        ['workflow', SQLITE_WORKFLOW_SCHEMA_VERSION],
-        ['usage', SQLITE_USAGE_SCHEMA_VERSION],
-        ['artifact', SQLITE_ARTIFACT_SCHEMA_VERSION],
-        ['automation', SQLITE_AUTOMATION_SCHEMA_VERSION],
-        ['operational', OPERATIONAL_STATE_SCHEMA_VERSION],
-      ]);
-      const rows = database
-        .prepare('SELECT scope, version FROM operational_schema_migrations')
-        .all() as Array<{ scope?: unknown; version?: unknown }>;
-      if (
-        rows.length !== expected.size ||
-        rows.some(
-          (entry) => typeof entry.scope !== 'string' || expected.get(entry.scope) !== entry.version,
-        )
-      ) {
+      const schema = inspectOperationalStateSchema(database);
+      if (requiredSchema === 'current' && schema.status !== 'current') {
         throw new Error('operational schema versions do not match');
       }
 
-      const requiredTables = [
+      const currentTables = [
         'operational_schema_migrations',
+        'operational_lock_authority',
         'runtime_events',
+        'runtime_session_event_ordinals',
         'tool_journal_events',
         'tool_operations',
         'runtime_partial_snapshots',
         'runtime_partial_segments',
         'runtime_capabilities',
+        'runtime_storage_root_binding',
         'runtime_continuation_claims',
         'runtime_workspace_epochs',
         'runtime_workspace_versions',
@@ -433,7 +471,19 @@ function validateSqlite(path: string, files: readonly OperationalBackupFile[]): 
       const tableExists = database.prepare(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
       );
-      for (const table of requiredTables) {
+      const tableIntroductions = new Map<string, readonly [scope: string, version: number]>([
+        ['operational_lock_authority', ['operational', 2]],
+        ['runtime_storage_root_binding', ['runtime', 9]],
+        ['runtime_partial_segments', ['runtime', 10]],
+        ['runtime_session_event_ordinals', ['runtime', 11]],
+        ['core_root_turn_start_rejections', ['core_execution', 2]],
+        ['workflow_daily_review_authority_state', ['workflow', 3]],
+      ]);
+      for (const table of currentTables) {
+        const introduction = tableIntroductions.get(table);
+        if (introduction && (schema.versions.get(introduction[0]) ?? -1) < introduction[1]) {
+          continue;
+        }
         if (tableExists.get(table) === undefined) {
           throw new Error(`required table is missing: ${table}`);
         }

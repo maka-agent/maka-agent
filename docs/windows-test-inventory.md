@@ -15,11 +15,11 @@ Locations intentionally omit line numbers so unrelated edits do not invalidate t
 
 | Classification | Count |
 |---|---:|
-| windows-backend-gap | 18 |
-| portable-candidate | 0 |
-| platform-contract | 35 |
+| windows-backend-gap | 20 |
+| portable-candidate | 1 |
+| platform-contract | 39 |
 
-Total Windows-excluded declarations: **53**
+Total Windows-excluded declarations: **60**
 
 ## Inventory
 
@@ -32,6 +32,8 @@ Total Windows-excluded declarations: **53**
 | platform-contract | `apps/desktop/src/main/__tests__/shell-env.test.ts` kills login-shell descendants when capture times out | `process.platform === 'win32'` |
 | platform-contract | `apps/desktop/src/main/__tests__/shell-env.test.ts` bounds shell output instead of buffering until the global timeout | `process.platform === 'win32'` |
 | windows-backend-gap | `packages/headless/src/__tests__/sandbox.test.ts` copies portable workspace evidence while skipping process-local special files | `process.platform === 'win32'` |
+| windows-backend-gap | `packages/runtime-host/src/__tests__/connection-effect-coordinator.test.ts` leaves canonical onboarding state unchanged when the durable intent cannot be published | `process.platform === 'win32'` |
+| windows-backend-gap | `packages/runtime-host/src/__tests__/connection-effect-coordinator.test.ts` recovers a durable onboarding intent instead of rolling back a partial publication | `process.platform === 'win32'` |
 | windows-backend-gap | `packages/runtime-host/src/__tests__/control-endpoint.test.ts` runtime host control endpoint | `process.platform === 'win32'` |
 | windows-backend-gap | `packages/runtime-host/src/__tests__/execution-inspect-uds.test.ts` a live Host serves Interactive inspection over its real endpoint while retaining exclusive ownership | `process.platform === 'win32' ? 'Windows execution Host startup lifecycle' : false` |
 | windows-backend-gap | `packages/runtime-host/src/__tests__/host-kernel.test.ts` an automatic failed liveness check is connection-fatal and Client close stays local | `process.platform === 'win32'` |
@@ -65,6 +67,11 @@ Total Windows-excluded declarations: **53**
 | platform-contract | `packages/storage/src/__tests__/managed-workspace-baseline.test.ts` does not return an accepted baseline when runtime.sqlite is replaced after the initial root check | `process.platform === 'win32' ? 'Windows cannot rename an open SQLite database during the verification race' : false` |
 | platform-contract | `packages/storage/src/__tests__/managed-workspace-baseline.test.ts` rejects a source tree containing a non-UTF-8 Git path | `process.platform === 'win32'` |
 | platform-contract | `packages/storage/src/__tests__/managed-workspace-owner.test.ts` rejects execution when runtime.sqlite detaches from its canonical path after verification | `process.platform === 'win32' ? 'Open SQLite files cannot be renamed reliably on Windows' : false` |
+| portable-candidate | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` reserving a publication lock accepts a directory symlink ancestor | `process.platform === 'win32' ? 'Windows directory symlinks require elevated privileges' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` rejects a replaced owner lock while the registered owner is live | `process.platform === 'win32' ? 'Windows cannot rename an open SQLite authority lock file' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` rejects another current database moved over a live owner path | `process.platform === 'win32' ? 'Windows cannot replace an open SQLite database' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` replacing the workspace root cannot detach a live owner from its database migration lock | `process.platform === 'win32' ? 'Windows cannot rename a directory containing an open SQLite database' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-store.test.ts` rejecting operational state preserves database permissions | `process.platform === 'win32' ? 'POSIX file permissions are not available' : false` |
 | platform-contract | `packages/storage/src/__tests__/pet-pack-store.test.ts` detects sprite sheets redirected outside the installed pack | `process.platform === 'win32' ? 'Windows file-symlink permissions are not guaranteed in CI' : false` |
 | platform-contract | `packages/storage/src/__tests__/root-authority.test.ts` preserves unexpected marker I/O failures at the public authority boundary | `process.platform === 'win32' ? 'POSIX permissions are required to make the marker unreadable' : typeof process.getuid === 'function' && process.getuid() === 0` |
 | platform-contract | `packages/storage/src/__tests__/root-authority.test.ts` rejects FIFO marker paths without blocking root resolution | `process.platform === 'win32'` |

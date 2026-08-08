@@ -39,6 +39,7 @@ describe('SqliteSessionMetadataStore', () => {
       store.close();
 
       const legacy = new DatabaseSync(path);
+      legacy.exec('DROP TRIGGER session_messages_lock_connection');
       legacy
         .prepare(`
         INSERT INTO session_messages(
@@ -91,6 +92,53 @@ describe('SqliteSessionMetadataStore', () => {
         assert.equal((await migrated.read('assistant-only')).header.connectionLocked, false);
       } finally {
         migrated.close();
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('locks a Session when an already-open schema 21 writer appends a user message', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-lock-legacy-writer-'));
+    const path = join(root, 'state.sqlite');
+    try {
+      const store = createSqliteSessionMetadataStore(path);
+      await store.create(fullHeader({ id: 'session-1', connectionLocked: false }));
+      store.close();
+
+      const legacy = new DatabaseSync(path);
+      legacy.exec('DROP TRIGGER IF EXISTS session_messages_lock_connection');
+      legacy
+        .prepare(`
+          UPDATE session_metadata_schema
+          SET version = ?
+          WHERE scope = 'session_metadata'
+        `)
+        .run(21);
+      const migrated = createSqliteSessionMetadataStore(path);
+      try {
+        legacy
+          .prepare(`
+            INSERT INTO session_messages(
+              session_id, sequence, message_id, message_type, message_ts, record_json
+            ) VALUES (?, 0, ?, 'user', 1, ?)
+          `)
+          .run(
+            'session-1',
+            'user-1',
+            JSON.stringify({
+              type: 'user',
+              id: 'user-1',
+              turnId: 'turn-1',
+              ts: 1,
+              text: 'hello',
+            }),
+          );
+
+        assert.equal((await migrated.read('session-1')).header.connectionLocked, true);
+      } finally {
+        migrated.close();
+        legacy.close();
       }
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -137,6 +137,26 @@ jobs:
           fi
           node scripts/run-workspace-tests-parallel.mjs --concurrency=3 --workspaces="$WORKSPACES"
 
+  test_windows_storage:
+    needs: changes
+    if: contains(needs.changes.outputs.standard_workspaces, 'packages/storage')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Build Storage and its workspace dependency
+        run: npm run build -w @maka/core -w @maka/storage
+      - name: Run operational database lock gates
+        run: >-
+          node --test --test-concurrency=1
+          packages/storage/dist/__tests__/operational-state-backup.test.js
+          packages/storage/dist/__tests__/operational-state-schema-lock.test.js
+          packages/storage/dist/__tests__/operational-state-store.test.js
+
   test_runtime_host:
     needs: changes
     if: needs.changes.outputs.runtime_host == 'true'
@@ -183,7 +203,7 @@ jobs:
   # Preserve one stable required check while letting independent heavy suites
   # occupy their own runners. The aggregator waits for every selected lane.
   test:
-    needs: [changes, test_workspaces, test_runtime_host, test_headless]
+    needs: [changes, test_workspaces, test_windows_storage, test_runtime_host, test_headless]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -196,6 +216,8 @@ jobs:
           RUNTIME_HOST_SELECTED: ${{ needs.changes.outputs.runtime_host }}
           SCRIPT_MODE: ${{ needs.changes.outputs.script_mode }}
           STANDARD_WORKSPACES: ${{ needs.changes.outputs.standard_workspaces }}
+          WINDOWS_STORAGE_RESULT: ${{ needs.test_windows_storage.result }}
+          WINDOWS_STORAGE_SELECTED: ${{ contains(needs.changes.outputs.standard_workspaces, 'packages/storage') }}
           WORKSPACES_RESULT: ${{ needs.test_workspaces.result }}
         run: |
           if [[ "$CHANGES_RESULT" != "success" ]]; then
@@ -220,6 +242,7 @@ jobs:
             workspaces_selected="true"
           fi
           require_lane "workspace tests" "$workspaces_selected" "$WORKSPACES_RESULT"
+          require_lane "Windows Storage tests" "$WINDOWS_STORAGE_SELECTED" "$WINDOWS_STORAGE_RESULT"
           require_lane "Runtime Host tests" "$RUNTIME_HOST_SELECTED" "$RUNTIME_HOST_RESULT"
           require_lane "Headless tests" "$HEADLESS_SELECTED" "$HEADLESS_RESULT"
 

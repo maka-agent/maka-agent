@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -10,6 +10,10 @@ import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
 import { SQLITE_SESSION_METADATA_SCHEMA_VERSION } from '../sqlite-session-metadata-schema.js';
 import { SQLITE_USAGE_SCHEMA_VERSION } from '../sqlite-usage-schema.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
+
+const LEGACY_RUNTIME_SCHEMA_VERSION = 10;
+const MAIN_SESSION_METADATA_SCHEMA_VERSION = 22;
+const MAIN_WORKFLOW_SCHEMA_VERSION = 4;
 
 test('shares one operational database and produces an online backup', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-state-'));
@@ -86,7 +90,7 @@ test('migrates older operational state without losing sessions or messages', asy
     rewindRuntimeSchema(database);
     database
       .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+      .run(LEGACY_RUNTIME_SCHEMA_VERSION);
     database.close();
 
     const reopenedLease = acquireOperationalStateDatabase(root);
@@ -105,6 +109,251 @@ test('migrates older operational state without losing sessions or messages', asy
       ]);
     } finally {
       reopened.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('installs new invariants when upgrading the current main schema', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-current-main-upgrade-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const main = new DatabaseSync(databasePath);
+    main.exec(`
+      DROP TRIGGER IF EXISTS runtime_event_ordinal_retry;
+      DROP TRIGGER IF EXISTS runtime_events_assign_session_ordinal;
+      DROP TRIGGER IF EXISTS session_messages_lock_connection;
+      DROP TRIGGER IF EXISTS workflow_quote_cleanup_fill_record;
+      PRAGMA user_version = 11;
+      UPDATE session_metadata_schema
+      SET version = 22
+      WHERE scope = 'session_metadata';
+      UPDATE operational_schema_migrations
+      SET version = CASE scope
+        WHEN 'runtime' THEN 11
+        WHEN 'session_metadata' THEN 22
+        WHEN 'workflow' THEN 4
+        ELSE version
+      END;
+    `);
+    main.close();
+
+    const upgraded = acquireOperationalStateDatabase(root);
+    try {
+      assert.deepEqual(
+        upgraded.database
+          .prepare(`
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND name IN (
+                'runtime_event_ordinal_retry',
+                'runtime_events_assign_session_ordinal',
+                'session_messages_lock_connection',
+                'workflow_quote_cleanup_fill_record'
+              )
+            ORDER BY name
+          `)
+          .all()
+          .map((row) => (row as { name: string }).name),
+        [
+          'runtime_event_ordinal_retry',
+          'runtime_events_assign_session_ordinal',
+          'session_messages_lock_connection',
+          'workflow_quote_cleanup_fill_record',
+        ],
+      );
+    } finally {
+      upgraded.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects current operational state missing a version-required trigger', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-missing-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger is missing: runtime_events_assign_session_ordinal/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejects current operational state with a changed required trigger', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-changed-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      DROP TRIGGER session_messages_lock_connection;
+      CREATE TRIGGER session_messages_lock_connection
+      AFTER INSERT ON session_messages
+      BEGIN
+        SELECT 1;
+      END;
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger definition changed: session_messages_lock_connection/i,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rolls back migration when an older schema occupies a reserved trigger name', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-reserved-trigger-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      DROP TRIGGER workflow_quote_cleanup_fill_record;
+      CREATE TRIGGER workflow_quote_cleanup_fill_record
+      AFTER INSERT ON workflow_quote_companion_cleanup
+      BEGIN
+        SELECT 1;
+      END;
+      UPDATE operational_schema_migrations
+      SET version = ${MAIN_WORKFLOW_SCHEMA_VERSION}
+      WHERE scope = 'workflow';
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /required trigger definition changed: workflow_quote_cleanup_fill_record/i,
+    );
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (
+          preserved
+            .prepare(`SELECT version FROM operational_schema_migrations WHERE scope = 'workflow'`)
+            .get() as { version: number }
+        ).version,
+        MAIN_WORKFLOW_SCHEMA_VERSION,
+      );
+    } finally {
+      preserved.close();
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rolls back all migrated scopes when operational migration publication fails', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-atomic-migration-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    rewindRuntimeSchema(database);
+    database.exec(`
+      DROP TRIGGER session_messages_lock_connection;
+      UPDATE session_metadata_schema
+      SET version = ${MAIN_SESSION_METADATA_SCHEMA_VERSION}
+      WHERE scope = 'session_metadata';
+      DROP TRIGGER workflow_quote_cleanup_fill_record;
+      UPDATE operational_schema_migrations
+      SET version = CASE scope
+        WHEN 'runtime' THEN ${LEGACY_RUNTIME_SCHEMA_VERSION}
+        WHEN 'session_metadata' THEN ${MAIN_SESSION_METADATA_SCHEMA_VERSION}
+        WHEN 'workflow' THEN ${MAIN_WORKFLOW_SCHEMA_VERSION}
+        ELSE version
+      END;
+      CREATE TRIGGER reject_runtime_registry_upgrade
+      BEFORE UPDATE OF version ON operational_schema_migrations
+      WHEN OLD.scope = 'runtime' AND NEW.version > OLD.version
+      BEGIN
+        SELECT RAISE(ABORT, 'registry publication failed');
+      END;
+    `);
+    database.close();
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /registry publication failed/);
+
+    const preserved = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.equal(
+        (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
+      );
+      assert.equal(
+        (
+          preserved
+            .prepare(`SELECT version FROM session_metadata_schema WHERE scope = 'session_metadata'`)
+            .get() as { version: number }
+        ).version,
+        MAIN_SESSION_METADATA_SCHEMA_VERSION,
+      );
+      assert.deepEqual(
+        preserved
+          .prepare(`
+            SELECT scope, version
+            FROM operational_schema_migrations
+            WHERE scope IN ('runtime', 'session_metadata', 'workflow')
+            ORDER BY scope
+          `)
+          .all()
+          .map((row) => ({
+            scope: (row as { scope: string }).scope,
+            version: (row as { version: number }).version,
+          })),
+        [
+          { scope: 'runtime', version: LEGACY_RUNTIME_SCHEMA_VERSION },
+          { scope: 'session_metadata', version: MAIN_SESSION_METADATA_SCHEMA_VERSION },
+          { scope: 'workflow', version: MAIN_WORKFLOW_SCHEMA_VERSION },
+        ],
+      );
+      assert.equal(
+        (
+          preserved
+            .prepare(
+              `SELECT COUNT(*) AS count FROM sqlite_master
+               WHERE type = 'table' AND name = 'runtime_session_event_ordinals'`,
+            )
+            .get() as { count: number }
+        ).count,
+        0,
+      );
+      assert.deepEqual(
+        preserved
+          .prepare(`
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'trigger'
+              AND name IN (
+                'runtime_event_ordinal_retry',
+                'runtime_events_assign_session_ordinal',
+                'session_messages_lock_connection',
+                'workflow_quote_cleanup_fill_record'
+              )
+            ORDER BY name
+          `)
+          .all(),
+        [],
+      );
+    } finally {
+      preserved.close();
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -134,7 +383,7 @@ test('rejects a newer scope before migrating an older scope', async () => {
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -207,7 +456,7 @@ test('rejects newer session metadata before migrating older runtime state', asyn
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -255,6 +504,63 @@ test('rejects an unknown operational schema without changing the database', asyn
   }
 });
 
+test('rejects duplicate operational schema registrations', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-duplicate-scope-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    database.exec(`
+      ALTER TABLE operational_schema_migrations RENAME TO original_operational_schema_migrations;
+      CREATE TABLE operational_schema_migrations (
+        scope TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        applied_at INTEGER NOT NULL
+      );
+      INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM original_operational_schema_migrations;
+      INSERT INTO operational_schema_migrations(scope, version, applied_at)
+      SELECT scope, version, applied_at FROM original_operational_schema_migrations
+      WHERE scope = 'runtime';
+      DROP TABLE original_operational_schema_migrations;
+    `);
+    database.close();
+
+    assert.throws(
+      () => acquireOperationalStateDatabase(root),
+      /Operational schema runtime is registered more than once/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('rejecting operational state preserves database permissions', {
+  skip: process.platform === 'win32' ? 'POSIX file permissions are not available' : false,
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-rejected-mode-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  try {
+    acquireOperationalStateDatabase(root).close();
+
+    const database = new DatabaseSync(databasePath);
+    database
+      .prepare(
+        `INSERT INTO operational_schema_migrations(scope, version, applied_at)
+           VALUES ('future_scope', 1, 0)`,
+      )
+      .run();
+    database.close();
+    await chmod(databasePath, 0o640);
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /future_scope is unknown/);
+    assert.equal((await stat(databasePath)).mode & 0o777, 0o640);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('rejects an invalid registered schema version before migrating', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-invalid-version-'));
   const databasePath = join(root, 'runtime.sqlite');
@@ -278,7 +584,7 @@ test('rejects an invalid registered schema version before migrating', async () =
     try {
       assert.equal(
         (preserved.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
-        SQLITE_RUNTIME_SCHEMA_VERSION - 1,
+        LEGACY_RUNTIME_SCHEMA_VERSION,
       );
     } finally {
       preserved.close();
@@ -289,8 +595,9 @@ test('rejects an invalid registered schema version before migrating', async () =
 });
 
 function rewindRuntimeSchema(database: DatabaseSync): void {
+  database.exec('DROP TRIGGER runtime_events_assign_session_ordinal');
   database.exec('DROP TABLE runtime_session_event_ordinals');
-  database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+  database.exec(`PRAGMA user_version = ${LEGACY_RUNTIME_SCHEMA_VERSION}`);
 }
 
 function sessionHeader(): SessionHeader {

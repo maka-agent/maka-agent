@@ -53,6 +53,7 @@ describe('SqliteRuntimeStore', () => {
       const legacy = new DatabaseSync(dbPath);
       legacy.exec(`
         DROP TABLE runtime_partial_segments;
+        DROP TRIGGER runtime_events_assign_session_ordinal;
         DROP TABLE runtime_session_event_ordinals;
         DROP TABLE runtime_storage_root_binding;
         DROP TABLE runtime_workspace_heads;
@@ -160,6 +161,7 @@ describe('SqliteRuntimeStore', () => {
       legacy.prepare(`UPDATE runtime_partial_snapshots SET text_content = 'old'`).run();
       legacy.exec(`
         DROP TABLE runtime_partial_segments;
+        DROP TRIGGER runtime_events_assign_session_ordinal;
         DROP TABLE runtime_session_event_ordinals;
         PRAGMA user_version = 9;
       `);
@@ -200,6 +202,7 @@ describe('SqliteRuntimeStore', () => {
 
       const legacy = new DatabaseSync(dbPath);
       legacy.exec(`
+        DROP TRIGGER runtime_events_assign_session_ordinal;
         DROP TABLE runtime_session_event_ordinals;
         PRAGMA user_version = 10;
       `);
@@ -230,6 +233,126 @@ describe('SqliteRuntimeStore', () => {
         );
       } finally {
         upgraded.close();
+      }
+    });
+  });
+
+  it('indexes RuntimeEvents appended by an already-open schema 10 writer', async () => {
+    await withStore(async (store, dbPath) => {
+      store.close();
+
+      const legacy = new DatabaseSync(dbPath);
+      legacy.exec(`
+        DROP TRIGGER IF EXISTS runtime_events_assign_session_ordinal;
+        DROP TABLE runtime_session_event_ordinals;
+        PRAGMA user_version = 10;
+      `);
+      const upgraded = createSqliteRuntimeStore(dbPath);
+      try {
+        legacy
+          .prepare(`
+            INSERT INTO runtime_events (
+              event_id, session_id, invocation_id, run_id, turn_id, event_seq,
+              event_kind, payload_json, committed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            'legacy-event',
+            'session-1',
+            'invocation-1',
+            'run-1',
+            'turn-1',
+            1,
+            'message',
+            '{}',
+            1,
+          );
+
+        assert.deepEqual(
+          legacy
+            .prepare(`
+              SELECT ordinal, event_id
+              FROM runtime_session_event_ordinals
+              WHERE session_id = ?
+            `)
+            .all('session-1')
+            .map((row) => ({ ...row })),
+          [{ ordinal: 1, event_id: 'legacy-event' }],
+        );
+      } finally {
+        upgraded.close();
+        legacy.close();
+      }
+    });
+  });
+
+  it('accepts the explicit ordinal retry from an already-open schema 11 writer', async () => {
+    await withStore(async (store, dbPath) => {
+      store.close();
+
+      const legacy = new DatabaseSync(dbPath);
+      legacy.exec(`
+        DROP TRIGGER runtime_event_ordinal_retry;
+        DROP TRIGGER runtime_events_assign_session_ordinal;
+        PRAGMA user_version = 11;
+      `);
+      const upgraded = createSqliteRuntimeStore(dbPath);
+      try {
+        legacy.exec('BEGIN IMMEDIATE');
+        legacy
+          .prepare(`
+            INSERT INTO runtime_events (
+              event_id, session_id, invocation_id, run_id, turn_id, event_seq,
+              event_kind, payload_json, committed_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `)
+          .run(
+            'legacy-event',
+            'session-1',
+            'invocation-1',
+            'run-1',
+            'turn-1',
+            1,
+            'message',
+            '{}',
+            1,
+          );
+        const next = legacy
+          .prepare(`
+            SELECT COALESCE(MAX(ordinal), 0) + 1 AS ordinal
+            FROM runtime_session_event_ordinals
+            WHERE session_id = ?
+          `)
+          .get('session-1') as { ordinal: number };
+        legacy
+          .prepare(`
+            INSERT INTO runtime_session_event_ordinals(session_id, ordinal, event_id)
+            VALUES (?, ?, ?)
+          `)
+          .run('session-1', next.ordinal, 'legacy-event');
+        legacy.exec('COMMIT');
+
+        assert.deepEqual(
+          legacy
+            .prepare(`
+              SELECT ordinal, event_id
+              FROM runtime_session_event_ordinals
+              WHERE session_id = ?
+            `)
+            .all('session-1')
+            .map((row) => ({ ...row })),
+          [{ ordinal: 1, event_id: 'legacy-event' }],
+        );
+      } catch (error) {
+        try {
+          legacy.exec('ROLLBACK');
+        } catch {
+          // Preserve the compatibility failure.
+        }
+        throw error;
+      } finally {
+        upgraded.close();
+        legacy.close();
       }
     });
   });

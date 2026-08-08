@@ -1,6 +1,31 @@
 import type { DatabaseSync } from 'node:sqlite';
 
-export const SQLITE_WORKFLOW_SCHEMA_VERSION = 4;
+export const SQLITE_WORKFLOW_SCHEMA_VERSION = 5;
+
+const WORKFLOW_QUOTE_CLEANUP_FILL_RECORD_TRIGGER = `
+  CREATE TRIGGER IF NOT EXISTS workflow_quote_cleanup_fill_record
+  AFTER INSERT ON workflow_quote_companion_cleanup
+  WHEN NEW.record_json IS NULL
+  BEGIN
+    UPDATE workflow_quote_companion_cleanup
+    SET record_json = json_object(
+      'version', 1,
+      'sessionId', NEW.session_id,
+      'trackedAt', NEW.tracked_at,
+      'phase', 'cleanup',
+      'cancelRequested', json('true')
+    )
+    WHERE session_id = NEW.session_id;
+  END
+`;
+
+export const SQLITE_WORKFLOW_REQUIRED_TRIGGERS = [
+  {
+    name: 'workflow_quote_cleanup_fill_record',
+    introducedIn: 5,
+    sql: WORKFLOW_QUOTE_CLEANUP_FILL_RECORD_TRIGGER,
+  },
+] as const;
 
 export function migrateSqliteWorkflowDatabase(db: DatabaseSync): void {
   db.exec(`
@@ -102,4 +127,7 @@ export function migrateSqliteWorkflowDatabase(db: DatabaseSync): void {
       WHERE record_json IS NULL
     `).run();
   }
+  db.exec(`
+    ${WORKFLOW_QUOTE_CLEANUP_FILL_RECORD_TRIGGER};
+  `);
 }
