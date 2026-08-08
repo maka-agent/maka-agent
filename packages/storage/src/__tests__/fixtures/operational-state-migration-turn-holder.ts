@@ -1,19 +1,14 @@
 import { waitForOperationalStateMigrationTurn } from '../../operational-state-schema-lock.js';
 
 const databasePath = process.argv[2];
-const holdMs = Number(process.argv[3]);
-if (!databasePath || !Number.isSafeInteger(holdMs) || holdMs < 0 || !process.send) {
-  throw new Error(
-    'usage: operational-state-migration-turn-holder <database-path> <hold-milliseconds>',
-  );
+if (!databasePath || !process.send) {
+  throw new Error('usage: operational-state-migration-turn-holder <database-path>');
 }
 
 const migrationTurn = waitForOperationalStateMigrationTurn(databasePath);
 process.send({ type: 'ready' });
 process.once('message', (message) => {
-  if (message !== 'start') throw new Error(`unexpected message: ${String(message)}`);
-  setTimeout(() => {
-    migrationTurn.close();
-    process.exit(0);
-  }, holdMs);
+  if (message !== 'close') throw new Error(`unexpected message: ${String(message)}`);
+  migrationTurn.close();
+  process.exit(0);
 });

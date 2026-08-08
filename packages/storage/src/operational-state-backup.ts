@@ -21,7 +21,7 @@ import {
   acquireOperationalStateDatabase,
   inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
-  prepareOperationalStateDatabaseForRestore,
+  prepareOperationalStateDatabaseCopy,
 } from './operational-state-store.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 
@@ -178,7 +178,7 @@ export async function restoreOperationalStateBackup(
       throw new OperationalBackupError('corrupt_backup', 'Restored file inventory does not match');
     }
     const databasePath = resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME);
-    prepareOperationalStateDatabaseForRestore(stagingRoot);
+    prepareOperationalStateDatabaseCopy(databasePath);
     normalizeStandaloneSqliteSnapshot(databasePath);
     await chmod(databasePath, 0o600);
     await syncFile(databasePath);

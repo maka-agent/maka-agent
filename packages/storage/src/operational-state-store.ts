@@ -443,11 +443,7 @@ function writeOperationalLockAuthority(
     .run(schemaLock.identity.dev, schemaLock.identity.ino);
 }
 
-export function prepareOperationalStateDatabaseForRestore(workspaceRoot: string): void {
-  prepareOperationalStateDatabaseCopy(resolveOperationalStateDatabasePath(workspaceRoot));
-}
-
-function prepareOperationalStateDatabaseCopy(databasePath: string): void {
+export function prepareOperationalStateDatabaseCopy(databasePath: string): void {
   const opened = openOperationalStateDatabase(databasePath, Date.now, true);
   closeOperationalStateResources(
     opened.database,

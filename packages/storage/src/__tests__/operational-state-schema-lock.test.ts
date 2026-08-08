@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
+import { setTimeout as delay } from 'node:timers/promises';
 import { acquireOperationalStateDatabase } from '../operational-state-store.js';
 import { resolveOperationalStateSchemaLockPath } from '../operational-state-schema-lock.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
@@ -15,20 +16,9 @@ test('a live operational database lease excludes schema migration', async () => 
   let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    holder = fork(
-      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
-      [root],
-      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
-    await waitForReady(holder);
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
 
-    const database = new DatabaseSync(databasePath);
-    database.exec('DROP TABLE runtime_session_event_ordinals');
-    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
-    database
-      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
-    database.close();
+    rewindRuntimeSchema(databasePath);
 
     assert.throws(
       () => acquireOperationalStateDatabase(root),
@@ -54,24 +44,13 @@ test('replacing the workspace root cannot detach a live owner from its database 
   let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    holder = fork(
-      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
-      [root],
-      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
-    await waitForReady(holder);
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
 
     await rename(root, movedRoot);
     await mkdir(root);
     await link(join(movedRoot, 'runtime.sqlite'), databasePath);
 
-    const database = new DatabaseSync(databasePath);
-    database.exec('DROP TABLE runtime_session_event_ordinals');
-    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
-    database
-      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
-    database.close();
+    rewindRuntimeSchema(databasePath);
 
     assert.throws(
       () => acquireOperationalStateDatabase(root),
@@ -92,24 +71,13 @@ test('replacing the active owner lock cannot detach a live operational schema ow
   let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    holder = fork(
-      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
-      [root],
-      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
-    );
-    await waitForReady(holder);
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
 
     const lockPath = resolveOperationalStateSchemaLockPath(databasePath, 'owner');
     movedLockPath = `${lockPath}.${process.pid}.moved`;
     await rename(lockPath, movedLockPath);
 
-    const database = new DatabaseSync(databasePath);
-    database.exec('DROP TABLE runtime_session_event_ordinals');
-    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
-    database
-      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
-    database.close();
+    rewindRuntimeSchema(databasePath);
 
     let unexpectedLease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
     try {
@@ -135,23 +103,12 @@ test('different XDG state homes cannot split one operational lock domain', {
   let holder: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    holder = fork(
-      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
-      [root],
-      {
-        env: { ...process.env, XDG_STATE_HOME: join(root, 'different-xdg-state') },
-        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
-      },
-    );
-    await waitForReady(holder);
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root], {
+      ...process.env,
+      XDG_STATE_HOME: join(root, 'different-xdg-state'),
+    });
 
-    const database = new DatabaseSync(databasePath);
-    database.exec('DROP TABLE runtime_session_event_ordinals');
-    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
-    database
-      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
-      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
-    database.close();
+    rewindRuntimeSchema(databasePath);
 
     let unexpectedLease: ReturnType<typeof acquireOperationalStateDatabase> | undefined;
     try {
@@ -171,30 +128,68 @@ test('different XDG state homes cannot split one operational lock domain', {
 test('an operational opener waits for an in-progress migration turn', async () => {
   const root = await mkdtemp(join(tmpdir(), 'maka-operational-migration-turn-wait-'));
   const databasePath = join(root, 'runtime.sqlite');
-  let holder: ChildProcess | undefined;
+  let migrationHolder: ChildProcess | undefined;
+  let opener: ChildProcess | undefined;
   try {
     acquireOperationalStateDatabase(root).close();
-    holder = fork(
-      new URL('./fixtures/operational-state-migration-turn-holder.js', import.meta.url),
-      [databasePath, '5200'],
-      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    migrationHolder = await spawnReady('./fixtures/operational-state-migration-turn-holder.js', [
+      databasePath,
+    ]);
+    opener = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      {
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      },
     );
-    await waitForReady(holder);
+    const opened = waitForReady(opener);
+    await assertPending(opened, 'operational opener');
 
-    holder.send('start');
-    const startedAt = performance.now();
-    const lease = acquireOperationalStateDatabase(root);
-    lease.close();
-    assert.ok(
-      performance.now() - startedAt >= 5_000,
-      'the operational opener returned before the held migration turn was released',
-    );
-    await waitForExit(holder);
+    migrationHolder.send('close');
+    await waitForExit(migrationHolder);
+    await opened;
+
+    opener.send('close');
+    await waitForExit(opener);
   } finally {
-    await stopChild(holder);
+    await stopChild(opener);
+    await stopChild(migrationHolder);
     await rm(root, { recursive: true, force: true });
   }
 });
+
+function rewindRuntimeSchema(databasePath: string): void {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.exec('DROP TABLE runtime_session_event_ordinals');
+    database.exec(`PRAGMA user_version = ${SQLITE_RUNTIME_SCHEMA_VERSION - 1}`);
+    database
+      .prepare(`UPDATE operational_schema_migrations SET version = ? WHERE scope = 'runtime'`)
+      .run(SQLITE_RUNTIME_SCHEMA_VERSION - 1);
+  } finally {
+    database.close();
+  }
+}
+
+async function spawnReady(
+  fixture: string,
+  args: readonly string[],
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<ChildProcess> {
+  const child = fork(new URL(fixture, import.meta.url), [...args], {
+    env,
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+  });
+  await waitForReady(child);
+  return child;
+}
+
+async function assertPending(operation: Promise<void>, label: string): Promise<void> {
+  await Promise.race([
+    operation.then(() => assert.fail(`${label} completed before the migration turn was released`)),
+    delay(100),
+  ]);
+}
 
 function readRuntimeVersion(databasePath: string): number {
   const database = new DatabaseSync(databasePath, { readOnly: true });
