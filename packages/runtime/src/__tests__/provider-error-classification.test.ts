@@ -505,6 +505,94 @@ describe('Provider error classification', () => {
     assert.equal(classifyError(spoofed), 'AI_RetryError');
   });
 
+  test('separates account limits, billing, permission, and transient throttling', () => {
+    const providerError = (
+      statusCode: number,
+      message: string,
+      structured: Record<string, unknown> = {},
+    ) =>
+      Object.assign(new Error(message), {
+        name: 'AI_APICallError',
+        statusCode,
+        data: { error: { message, ...structured } },
+      });
+
+    // OpenAI reports exhausted prepaid/project quota through 429. The
+    // structured account-state code must outrank the transport status.
+    const insufficientQuota = providerError(429, 'You exceeded your current quota', {
+      type: 'insufficient_quota',
+      code: 'insufficient_quota',
+    });
+    assert.equal(classifyError(insufficientQuota), 'ProviderBilling');
+    assert.deepEqual(providerRetryMetadata(insufficientQuota), { retryable: false });
+
+    // Subscription products may expose a rolling allowance through a stable
+    // code or through narrow window wording. Neither is a short throttle.
+    const planUsageLimit = providerError(403, 'Your subscription usage limit has been reached');
+    const windowUsageLimit = providerError(
+      429,
+      'Your five-hour usage limit has been reached. Try again after it resets.',
+    );
+    assert.equal(classifyError(planUsageLimit), 'UsageLimit');
+    assert.equal(classifyError(windowUsageLimit), 'UsageLimit');
+    assert.deepEqual(providerRetryMetadata(planUsageLimit), { retryable: false });
+    assert.deepEqual(providerRetryMetadata(windowUsageLimit), { retryable: false });
+
+    const permission = providerError(403, 'This key cannot access the requested model', {
+      type: 'permission_denied',
+    });
+    assert.equal(classifyError(permission), 'ProviderPermission');
+    assert.deepEqual(providerRetryMetadata(permission), { retryable: false });
+
+    assert.equal(classifyError(providerError(403, 'Request forbidden')), 'AI_APICallError');
+
+    const throttle = providerError(429, 'Too many requests', {
+      code: 'rate_limit_exceeded',
+    });
+    assert.equal(classifyError(throttle), 'RateLimit');
+    assert.deepEqual(providerRetryMetadata(throttle), { retryable: true });
+
+    assert.equal(classifyError(providerError(401, 'Invalid API key')), 'Auth');
+    // Do not guess whether an unstructured compatible-provider quota message
+    // means credits, a subscription window, or a short provider throttle.
+    assert.equal(classifyError(providerError(400, 'Quota exceeded')), 'AI_APICallError');
+  });
+
+  test('reads OpenRouter typed errors from each documented protocol envelope', () => {
+    assert.equal(
+      classifyError({
+        error: {
+          code: 429,
+          message: 'Rate limit exceeded',
+          metadata: { error_type: 'rate_limit_exceeded', provider_code: 'rate_limited' },
+        },
+      }),
+      'RateLimit',
+    );
+    assert.equal(
+      classifyError({
+        type: 'response.failed',
+        response: {
+          status: 'failed',
+          error: { code: 'server_error', message: 'Invalid credentials' },
+          error_type: 'authentication',
+        },
+      }),
+      'Auth',
+    );
+    assert.equal(
+      classifyError({
+        type: 'error',
+        error: {
+          type: 'api_error',
+          error_type: 'permission_denied',
+          message: 'Request blocked',
+        },
+      }),
+      'ProviderPermission',
+    );
+  });
+
   test('maps provider classes to stable user-safe presentations', () => {
     assert.deepEqual(errorPresentationFromClass('ContextLength'), {
       reason: 'context_overflow',
@@ -522,6 +610,10 @@ describe('Provider error classification', () => {
       reason: 'provider_billing',
       message: 'Provider billing required',
     });
+    assert.deepEqual(errorPresentationFromClass('ProviderPermission'), {
+      reason: 'provider_permission',
+      message: 'Provider access denied',
+    });
     assert.deepEqual(errorPresentationFromClass('ProviderUnavailable'), {
       reason: 'provider_unavailable',
       message: 'Provider returned an error',
@@ -529,6 +621,10 @@ describe('Provider error classification', () => {
     assert.deepEqual(errorPresentationFromClass('RateLimit'), {
       reason: 'rate_limit',
       message: 'Rate limit exceeded',
+    });
+    assert.deepEqual(errorPresentationFromClass('UsageLimit'), {
+      reason: 'usage_limit',
+      message: 'Usage limit reached',
     });
     assert.deepEqual(errorPresentationFromClass('Network'), {
       reason: 'network',
