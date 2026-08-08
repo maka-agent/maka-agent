@@ -84,6 +84,28 @@ test('replacing the workspace root cannot detach a live owner from its database 
   }
 });
 
+test('an operational opener waits for an in-progress migration turn', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-migration-turn-wait-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  let holder: ChildProcess | undefined;
+  try {
+    acquireOperationalStateDatabase(root).close();
+    holder = fork(
+      new URL('./fixtures/operational-state-migration-turn-holder.js', import.meta.url),
+      [databasePath, '5200'],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    await waitForReady(holder);
+
+    const lease = acquireOperationalStateDatabase(root);
+    lease.close();
+    await waitForExit(holder);
+  } finally {
+    if (holder && holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 function readRuntimeVersion(databasePath: string): number {
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {

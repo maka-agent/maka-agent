@@ -16,11 +16,13 @@ import { tryLock, unlock } from 'fs-native-extensions';
 import { resolveRootControlNamespace } from './root-authority.js';
 
 const OPERATIONAL_STATE_SCHEMA_LOCK_DIRECTORY = 'operational-schema-locks';
-const OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS = 5_000;
+const OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS = 60_000;
 const OPERATIONAL_STATE_SCHEMA_LOCK_RETRY_MS = 25;
 const schemaLockRetryGate = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
 const MIGRATION_BLOCKED_MESSAGE =
   'Operational state requires a schema migration. The database was not modified; close other Maka processes before retrying.';
+const MIGRATION_WAIT_TIMEOUT_MESSAGE =
+  'Timed out waiting for another Maka process to finish opening or upgrading operational state; retry after it completes.';
 
 export interface OperationalStateSchemaLock {
   assertCurrentDatabasePath(): void;
@@ -58,7 +60,7 @@ function waitForOperationalStateSchemaLock(
   while (true) {
     const lock = tryAcquireOperationalStateSchemaLock(databasePath, role, shared);
     if (lock) return lock;
-    if (Date.now() >= deadline) throw new Error(MIGRATION_BLOCKED_MESSAGE);
+    if (Date.now() >= deadline) throw new Error(MIGRATION_WAIT_TIMEOUT_MESSAGE);
     Atomics.wait(
       schemaLockRetryGate,
       0,
