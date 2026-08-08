@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { constants as fsConstants, existsSync, lstatSync, mkdirSync } from 'node:fs';
+import { copyFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import type { DatabaseSync } from 'node:sqlite';
@@ -36,9 +37,11 @@ import {
 } from './sqlite-automation-schema.js';
 import {
   operationalStateMigrationBlockedError,
+  type OperationalStatePublicationLock,
   type OperationalStateSchemaLock,
   tryAcquireOperationalStateMigrationLock,
   waitForOperationalStateMigrationTurn,
+  waitForOperationalStatePublicationLock,
   waitForOperationalStateSchemaUseLock,
 } from './operational-state-schema-lock.js';
 
@@ -80,6 +83,19 @@ const REQUIRED_SCHEMA_TRIGGERS = [
 
 const require = createRequire(import.meta.url);
 const owners = new Map<string, OperationalStateDatabaseOwner>();
+const restoreCopyBrand: unique symbol = Symbol('OperationalStateDatabaseRestoreCopy');
+const restoreCopies = new WeakMap<object, OperationalStateDatabaseRestoreCopyRecord>();
+
+interface OperationalStateDatabaseRestoreCopyRecord {
+  readonly databasePath: string;
+  readonly publicationDatabasePath: string;
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
+export interface OperationalStateDatabaseRestoreCopy {
+  readonly [restoreCopyBrand]: true;
+}
 
 export interface OperationalStateDatabaseOptions {
   now?: () => number;
@@ -91,6 +107,10 @@ export interface OperationalStateDatabaseLease {
   transaction<T>(mode: 'read' | 'write', operation: () => T): T;
   backup(destinationPath: string): Promise<number>;
   close(): void;
+}
+
+export interface RestoredOperationalStateDatabaseLease extends OperationalStateDatabaseLease {
+  prepareForPublication(): OperationalStatePublicationLock;
 }
 
 /**
@@ -113,17 +133,66 @@ export function acquireOperationalStateDatabase(
   return owner.acquire();
 }
 
-/** Acquire a copied database after explicitly rebinding its owner-lock authority. */
+export async function copyOperationalStateDatabaseForRestore(
+  sourceDatabasePath: string,
+  stagingDatabasePath: string,
+  destinationRoot: string,
+): Promise<OperationalStateDatabaseRestoreCopy> {
+  const sourcePath = resolve(sourceDatabasePath);
+  const databasePath = resolve(stagingDatabasePath);
+  if (sourcePath === databasePath) {
+    throw new Error('Operational state restore copy must have a distinct destination');
+  }
+  mkdirSync(dirname(databasePath), { recursive: true });
+  await copyFile(sourcePath, databasePath, fsConstants.COPYFILE_EXCL);
+  const status = lstatSync(databasePath, { bigint: true });
+  if (!status.isFile() || status.nlink !== 1n) {
+    throw new Error('Operational state restore copy is not one regular file');
+  }
+  const copy = Object.freeze({ [restoreCopyBrand]: true }) as OperationalStateDatabaseRestoreCopy;
+  restoreCopies.set(copy, {
+    databasePath,
+    publicationDatabasePath: resolveOperationalStateDatabasePath(destinationRoot),
+    dev: status.dev,
+    ino: status.ino,
+  });
+  return copy;
+}
+
+/** Acquire a newly copied database and bind it for one restore publication. */
 export function acquireRestoredOperationalStateDatabase(
-  workspaceRoot: string,
-): OperationalStateDatabaseLease {
-  const databasePath = resolveOperationalStateDatabasePath(workspaceRoot);
+  copy: OperationalStateDatabaseRestoreCopy,
+): RestoredOperationalStateDatabaseLease {
+  const record = restoreCopies.get(copy);
+  if (!record) throw new Error('Operational state restore copy authority is invalid');
+  restoreCopies.delete(copy);
+  const status = lstatSync(record.databasePath, { bigint: true });
+  if (
+    !status.isFile() ||
+    status.nlink !== 1n ||
+    status.dev !== record.dev ||
+    status.ino !== record.ino
+  ) {
+    throw new Error('Operational state restore copy changed before acquisition');
+  }
+  const databasePath = record.databasePath;
   if (owners.has(databasePath)) {
     throw new Error('Restored operational state database is already open');
   }
   const owner = new OperationalStateDatabaseOwner(databasePath, {}, true);
   owners.set(databasePath, owner);
-  return owner.acquire();
+  const lease = owner.acquire();
+  let prepared = false;
+  return {
+    ...lease,
+    prepareForPublication: () => {
+      if (prepared)
+        throw new Error('Operational state restore is already prepared for publication');
+      const publicationLock = owner.prepareForPublication(record.publicationDatabasePath);
+      prepared = true;
+      return publicationLock;
+    },
+  };
 }
 
 class OperationalStateDatabaseOwner {
@@ -162,6 +231,20 @@ class OperationalStateDatabaseOwner {
         this.releaseReference();
       },
     };
+  }
+
+  prepareForPublication(publicationDatabasePath: string): OperationalStatePublicationLock {
+    const publicationLock = waitForOperationalStatePublicationLock(publicationDatabasePath);
+    try {
+      this.#schemaLock.assertCurrentDatabasePath();
+      this.transaction('write', () =>
+        writeOperationalLockAuthority(this.database, publicationLock),
+      );
+      return publicationLock;
+    } catch (error) {
+      publicationLock.close();
+      throw error;
+    }
   }
 
   private async backup(destinationPath: string): Promise<number> {
@@ -437,6 +520,12 @@ function migrateOperationalStateDatabase(
 ): void {
   db.exec('BEGIN IMMEDIATE');
   try {
+    const current = inspectOperationalStateSchema(db).status === 'current';
+    assertOperationalStateLockAuthority(db, schemaLock);
+    if (current) {
+      db.exec('COMMIT');
+      return;
+    }
     migrateSqliteRuntimeDatabase(db, { transaction: 'caller' });
     migrateSqliteSessionMetadataDatabase(db, { transaction: 'caller' });
     migrateSqliteCoreExecutionDatabase(db);
@@ -509,7 +598,7 @@ function readOperationalLockAuthority(database: DatabaseSync): { dev: string; in
 
 function writeOperationalLockAuthority(
   database: DatabaseSync,
-  schemaLock: OperationalStateSchemaLock,
+  schemaLock: Pick<OperationalStateSchemaLock, 'identity'>,
 ): void {
   database
     .prepare(`

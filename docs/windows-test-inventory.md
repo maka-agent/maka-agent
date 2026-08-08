@@ -17,9 +17,9 @@ Locations intentionally omit line numbers so unrelated edits do not invalidate t
 |---|---:|
 | windows-backend-gap | 20 |
 | portable-candidate | 0 |
-| platform-contract | 38 |
+| platform-contract | 40 |
 
-Total Windows-excluded declarations: **58**
+Total Windows-excluded declarations: **60**
 
 ## Inventory
 
@@ -68,7 +68,9 @@ Total Windows-excluded declarations: **58**
 | platform-contract | `packages/storage/src/__tests__/managed-workspace-baseline.test.ts` rejects a source tree containing a non-UTF-8 Git path | `process.platform === 'win32'` |
 | platform-contract | `packages/storage/src/__tests__/managed-workspace-owner.test.ts` rejects execution when runtime.sqlite detaches from its canonical path after verification | `process.platform === 'win32' ? 'Open SQLite files cannot be renamed reliably on Windows' : false` |
 | platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` rejects a replaced owner lock while the registered owner is live | `process.platform === 'win32' ? 'Windows cannot rename an open SQLite authority lock file' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` rejects another current database moved over a live owner path | `process.platform === 'win32' ? 'Windows cannot replace an open SQLite database' : false` |
 | platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` replacing the workspace root cannot detach a live owner from its database migration lock | `process.platform === 'win32' ? 'Windows cannot rename a directory containing an open SQLite database' : false` |
+| platform-contract | `packages/storage/src/__tests__/operational-state-schema-lock.test.ts` a stale migrator cannot overwrite lock authority after both sidecars are replaced | `process.platform === 'win32' ? 'Windows cannot rename open SQLite authority lock files or suspend a process' : false` |
 | platform-contract | `packages/storage/src/__tests__/operational-state-store.test.ts` rejecting operational state preserves database permissions | `process.platform === 'win32' ? 'POSIX file permissions are not available' : false` |
 | platform-contract | `packages/storage/src/__tests__/pet-pack-store.test.ts` detects sprite sheets redirected outside the installed pack | `process.platform === 'win32' ? 'Windows file-symlink permissions are not guaranteed in CI' : false` |
 | platform-contract | `packages/storage/src/__tests__/root-authority.test.ts` preserves unexpected marker I/O failures at the public authority boundary | `process.platform === 'win32' ? 'POSIX permissions are required to make the marker unreadable' : typeof process.getuid === 'function' && process.getuid() === 0` |

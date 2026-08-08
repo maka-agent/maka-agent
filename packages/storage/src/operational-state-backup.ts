@@ -27,9 +27,12 @@ import { adoptRestoredWorkspaceAuthorityRootInternal } from './workspace-version
 import {
   acquireRestoredOperationalStateDatabase,
   acquireOperationalStateDatabase,
+  copyOperationalStateDatabaseForRestore,
   inspectOperationalStateSchema,
   OPERATIONAL_STATE_DATABASE_NAME,
+  type OperationalStateDatabaseRestoreCopy,
 } from './operational-state-store.js';
+import type { OperationalStatePublicationLock } from './operational-state-schema-lock.js';
 import { syncDirectory, syncDirectoryChain, syncFile } from './stable-storage.js';
 
 export const OPERATIONAL_BACKUP_FORMAT = 'maka-operational-backup';
@@ -171,13 +174,23 @@ export async function restoreOperationalStateBackup(
   const manifest = await validateOperationalStateBackup(backupRoot);
   const stagingRoot = `${destinationRoot}.${process.pid}.${randomUUID()}.tmp`;
   let published = false;
+  let publicationLock: OperationalStatePublicationLock | undefined;
   try {
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+    let databaseCopy: OperationalStateDatabaseRestoreCopy | undefined;
     for (const file of manifest.files) {
       const source = resolveInside(backupRoot, file.path);
       const destination = resolveInside(stagingRoot, file.path);
       await mkdir(dirname(destination), { recursive: true });
-      await copyFile(source, destination);
+      if (file.path === OPERATIONAL_STATE_DATABASE_NAME) {
+        databaseCopy = await copyOperationalStateDatabaseForRestore(
+          source,
+          destination,
+          destinationRoot,
+        );
+      } else {
+        await copyFile(source, destination);
+      }
       await chmod(destination, 0o600);
       await syncFile(destination);
       await syncDirectoryChain(dirname(destination), stagingRoot);
@@ -191,11 +204,14 @@ export async function restoreOperationalStateBackup(
       path: stagingRoot,
       kind: input.kind,
     });
-    const databaseLease = acquireRestoredOperationalStateDatabase(stagingRoot);
+    if (!databaseCopy)
+      throw new OperationalBackupError('corrupt_backup', 'Backup database is missing');
+    const databaseLease = acquireRestoredOperationalStateDatabase(databaseCopy);
     let runtimeStore: ReturnType<typeof createSqliteRuntimeStore> | undefined;
     try {
       runtimeStore = createSqliteRuntimeStore(databasePath, { databaseLease });
       await adoptRestoredWorkspaceAuthorityRootInternal(runtimeStore, destinationCapability);
+      publicationLock = databaseLease.prepareForPublication();
     } finally {
       if (runtimeStore) runtimeStore.close();
       else databaseLease.close();
@@ -208,6 +224,8 @@ export async function restoreOperationalStateBackup(
     await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
     published = true;
+    publicationLock.close();
+    publicationLock = undefined;
     await resolveExistingStorageRoot({
       path: destinationRoot,
       kind: input.kind,
@@ -220,6 +238,8 @@ export async function restoreOperationalStateBackup(
       () => {},
     );
     throw error;
+  } finally {
+    publicationLock?.close();
   }
 }
 

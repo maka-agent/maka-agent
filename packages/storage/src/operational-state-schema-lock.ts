@@ -10,9 +10,10 @@ import {
   lstatSync,
   mkdirSync,
   openSync,
+  realpathSync,
 } from 'node:fs';
 import { userInfo } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { tryLock, unlock } from 'fs-native-extensions';
 
 const OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS = 60_000;
@@ -26,6 +27,11 @@ const MIGRATION_WAIT_TIMEOUT_MESSAGE =
 export interface OperationalStateSchemaLock {
   readonly identity: { readonly dev: string; readonly ino: string };
   assertCurrentDatabasePath(): void;
+  close(): void;
+}
+
+export interface OperationalStatePublicationLock {
+  readonly identity: { readonly dev: string; readonly ino: string };
   close(): void;
 }
 
@@ -49,6 +55,58 @@ export function tryAcquireOperationalStateMigrationLock(
 
 export function operationalStateMigrationBlockedError(): Error {
   return new Error(MIGRATION_BLOCKED_MESSAGE);
+}
+
+export function waitForOperationalStatePublicationLock(
+  databasePath: string,
+): OperationalStatePublicationLock {
+  const canonicalDatabasePath = canonicalizeDatabasePath(databasePath);
+  const lockPath = resolveOperationalStateLockPath(canonicalDatabasePath, 'owner');
+  const deadline = Date.now() + OPERATIONAL_STATE_SCHEMA_LOCK_WAIT_MS;
+  while (true) {
+    const lock = tryAcquirePublicationLock(lockPath);
+    if (lock) return lock;
+    if (Date.now() >= deadline) throw new Error(MIGRATION_WAIT_TIMEOUT_MESSAGE);
+    Atomics.wait(
+      schemaLockRetryGate,
+      0,
+      0,
+      Math.min(OPERATIONAL_STATE_SCHEMA_LOCK_RETRY_MS, Math.max(1, deadline - Date.now())),
+    );
+  }
+}
+
+function tryAcquirePublicationLock(lockPath: string): OperationalStatePublicationLock | undefined {
+  const lockFd = openSync(
+    lockPath,
+    fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
+    0o600,
+  );
+  let acquired = false;
+  try {
+    if (process.platform !== 'win32') fchmodSync(lockFd, 0o600);
+    const identity = assertStableRegularFile(lockFd, lockPath);
+    acquired = tryLock(lockFd);
+    if (!acquired) {
+      closeSync(lockFd);
+      return undefined;
+    }
+    assertStableRegularFile(lockFd, lockPath);
+    let closed = false;
+    return Object.freeze({
+      identity: Object.freeze({ dev: identity.dev.toString(), ino: identity.ino.toString() }),
+      close: () => {
+        if (closed) return;
+        closed = true;
+        releaseLock(lockFd);
+        closeSync(lockFd);
+      },
+    });
+  } catch (error) {
+    if (acquired) releaseLock(lockFd);
+    closeSync(lockFd);
+    throw error;
+  }
 }
 
 function waitForOperationalStateSchemaLock(
@@ -75,8 +133,7 @@ function tryAcquireOperationalStateSchemaLock(
   role: 'owner' | 'migration-turn',
   shared: boolean,
 ): OperationalStateSchemaLock | undefined {
-  const canonicalDatabasePath = resolve(databasePath);
-  mkdirSync(dirname(canonicalDatabasePath), { recursive: true });
+  const canonicalDatabasePath = canonicalizeDatabasePath(databasePath);
   const databaseFd = openSync(
     canonicalDatabasePath,
     fsConstants.O_CREAT | fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW,
@@ -85,12 +142,8 @@ function tryAcquireOperationalStateSchemaLock(
   let lockFd: number | undefined;
   let acquired = false;
   try {
-    const databaseIdentity = assertStableRegularFile(databaseFd, canonicalDatabasePath);
-    const lockPath = resolveOperationalStateLockPath(
-      databaseIdentity.dev,
-      databaseIdentity.ino,
-      role,
-    );
+    assertStableRegularFile(databaseFd, canonicalDatabasePath);
+    const lockPath = resolveOperationalStateLockPath(canonicalDatabasePath, role);
     lockFd = openSync(
       lockPath,
       fsConstants.O_CREAT | fsConstants.O_RDWR | fsConstants.O_NOFOLLOW,
@@ -137,14 +190,13 @@ function tryAcquireOperationalStateSchemaLock(
 }
 
 function resolveOperationalStateLockPath(
-  dev: bigint,
-  ino: bigint,
+  databasePath: string,
   role: 'owner' | 'migration-turn',
 ): string {
   const lockDirectory = resolveOperationalStateSchemaLockDirectory();
   mkdirSync(lockDirectory, { recursive: true, mode: 0o700 });
   assertPrivateDirectory(lockDirectory);
-  const identity = createHash('sha256').update(`${dev.toString()}:${ino.toString()}`).digest('hex');
+  const identity = createHash('sha256').update(databasePath).digest('hex');
   const suffix = role === 'owner' ? '' : '.migration-turn';
   return join(lockDirectory, `${identity}${suffix}.lock`);
 }
@@ -153,10 +205,18 @@ export function resolveOperationalStateSchemaLockPath(
   databasePath: string,
   role: 'owner' | 'migration-turn',
 ): string {
-  const identity = lstatSync(resolve(databasePath), { bigint: true });
+  const canonicalDatabasePath = canonicalizeDatabasePath(databasePath);
+  const identity = lstatSync(canonicalDatabasePath, { bigint: true });
   if (!identity.isFile())
     throw new Error(`Operational state is not a regular file: ${databasePath}`);
-  return resolveOperationalStateLockPath(identity.dev, identity.ino, role);
+  return resolveOperationalStateLockPath(canonicalDatabasePath, role);
+}
+
+function canonicalizeDatabasePath(databasePath: string): string {
+  const absolutePath = resolve(databasePath);
+  const parentPath = dirname(absolutePath);
+  mkdirSync(parentPath, { recursive: true });
+  return join(realpathSync(parentPath), basename(absolutePath));
 }
 
 function resolveOperationalStateSchemaLockDirectory(): string {

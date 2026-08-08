@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { fork, type ChildProcess } from 'node:child_process';
+import { closeSync, constants as fsConstants, openSync } from 'node:fs';
 import { link, mkdir, mkdtemp, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { tryLock, unlock } from 'fs-native-extensions';
 import { acquireOperationalStateDatabase } from '../operational-state-store.js';
 import { resolveOperationalStateSchemaLockPath } from '../operational-state-schema-lock.js';
 import { SQLITE_RUNTIME_SCHEMA_VERSION } from '../sqlite-runtime-schema.js';
@@ -80,6 +82,31 @@ test('rejects two paths hard-linked to one operational database', async () => {
     lease.close();
     await rm(root, { recursive: true, force: true });
     await rm(aliasRoot, { recursive: true, force: true });
+  }
+});
+
+test('rejects another current database moved over a live owner path', {
+  skip: process.platform === 'win32' ? 'Windows cannot replace an open SQLite database' : false,
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-database-replacement-'));
+  const replacementRoot = `${root}-replacement`;
+  const databasePath = join(root, 'runtime.sqlite');
+  const movedDatabasePath = join(root, 'runtime.sqlite.moved');
+  let holder: ChildProcess | undefined;
+  try {
+    await mkdir(replacementRoot);
+    acquireOperationalStateDatabase(root).close();
+    acquireOperationalStateDatabase(replacementRoot).close();
+    holder = await spawnReady('./fixtures/operational-state-lease-holder.js', [root]);
+
+    await rename(databasePath, movedDatabasePath);
+    await rename(join(replacementRoot, 'runtime.sqlite'), databasePath);
+
+    assert.throws(() => acquireOperationalStateDatabase(root), /lock authority changed/i);
+  } finally {
+    await stopChild(holder);
+    await rm(root, { recursive: true, force: true });
+    await rm(replacementRoot, { recursive: true, force: true });
   }
 });
 
@@ -179,6 +206,81 @@ test('an operational opener waits for an in-progress migration turn', async () =
   }
 });
 
+test('a stale migrator cannot overwrite lock authority after both sidecars are replaced', {
+  skip:
+    process.platform === 'win32'
+      ? 'Windows cannot rename open SQLite authority lock files or suspend a process'
+      : false,
+}, async () => {
+  const root = await mkdtemp(join(tmpdir(), 'maka-operational-stale-migrator-'));
+  const databasePath = join(root, 'runtime.sqlite');
+  let blocker: DatabaseSync | undefined;
+  let staleMigrator: ChildProcess | undefined;
+  let winningMigrator: ChildProcess | undefined;
+  let staleStopped = false;
+  let ownerMovedPath: string | undefined;
+  let turnMovedPath: string | undefined;
+  try {
+    acquireOperationalStateDatabase(root).close();
+    rewindRuntimeSchema(databasePath);
+    const legacy = new DatabaseSync(databasePath);
+    legacy
+      .prepare(`UPDATE operational_schema_migrations SET version = 1 WHERE scope = 'operational'`)
+      .run();
+    legacy.close();
+
+    blocker = new DatabaseSync(databasePath);
+    blocker.exec('BEGIN IMMEDIATE');
+    const ownerLockPath = resolveOperationalStateSchemaLockPath(databasePath, 'owner');
+    const turnLockPath = resolveOperationalStateSchemaLockPath(databasePath, 'migration-turn');
+    staleMigrator = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    await Promise.all([waitForHeldLock(ownerLockPath), waitForHeldLock(turnLockPath)]);
+    staleMigrator.kill('SIGSTOP');
+    staleStopped = true;
+
+    ownerMovedPath = `${ownerLockPath}.${process.pid}.moved`;
+    turnMovedPath = `${turnLockPath}.${process.pid}.moved`;
+    await rename(ownerLockPath, ownerMovedPath);
+    await rename(turnLockPath, turnMovedPath);
+
+    winningMigrator = fork(
+      new URL('./fixtures/operational-state-lease-holder.js', import.meta.url),
+      [root],
+      { stdio: ['ignore', 'ignore', 'ignore', 'ipc'] },
+    );
+    await Promise.all([waitForHeldLock(ownerLockPath), waitForHeldLock(turnLockPath)]);
+    const winnerReady = waitForReady(winningMigrator);
+    blocker.exec('COMMIT');
+    blocker.close();
+    blocker = undefined;
+    await winnerReady;
+    winningMigrator.send('close');
+    await waitForExit(winningMigrator);
+
+    staleMigrator.kill('SIGCONT');
+    staleStopped = false;
+    await waitForFailure(staleMigrator);
+
+    acquireOperationalStateDatabase(root).close();
+    assert.equal(readRuntimeVersion(databasePath), SQLITE_RUNTIME_SCHEMA_VERSION);
+  } finally {
+    if (staleStopped) staleMigrator?.kill('SIGCONT');
+    try {
+      blocker?.exec('ROLLBACK');
+    } catch {}
+    blocker?.close();
+    await stopChild(staleMigrator);
+    await stopChild(winningMigrator);
+    if (ownerMovedPath) await rm(ownerMovedPath, { force: true });
+    if (turnMovedPath) await rm(turnMovedPath, { force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 function rewindRuntimeSchema(databasePath: string): void {
   const database = new DatabaseSync(databasePath);
   try {
@@ -251,6 +353,39 @@ function waitForExit(child: ChildProcess): Promise<void> {
       else reject(new Error(`operational lease holder failed: ${code ?? signal}`));
     });
   });
+}
+
+function waitForFailure(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return child.exitCode && child.exitCode !== 0
+      ? Promise.resolve()
+      : Promise.reject(new Error('stale migrator exited successfully'));
+  }
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code, signal) => {
+      if (code && code !== 0) resolve();
+      else reject(new Error(`stale migrator unexpectedly succeeded: ${code ?? signal}`));
+    });
+  });
+}
+
+async function waitForHeldLock(lockPath: string): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    let fd: number | undefined;
+    try {
+      fd = openSync(lockPath, fsConstants.O_RDWR | fsConstants.O_NOFOLLOW);
+      if (!tryLock(fd)) return;
+      unlock(fd);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    } finally {
+      if (fd !== undefined) closeSync(fd);
+    }
+    await delay(5);
+  }
+  throw new Error(`operational lock was not acquired: ${lockPath}`);
 }
 
 async function stopChild(child: ChildProcess | undefined): Promise<void> {
