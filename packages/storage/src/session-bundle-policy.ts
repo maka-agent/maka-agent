@@ -276,6 +276,7 @@ async function exportFilteredDatabase(
 
 const PORTABLE_GLOBAL_TABLES = new Set([
   'operational_schema_migrations',
+  'operational_lock_authority',
   'session_metadata_schema',
   'runtime_capabilities',
   'session_catalog_state',

@@ -149,7 +149,9 @@ class OperationalStateDatabaseOwner {
     mkdirSync(dirname(canonicalDestination), { recursive: true });
     this.references += 1;
     try {
-      return await loadSqliteModule().backup(this.database, canonicalDestination);
+      const pages = await loadSqliteModule().backup(this.database, canonicalDestination);
+      prepareOperationalStateDatabaseCopy(canonicalDestination);
+      return pages;
     } finally {
       this.releaseReference();
     }
@@ -442,7 +444,10 @@ function writeOperationalLockAuthority(
 }
 
 export function prepareOperationalStateDatabaseForRestore(workspaceRoot: string): void {
-  const databasePath = resolveOperationalStateDatabasePath(workspaceRoot);
+  prepareOperationalStateDatabaseCopy(resolveOperationalStateDatabasePath(workspaceRoot));
+}
+
+function prepareOperationalStateDatabaseCopy(databasePath: string): void {
   const opened = openOperationalStateDatabase(databasePath, Date.now, true);
   closeOperationalStateResources(
     opened.database,
