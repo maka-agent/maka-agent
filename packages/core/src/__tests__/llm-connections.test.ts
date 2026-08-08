@@ -274,7 +274,10 @@ test('the superseded-id table only ever aliases a rename, never a retirement', (
   for (const [supersededId, target] of Object.entries(SUPERSEDED_MODEL_ID_ALIASES)) {
     // A target nothing lists would send reconciliation straight back to the
     // "first live id" fallback this table exists to prevent.
-    assert.ok(offered.has(target), `alias target ${target} is not offered by any curated inventory`);
+    assert.ok(
+      offered.has(target),
+      `alias target ${target} is not offered by any curated inventory`,
+    );
     assert.notEqual(supersededId, target);
     // The membership rule, machine-checked: a withdrawn model must be repaired
     // against the live list, never silently rewritten to a different model.
