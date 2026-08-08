@@ -183,7 +183,13 @@ export async function restoreOperationalStateBackup(
     if (JSON.stringify(actual) !== JSON.stringify(manifest.files)) {
       throw new OperationalBackupError('corrupt_backup', 'Restored file inventory does not match');
     }
-    validateSqlite(resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME), manifest.files);
+    const databasePath = resolve(stagingRoot, OPERATIONAL_STATE_DATABASE_NAME);
+    const database = acquireOperationalStateDatabase(stagingRoot);
+    database.close();
+    normalizeStandaloneSqliteSnapshot(databasePath);
+    await chmod(databasePath, 0o600);
+    await syncFile(databasePath);
+    validateSqlite(databasePath, await inventory(stagingRoot), 'current');
     await syncDirectoryChain(stagingRoot, stagingRoot);
     await mkdir(dirname(destinationRoot), { recursive: true });
     await rename(stagingRoot, destinationRoot);
@@ -322,7 +328,11 @@ async function copyRegularTree(
   await syncDirectoryChain(dirname(destination), destinationRoot);
 }
 
-function validateSqlite(path: string, files: readonly OperationalBackupFile[]): void {
+function validateSqlite(
+  path: string,
+  files: readonly OperationalBackupFile[],
+  requiredSchema: 'migratable' | 'current' = 'migratable',
+): void {
   try {
     const metadata = lstatSync(path);
     if (!metadata.isFile() || metadata.isSymbolicLink()) {
@@ -353,13 +363,17 @@ function validateSqlite(path: string, files: readonly OperationalBackupFile[]): 
       const rows = database
         .prepare('SELECT scope, version FROM operational_schema_migrations')
         .all() as Array<{ scope?: unknown; version?: unknown }>;
-      if (
-        rows.length !== expected.size ||
-        rows.some(
-          (entry) => typeof entry.scope !== 'string' || expected.get(entry.scope) !== entry.version,
-        )
-      ) {
+      if (rows.length !== expected.size || rows.some((entry) => !matchesExpectedVersion(entry))) {
         throw new Error('operational schema versions do not match');
+      }
+
+      function matchesExpectedVersion(entry: { scope?: unknown; version?: unknown }): boolean {
+        if (typeof entry.scope !== 'string') return false;
+        const expectedVersion = expected.get(entry.scope);
+        if (entry.version === expectedVersion) return true;
+        return (
+          requiredSchema === 'migratable' && entry.scope === 'operational' && entry.version === 1
+        );
       }
 
       const requiredTables = [
