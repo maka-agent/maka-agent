@@ -112,6 +112,9 @@ interface SnapshotOfferBinding {
   readonly registration?: CapabilityRegistration;
 }
 
+type ClientCapabilityBoundTool = ReturnType<McpToolProvider['toolSnapshot']>['tools'][number];
+type ClientCapabilityToolBinding = ClientCapabilityBoundTool['binding'];
+
 export interface HostClientCapabilityCoordinatorOptions {
   readonly activation: RuntimePolicyActivationGate;
   readonly onModelToolsChanged: () => void;
@@ -694,9 +697,9 @@ export class HostClientCapabilityCoordinator implements ClientCapabilityService 
     initiatingConnectionId: string | undefined,
     selected: readonly SnapshotOfferBinding[],
   ): McpToolProvider {
-    const tools = selected.flatMap(({ offer }) => offer.offer.tools);
+    const boundTools: ClientCapabilityBoundTool[] = [];
     const bindings = new Map<
-      string,
+      ClientCapabilityToolBinding,
       {
         readonly contractId: string;
         readonly registration?: CapabilityRegistration;
@@ -704,17 +707,27 @@ export class HostClientCapabilityCoordinator implements ClientCapabilityService 
       }
     >();
     for (const { registration, offer } of selected) {
-      for (const [identity, tool] of offer.toolsByIdentity) {
-        if (bindings.has(identity)) {
-          throw new Error('Client Capability snapshot contains a duplicate tool identity');
+      for (const tool of offer.toolsByIdentity.values()) {
+        const binding = clientCapabilityToolBinding(offer.contractId, registration, tool);
+        if (bindings.has(binding)) {
+          throw new Error('Client Capability snapshot contains a duplicate tool binding');
         }
-        bindings.set(identity, { contractId: offer.contractId, registration, tool });
+        bindings.set(binding, {
+          contractId: offer.contractId,
+          registration,
+          tool,
+        });
+        boundTools.push(deepFreeze({ descriptor: structuredClone(tool.descriptor), binding }));
       }
     }
+    const snapshot = Object.freeze({
+      revision: this.#revision,
+      tools: Object.freeze(boundTools),
+    });
     return {
-      tools: () => tools,
-      callTool: (serverId, toolName, args, options) => {
-        const selectedBinding = bindings.get(toolIdentity(serverId, toolName));
+      toolSnapshot: () => snapshot,
+      callTool: (binding, args, options) => {
+        const selectedBinding = bindings.get(binding);
         if (!selectedBinding) {
           return Promise.reject(
             new ClientCapabilityInvocationError(
@@ -723,9 +736,7 @@ export class HostClientCapabilityCoordinator implements ClientCapabilityService 
             ),
           );
         }
-        if (!options?.context) {
-          return Promise.reject(new Error('Client Capability invocation context is missing'));
-        }
+        const { serverId, name: toolName } = selectedBinding.tool.descriptor;
         const dynamicBinding = selectedBinding.registration
           ? {
               registration: selectedBinding.registration,
@@ -785,7 +796,10 @@ export class HostClientCapabilityCoordinator implements ClientCapabilityService 
     contractId: string,
     initiatingConnectionId: string | undefined,
     identity: string,
-  ): { readonly registration: CapabilityRegistration; readonly tool: FrozenToolBinding } {
+  ): {
+    readonly registration: CapabilityRegistration;
+    readonly tool: FrozenToolBinding;
+  } {
     const candidates = this.#eligibleOffersByContract().get(contractId) ?? [];
     const candidate =
       candidates.find((entry) => entry.registration.connectionId === initiatingConnectionId) ??
@@ -984,6 +998,30 @@ function hasModelToolOffers(registration: CapabilityRegistration | undefined): b
 
 function toolIdentity(serverId: string, toolName: string): string {
   return `${serverId}\0${toolName}`;
+}
+
+function clientCapabilityToolBinding(
+  contractId: string,
+  registration: CapabilityRegistration | undefined,
+  tool: FrozenToolBinding,
+): ClientCapabilityToolBinding {
+  const digest = createHash('sha256')
+    .update(
+      canonicalJson({
+        contractId,
+        registrationId: registration?.registrationId ?? null,
+        offerId: tool.offerId,
+        descriptor: tool.descriptor,
+      }),
+    )
+    .digest('base64url');
+  return `client-capability.${digest}` as ClientCapabilityToolBinding;
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 function capabilityGroupId(offer: ClientCapabilityOffer): string {

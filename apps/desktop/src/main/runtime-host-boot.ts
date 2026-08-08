@@ -255,7 +255,7 @@ function runtimeHostProjectSessionCatalog() {
   return createRuntimeHostProjectSessionCatalog(runtimePolicyClient);
 }
 const mcpCapabilityPublisher = createCapabilityRevisionPublisher(() =>
-  mcpManager.toolSnapshotRevision(),
+  mcpManager.toolSnapshot().revision,
 );
 let settingsBotsIpc: SettingsBotsIpcHandle | undefined;
 const botRegistry = new BotRegistry({

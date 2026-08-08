@@ -157,7 +157,12 @@ async function main() {
         CONSOLE_RE.lastIndex = 0;
         const match = CONSOLE_RE.exec(line);
         if (match) {
-          offenders.push({ path: rel, line: i + 1, method: match[1], code: line.trim() });
+          offenders.push({
+            path: rel,
+            line: i + 1,
+            method: match[1],
+            code: line.trim(),
+          });
         }
       });
     }
