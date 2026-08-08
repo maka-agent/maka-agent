@@ -1,4 +1,4 @@
-import { parseNoRealConnectionError } from '@maka/core';
+import { parseNoRealConnectionError, type FileEditToolset } from '@maka/core';
 import { SessionActivityRegistry } from '@maka/runtime';
 import { readRuntimeHostConnectionCatalog } from '@maka/runtime-host/client';
 import { createForeignSessionStore } from '@maka/storage';
@@ -13,6 +13,7 @@ export interface RunRuntimeHostTuiInput {
   readonly workspaceRoot: string;
   readonly cwd: string;
   readonly resumeSessionId?: string;
+  readonly fileEditToolset?: FileEditToolset;
   readonly onProcessExit: (exitCode: number, error?: Error) => void;
 }
 
@@ -22,6 +23,7 @@ export async function runRuntimeHostTui(input: RunRuntimeHostTuiInput): Promise<
     rootPath: input.workspaceRoot,
     cwd: input.cwd,
     ...(input.resumeSessionId ? { resumeSessionId: input.resumeSessionId } : {}),
+    ...(input.fileEditToolset ? { fileEditToolset: input.fileEditToolset } : {}),
   };
   let context;
   try {

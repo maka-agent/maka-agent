@@ -1,4 +1,5 @@
 import { isThinkingLevel } from '../model-thinking.js';
+import { isFileEditToolset } from '../file-edit-toolset.js';
 import { CHAT_DEFAULT_PERMISSION_MODES } from '../settings.js';
 import { normalizeSubagentSettings } from '../subagent-settings.js';
 import type {
@@ -35,8 +36,36 @@ export function decodeLegacyRuntimePolicyV1(value: unknown): RuntimePolicy {
     'chatDefaults',
     'webSearch',
   ]);
-  const decoded = normalizeRuntimePolicyFields(policy, { presets: [] });
-  assertCanonicalValue(value, withoutSubagents(decoded), 'legacy runtime policy');
+  const decoded = normalizeRuntimePolicyFields(
+    policy,
+    { presets: [] },
+    normalizeLegacyChatDefaults,
+  );
+  assertCanonicalValue(
+    value,
+    withoutFileEditToolset(withoutSubagents(decoded)),
+    'legacy runtime policy',
+  );
+  return decoded;
+}
+
+export function decodeLegacyRuntimePolicyV2(value: unknown): RuntimePolicy {
+  const policy = exactRecord(value, 'legacy runtime policy', [
+    'networkProxy',
+    'personalization',
+    'memory',
+    'workspaceInstructions',
+    'privacy',
+    'chatDefaults',
+    'webSearch',
+    'subagents',
+  ]);
+  const decoded = normalizeRuntimePolicyFields(
+    policy,
+    normalizeSubagentSettings(policy.subagents),
+    normalizeLegacyChatDefaults,
+  );
+  assertCanonicalValue(value, withoutFileEditToolset(decoded), 'legacy runtime policy');
   return decoded;
 }
 
@@ -66,6 +95,7 @@ function normalizeRuntimePolicy(value: unknown): RuntimePolicy {
 function normalizeRuntimePolicyFields(
   policy: Record<string, unknown>,
   subagents: RuntimePolicy['subagents'],
+  chatDefaultsDecoder: (value: unknown) => RuntimePolicy['chatDefaults'] = normalizeChatDefaults,
 ): RuntimePolicy {
   return {
     networkProxy: normalizeNetworkProxy(policy.networkProxy),
@@ -73,7 +103,7 @@ function normalizeRuntimePolicyFields(
     memory: normalizeMemory(policy.memory),
     workspaceInstructions: normalizeWorkspaceInstructions(policy.workspaceInstructions),
     privacy: normalizePrivacy(policy.privacy),
-    chatDefaults: normalizeChatDefaults(policy.chatDefaults),
+    chatDefaults: chatDefaultsDecoder(policy.chatDefaults),
     webSearch: normalizeWebSearch(policy.webSearch),
     subagents,
   };
@@ -82,6 +112,15 @@ function normalizeRuntimePolicyFields(
 function withoutSubagents(policy: RuntimePolicy): Omit<RuntimePolicy, 'subagents'> {
   const { subagents: _subagents, ...legacy } = policy;
   return legacy;
+}
+
+function withoutFileEditToolset<Policy extends Pick<RuntimePolicy, 'chatDefaults'>>(
+  policy: Policy,
+): Omit<Policy, 'chatDefaults'> & {
+  chatDefaults: Omit<RuntimePolicy['chatDefaults'], 'fileEditToolset'>;
+} {
+  const { fileEditToolset: _fileEditToolset, ...chatDefaults } = policy.chatDefaults;
+  return { ...policy, chatDefaults };
 }
 
 function normalizeMutationOperation(operation: Record<string, unknown>): RuntimePolicyMutation {
@@ -253,6 +292,29 @@ function normalizeChatDefaults(value: unknown): RuntimePolicy['chatDefaults'] {
   const item = exactRecord(
     value,
     'chat defaults',
+    ['permissionMode', 'fileEditToolset', 'thinkingLevel'],
+    ['permissionMode', 'fileEditToolset'],
+  );
+  if (!(CHAT_DEFAULT_PERMISSION_MODES as readonly unknown[]).includes(item.permissionMode)) {
+    throw domainError('chat default permission mode is invalid');
+  }
+  if (item.thinkingLevel !== undefined && !isThinkingLevel(item.thinkingLevel)) {
+    throw domainError('chat default thinking level is invalid');
+  }
+  if (!isFileEditToolset(item.fileEditToolset)) {
+    throw domainError('chat default file-edit toolset is invalid');
+  }
+  return {
+    permissionMode: item.permissionMode as RuntimePolicy['chatDefaults']['permissionMode'],
+    fileEditToolset: item.fileEditToolset,
+    ...(item.thinkingLevel === undefined ? {} : { thinkingLevel: item.thinkingLevel }),
+  };
+}
+
+function normalizeLegacyChatDefaults(value: unknown): RuntimePolicy['chatDefaults'] {
+  const item = exactRecord(
+    value,
+    'legacy chat defaults',
     ['permissionMode', 'thinkingLevel'],
     ['permissionMode'],
   );
@@ -264,6 +326,7 @@ function normalizeChatDefaults(value: unknown): RuntimePolicy['chatDefaults'] {
   }
   return {
     permissionMode: item.permissionMode as RuntimePolicy['chatDefaults']['permissionMode'],
+    fileEditToolset: 'edit_write',
     ...(item.thinkingLevel === undefined ? {} : { thinkingLevel: item.thinkingLevel }),
   };
 }

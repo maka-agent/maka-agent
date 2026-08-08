@@ -5,6 +5,7 @@ import type {
   ModelInfo,
 } from './llm-connections.js';
 import type { ThinkingLevel } from './model-thinking.js';
+import type { FileEditToolset } from './file-edit-toolset.js';
 import type { ProviderType } from './provider-registry.js';
 import type { RelayModelProfile } from './model-thinking.js';
 import type { ChatDefaultPermissionMode, ProxyProtocol } from './settings.js';
@@ -24,6 +25,7 @@ export {
 export {
   decodeCanonicalRuntimePolicy,
   decodeLegacyRuntimePolicyV1,
+  decodeLegacyRuntimePolicyV2,
   normalizeRuntimePolicyMutation,
 } from './runtime-policy/policy-codec.js';
 export {
@@ -98,6 +100,7 @@ export interface RuntimePolicy {
   };
   readonly chatDefaults: {
     readonly permissionMode: ChatDefaultPermissionMode;
+    readonly fileEditToolset: FileEditToolset;
     readonly thinkingLevel?: ThinkingLevel;
   };
   readonly webSearch: {
@@ -159,7 +162,7 @@ export function createDefaultRuntimePolicy(): RuntimePolicy {
     memory: { enabled: true, agentReadEnabled: false },
     workspaceInstructions: { enabled: true },
     privacy: { incognitoActive: false },
-    chatDefaults: { permissionMode: 'ask' },
+    chatDefaults: { permissionMode: 'ask', fileEditToolset: 'edit_write' },
     webSearch: { enabled: false, defaultProvider: 'model' },
     subagents: { presets: [] },
   };

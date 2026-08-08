@@ -150,9 +150,15 @@ test('keeps an established Runtime Host policy authoritative over legacy files',
 test('moves M4 subagent presets into an established Runtime Host policy', async () => {
   await withMigrationRoot(async ({ root, legacyConfigurationRoot, stores }) => {
     const { subagents: _subagents, ...versionOnePolicy } = createDefaultRuntimePolicy();
+    const { fileEditToolset: _fileEditToolset, ...legacyChatDefaults } =
+      versionOnePolicy.chatDefaults;
     await writeFile(
       join(root, 'runtime-policy.json'),
-      `${JSON.stringify({ schemaVersion: 1, revision: 3, policy: versionOnePolicy })}\n`,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        revision: 3,
+        policy: { ...versionOnePolicy, chatDefaults: legacyChatDefaults },
+      })}\n`,
       'utf8',
     );
     await createSettingsStore(legacyConfigurationRoot).update({

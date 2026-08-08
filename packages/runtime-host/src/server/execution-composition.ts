@@ -20,6 +20,7 @@ import {
   isBuiltinFilesystemWorkerSandboxAvailable,
   loadLatestHistoryCompactCheckpointFromRunLedger,
   prepareSkillInvocationMessageFromInventory,
+  projectEffectiveProductToolSurface,
   RuntimeReadModel,
   routeWebSearchTools,
   renderAgentSwarmSupervisorWake,
@@ -646,6 +647,7 @@ export async function createExecutionRuntimeHostComposition(
           skills,
           memory: requireMemory(memory),
           taskLedger,
+          ...(header.fileEditToolset ? { fileEditToolset: header.fileEditToolset } : {}),
           ...(capabilitySnapshot ? { clientCapabilities: capabilitySnapshot } : {}),
           builtinTools,
           hostTools: [...hostTools, ...graphTools],
@@ -728,25 +730,38 @@ export async function createExecutionRuntimeHostComposition(
     sessionEffects = sessionEffectCoordinator;
     const resolveChildTools = async (sessionId: string): Promise<readonly MakaTool[]> => {
       const header = await stores.sessionStore.readHeader(sessionId);
+      const projectFileEditToolset = (tools: readonly MakaTool[]): readonly MakaTool[] =>
+        projectEffectiveProductToolSurface({
+          host: 'runtime-host',
+          tools,
+          policy: {
+            economy: false,
+            ...(header.fileEditToolset ? { fileEditToolset: header.fileEditToolset } : {}),
+          },
+        }).tools;
       const [resolved, snapshot] = await Promise.all([
         runtimePolicyStores.operations.resolveExecutionConnection(header.llmConnectionSlug),
         runtimePolicyStores.runtimePolicy.getSnapshot(),
       ]);
       if (resolved.kind !== 'ready') {
-        return childAgentTools.childTools.filter((tool) => tool.name !== 'WebSearch');
+        return projectFileEditToolset(
+          childAgentTools.childTools.filter((tool) => tool.name !== 'WebSearch'),
+        );
       }
       const { models, ...connection } = resolved.connection;
-      return routeWebSearchTools({
-        tools: childAgentTools.childTools,
-        settings: snapshot.policy.webSearch,
-        connection: {
-          ...connection,
-          defaultModel: header.model,
-          ...(models ? { models: [...models] } : {}),
-        },
-        model: header.model,
-        privacy: snapshot.policy.privacy,
-      });
+      return projectFileEditToolset(
+        routeWebSearchTools({
+          tools: childAgentTools.childTools,
+          settings: snapshot.policy.webSearch,
+          connection: {
+            ...connection,
+            defaultModel: header.model,
+            ...(models ? { models: [...models] } : {}),
+          },
+          model: header.model,
+          privacy: snapshot.policy.privacy,
+        }),
+      );
     };
     const subagentCatalog = createConfiguredSubagentCatalog({
       getPresets: async () =>

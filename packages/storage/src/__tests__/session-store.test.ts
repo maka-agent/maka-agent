@@ -9,6 +9,30 @@ import { OPERATIONAL_STATE_DATABASE_NAME } from '../operational-state-store.js';
 import { createSqliteSessionMetadataStore } from '../sqlite-session-metadata-store.js';
 
 describe('SQLite SessionStore', () => {
+  test('persists one immutable file-edit toolset per session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'maka-session-file-edit-toolset-'));
+    const store = createSessionStore(root);
+    try {
+      const applyPatch = await store.create(makeInput({ fileEditToolset: 'apply_patch' }));
+      const editWrite = await store.create(makeInput());
+
+      assert.equal(applyPatch.fileEditToolset, 'apply_patch');
+      assert.equal(editWrite.fileEditToolset, 'edit_write');
+      const summaries = await store.list();
+      assert.equal(
+        summaries.find((session) => session.id === applyPatch.id)?.fileEditToolset,
+        'apply_patch',
+      );
+      await assert.rejects(
+        store.updateHeader(applyPatch.id, { fileEditToolset: 'edit_write' }),
+        /file-edit toolset is immutable/i,
+      );
+    } finally {
+      await store.close?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('persists session metadata and messages in one SQLite authority', async () => {
     const root = await mkdtemp(join(tmpdir(), 'maka-session-sqlite-'));
     const store = createSessionStore(root);

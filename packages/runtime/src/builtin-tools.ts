@@ -26,7 +26,10 @@ import {
   type ToolResultContent,
 } from '@maka/core';
 import { bashToolResultToModelOutput } from './bash-model-output.js';
-import { fileWriteToolResultToModelOutput } from './file-tool-model-output.js';
+import {
+  applyPatchToolResultToModelOutput,
+  fileWriteToolResultToModelOutput,
+} from './file-tool-model-output.js';
 import {
   buildManagedBashTool,
   buildStopBackgroundTaskTool,
@@ -367,6 +370,23 @@ export function buildBuiltinTools(options: BuildBuiltinToolsOptions = {}): MakaT
           );
         return { content: result.content };
       },
+    },
+    {
+      name: 'ApplyPatch',
+      activityKind: 'edit',
+      categoryHint: 'file_write',
+      description:
+        'Apply one patch that creates, updates, or deletes one or more files. ' +
+        'Use the *** Begin Patch / *** End Patch envelope with *** Add File, ' +
+        '*** Update File, or *** Delete File hunks. Paths must be relative to the session cwd. ' +
+        'All hunks are checked before the first write; committed earlier operations remain if a later filesystem mutation fails.',
+      parameters: z.object({
+        patch: z.string().describe('The complete ApplyPatch envelope'),
+      }),
+      executionFacts,
+      impl: async ({ patch }, ctx) =>
+        await filesystem.applyPatch({ patch, ...filesystemCall(ctx) }),
+      toModelOutput: ({ output }) => applyPatchToolResultToModelOutput(output),
     },
     {
       name: 'Write',

@@ -29,6 +29,7 @@
     "./materializer": "./dist/materializer.js",
     "./async-queue": "./dist/async-queue.js",
     "./file-write-lock": "./dist/file-write-lock.js",
+    "./apply-patch-engine": "./dist/apply-patch-engine.js",
     "./session-manager": "./dist/session-manager.js",
     "./fake-backend": "./dist/fake-backend.js",
     "./test-only/observation-text-reader": "./dist/__tests__/observation-text-reader.js",

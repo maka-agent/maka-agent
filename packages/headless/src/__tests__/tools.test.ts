@@ -265,6 +265,122 @@ describe('isolated headless tools', () => {
     );
   });
 
+  test('the headless file-edit toolset exposes exactly one editing interface', () => {
+    const executor: IsolatedToolExecutor = {
+      async exec() {
+        return { exitCode: 0, stdout: '', stderr: '' };
+      },
+    };
+    const editWrite = buildIsolatedHeadlessProductToolSurface(executor);
+    const applyPatch = buildIsolatedHeadlessProductToolSurface(executor, {
+      fileEditToolset: 'apply_patch',
+    });
+
+    assert.ok(editWrite.tools.some((candidate) => candidate.name === 'Write'));
+    assert.ok(editWrite.tools.some((candidate) => candidate.name === 'Edit'));
+    assert.ok(!editWrite.tools.some((candidate) => candidate.name === 'ApplyPatch'));
+    assert.ok(applyPatch.tools.some((candidate) => candidate.name === 'ApplyPatch'));
+    assert.ok(!applyPatch.tools.some((candidate) => candidate.name === 'Write'));
+    assert.ok(!applyPatch.tools.some((candidate) => candidate.name === 'Edit'));
+  });
+
+  test('ApplyPatch creates, updates, and deletes through the isolated executor', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-'));
+    await writeFile(join(cwd, 'changed.txt'), 'before\n', 'utf8');
+    await writeFile(join(cwd, 'removed.txt'), 'remove me\n', 'utf8');
+    const tools = buildIsolatedHeadlessTools(execBackedExecutor(), {
+      fileEditToolset: 'apply_patch',
+    });
+
+    const result = await tool(tools, 'ApplyPatch').impl(
+      {
+        patch: `*** Begin Patch
+*** Add File: nested/added.txt
++hello
+*** Update File: changed.txt
+@@
+-before
++after
+*** Delete File: removed.txt
+*** End Patch`,
+      },
+      toolCtx(cwd),
+    );
+
+    assert.deepEqual(result, {
+      ok: true,
+      operations: [
+        { operation: 'add', path: 'nested/added.txt', status: 'completed', bytes: 6 },
+        { operation: 'update', path: 'changed.txt', status: 'completed', bytes: 6 },
+        { operation: 'delete', path: 'removed.txt', status: 'completed' },
+      ],
+      completed: ['nested/added.txt', 'changed.txt', 'removed.txt'],
+      uncompleted: [],
+    });
+    assert.equal(await readFile(join(cwd, 'nested/added.txt'), 'utf8'), 'hello\n');
+    assert.equal(await readFile(join(cwd, 'changed.txt'), 'utf8'), 'after\n');
+    await assert.rejects(readFile(join(cwd, 'removed.txt'), 'utf8'), /ENOENT/);
+  });
+
+  test('ApplyPatch refuses a stale update from an external writer', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-stale-'));
+    const path = join(cwd, 'changed.txt');
+    await writeFile(path, 'before\n', 'utf8');
+    const base = execBackedExecutor();
+    let replaced = false;
+    const executor: IsolatedToolExecutor = {
+      async exec(input, control) {
+        const result = await base.exec(input, control);
+        if (!replaced && input.command.includes('MAKA_APPLY_PATCH_SNAPSHOT_V1')) {
+          replaced = true;
+          await writeFile(path, 'concurrent\n', 'utf8');
+        }
+        return result;
+      },
+    };
+    const tools = buildIsolatedHeadlessTools(executor, { fileEditToolset: 'apply_patch' });
+
+    const result = (await tool(tools, 'ApplyPatch').impl(
+      {
+        patch: `*** Begin Patch
+*** Update File: changed.txt
+@@
+-before
++after
+*** End Patch`,
+      },
+      toolCtx(cwd),
+    )) as { ok: boolean; error?: string };
+
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? '', /changed after preflight/);
+    assert.equal(await readFile(path, 'utf8'), 'concurrent\n');
+  });
+
+  test('ApplyPatch deletes a symlink entry without deleting its target', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'maka-headless-apply-patch-link-'));
+    const target = join(cwd, 'target.txt');
+    const link = join(cwd, 'link.txt');
+    await writeFile(target, 'keep\n', 'utf8');
+    await symlink('target.txt', link);
+    const tools = buildIsolatedHeadlessTools(execBackedExecutor(), {
+      fileEditToolset: 'apply_patch',
+    });
+
+    const result = (await tool(tools, 'ApplyPatch').impl(
+      {
+        patch: `*** Begin Patch
+*** Delete File: link.txt
+*** End Patch`,
+      },
+      toolCtx(cwd),
+    )) as { ok: boolean };
+
+    assert.equal(result.ok, true);
+    await assert.rejects(readFile(link, 'utf8'), /ENOENT/);
+    assert.equal(await readFile(target, 'utf8'), 'keep\n');
+  });
+
   test('task experiment tools are included only when a task ledger store is enabled', () => {
     const tools = buildIsolatedHeadlessTools(
       {
@@ -1806,7 +1922,11 @@ describe('isolated headless tools', () => {
 });
 
 function execBackedTools(env: NodeJS.ProcessEnv = process.env) {
-  return buildIsolatedHeadlessTools({
+  return buildIsolatedHeadlessTools(execBackedExecutor(env));
+}
+
+function execBackedExecutor(env: NodeJS.ProcessEnv = process.env): IsolatedToolExecutor {
+  return {
     async exec(input) {
       try {
         const { stdout, stderr } = await execAsync(input.command, {
@@ -1823,7 +1943,7 @@ function execBackedTools(env: NodeJS.ProcessEnv = process.env) {
         };
       }
     },
-  });
+  };
 }
 
 function tool(tools: ReturnType<typeof buildIsolatedHeadlessTools>, name: string) {

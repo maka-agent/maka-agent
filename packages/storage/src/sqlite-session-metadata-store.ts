@@ -2560,6 +2560,9 @@ export class SqliteSessionMetadataStore {
     if (Object.prototype.hasOwnProperty.call(patch, 'subagentWorkspace')) {
       throw new Error('Subagent session workspace binding is immutable');
     }
+    if (Object.prototype.hasOwnProperty.call(patch, 'fileEditToolset')) {
+      throw new Error('Session file-edit toolset is immutable');
+    }
     return this.transaction(() => this.updateHeaderSync(sessionId, patch, options));
   }
 

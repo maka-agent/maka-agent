@@ -10,6 +10,7 @@ import {
   type SessionSubagentProjection,
 } from '@maka/core/session';
 import { isThinkingLevel, type ThinkingLevel } from '@maka/core/model-thinking';
+import { isFileEditToolset, type FileEditToolset } from '@maka/core/file-edit-toolset';
 import type { ExecutionBoundarySummary } from '@maka/core/sandbox-boundary';
 export type { ExecutionBoundarySummary } from '@maka/core/sandbox-boundary';
 import {
@@ -94,6 +95,7 @@ const PROJECTION_FIELDS = [
   'revisionIndex',
   'revisionState',
   'thinkingLevel',
+  'fileEditToolset',
   'lastReadMessageId',
 ] as const;
 
@@ -133,6 +135,7 @@ export interface SessionCreateInput {
   readonly modelTarget: SessionModelTarget;
   readonly thinkingLevel?: ThinkingLevel;
   readonly permissionMode?: PermissionMode;
+  readonly fileEditToolset?: FileEditToolset;
   readonly collaborationMode?: CollaborationMode;
   readonly orchestrationMode?: OrchestrationMode;
 }
@@ -213,6 +216,7 @@ export interface SessionCatalogProjection {
   readonly model: string;
   readonly thinkingLevel?: ThinkingLevel;
   readonly permissionMode: PermissionMode;
+  readonly fileEditToolset?: FileEditToolset;
   readonly collaborationMode: CollaborationMode;
   readonly orchestrationMode: OrchestrationMode;
 }
@@ -421,6 +425,7 @@ export function decodeSessionCreateInput(value: unknown): SessionCreateInput {
       'labels',
       'thinkingLevel',
       'permissionMode',
+      'fileEditToolset',
       'collaborationMode',
       'orchestrationMode',
     ],
@@ -450,6 +455,9 @@ export function decodeSessionCreateInput(value: unknown): SessionCreateInput {
     ...(Object.hasOwn(input, 'permissionMode')
       ? { permissionMode: permissionMode(input.permissionMode) }
       : {}),
+    ...(Object.hasOwn(input, 'fileEditToolset')
+      ? { fileEditToolset: fileEditToolset(input.fileEditToolset) }
+      : {}),
     ...(Object.hasOwn(input, 'collaborationMode')
       ? { collaborationMode: collaborationMode(input.collaborationMode) }
       : {}),
@@ -457,6 +465,11 @@ export function decodeSessionCreateInput(value: unknown): SessionCreateInput {
       ? { orchestrationMode: orchestrationMode(input.orchestrationMode) }
       : {}),
   };
+}
+
+function fileEditToolset(value: unknown): FileEditToolset {
+  if (!isFileEditToolset(value)) throw invalidProtocolFrame('Invalid file-edit toolset');
+  return value;
 }
 
 function sessionStartMode(value: unknown): SessionStartMode {
@@ -685,6 +698,9 @@ export function decodeSessionCatalogProjection(value: unknown): SessionCatalogPr
     model: requireUtf8String(record.model, 'Session model', SESSION_CATALOG_MODEL_MAX_BYTES),
     ...optionalThinkingLevel(record),
     permissionMode: permissionMode(record.permissionMode),
+    ...(Object.hasOwn(record, 'fileEditToolset')
+      ? { fileEditToolset: fileEditToolset(record.fileEditToolset) }
+      : {}),
     collaborationMode: collaborationMode(record.collaborationMode),
     orchestrationMode: orchestrationMode(record.orchestrationMode),
   };

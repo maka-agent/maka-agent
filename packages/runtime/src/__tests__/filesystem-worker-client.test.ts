@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { rmSync } from 'node:fs';
-import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
+import { realpathSync, rmSync } from 'node:fs';
+import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
@@ -18,6 +18,7 @@ import {
 import {
   FilesystemWorkerClient,
   FilesystemWorkerClientError,
+  filesystemWorkerRuntimeReadableRoots,
   filesystemWorkerRuntimeWritableRoots,
 } from '../filesystem-worker/client.js';
 import {
@@ -52,6 +53,34 @@ test('Read image payloads fit within the filesystem worker response limit', () =
 });
 
 describe('filesystem worker client permission snapshots', () => {
+  test('keeps ApplyPatch lstat and delete on the symlink directory entry', async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-entry-');
+    const target = join(workspace, 'target.txt');
+    const link = join(workspace, 'link.txt');
+    await writeFile(target, 'target', 'utf8');
+    await symlink(target, link);
+    const { client, requests } = fakeClient();
+
+    await client.execute({ operation: { kind: 'lstat', path: link }, cwd: workspace, mode: 'ask' });
+    await client.execute({
+      operation: { kind: 'delete', path: link, expectedToken: 'snapshot-token' },
+      cwd: workspace,
+      mode: 'ask',
+    });
+
+    assert.deepEqual(
+      requests.map((request) => ({
+        kind: request.operation.kind,
+        path: request.operation.path,
+        targetType: request.expectedTarget.targetType,
+      })),
+      [
+        { kind: 'lstat', path: link, targetType: 'symlink' },
+        { kind: 'delete', path: link, targetType: 'symlink' },
+      ],
+    );
+  });
+
   for (const kind of ['bypass', 'external'] as const) {
     test(`rejects an authoritative ${kind} boundary instead of falling back to legacy mode`, async () => {
       const workspace = await temporaryDirectory(`maka-worker-client-${kind}-`);
@@ -98,6 +127,42 @@ describe('filesystem worker client permission snapshots', () => {
         assert.deepEqual(error.requiredExpansion, {
           filesystem: {
             entries: [{ path: target, access: 'read', scope: 'exact' }],
+          },
+        });
+        return true;
+      },
+    );
+    assert.equal(requests.length, 0);
+  });
+
+  test('preflights every ApplyPatch mutation before launching a worker', async () => {
+    const workspace = await temporaryDirectory('maka-worker-client-patch-workspace-');
+    const outside = await temporaryDirectory('maka-worker-client-patch-outside-');
+    const first = join(outside, 'first.txt');
+    const second = join(outside, 'second.txt');
+    await writeFile(first, 'first', 'utf8');
+    await writeFile(second, 'second', 'utf8');
+    const { client, requests } = fakeClient();
+
+    await assert.rejects(
+      client.preflightApplyPatchWrites({
+        intents: [
+          { path: first, access: 'write' },
+          { path: second, access: 'delete' },
+        ],
+        cwd: workspace,
+        executionBoundary: createManagedExecutionBoundary(createReadOnlyPermissionProfile(), 1),
+        mode: 'ask',
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof FilesystemWorkerClientError);
+        assert.equal(error.reason, 'sandbox_boundary_required');
+        assert.deepEqual(error.requiredExpansion, {
+          filesystem: {
+            entries: [
+              { path: first, access: 'write', scope: 'exact' },
+              { path: second, access: 'write', scope: 'exact' },
+            ],
           },
         });
         return true;
@@ -381,6 +446,23 @@ describe('filesystem worker Linux path context', () => {
     assert.equal(hasArgTriple(processInput.argv, '--bind', parent, parent), false);
   });
 
+  test('mounts the parent directory for an entry-mode lstat probe', async () => {
+    const workspace = await temporaryDirectory('maka-linux-worker-entry-probe-');
+    const target = join(workspace, 'link.txt');
+    await symlink(join(workspace, 'missing-target.txt'), target);
+    const { client, processInputs } = fakeClient({ platform: 'linux' });
+
+    await client.execute({
+      operation: { kind: 'lstat', path: target },
+      cwd: workspace,
+      mode: 'ask',
+    });
+
+    const processInput = processInputs[0];
+    assert.ok(processInput);
+    assert.ok(hasArgTriple(processInput.argv, '--ro-bind', workspace, workspace));
+  });
+
   test('requests a trusted parent mount only for a missing write target', () => {
     const target = join(tmpdir(), 'maka-linux-worker-parent', 'new.txt');
     assert.deepEqual(
@@ -390,7 +472,7 @@ describe('filesystem worker Linux path context', () => {
         enforcementPath: target,
         targetType: 'missing',
       }),
-      [join(tmpdir(), 'maka-linux-worker-parent')],
+      [realpathSync(tmpdir())],
     );
     assert.equal(
       filesystemWorkerRuntimeWritableRoots({
@@ -409,6 +491,25 @@ describe('filesystem worker Linux path context', () => {
         targetType: 'missing',
       }),
       undefined,
+    );
+    assert.deepEqual(
+      filesystemWorkerRuntimeWritableRoots({
+        platform: 'linux',
+        access: 'write',
+        enforcementPath: target,
+        targetType: 'file',
+        entryMode: true,
+      }),
+      [realpathSync(tmpdir())],
+    );
+    assert.deepEqual(
+      filesystemWorkerRuntimeReadableRoots({
+        platform: 'linux',
+        access: 'read',
+        enforcementPath: target,
+        entryMode: true,
+      }),
+      [realpathSync(tmpdir())],
     );
   });
 });
@@ -495,6 +596,10 @@ function fakeClient(
 
 function fakeResult(request: FilesystemWorkerRequest): FilesystemWorkerResult {
   switch (request.operation.kind) {
+    case 'lstat':
+      return { kind: 'lstat', targetType: request.expectedTarget.targetType, token: 'token' };
+    case 'delete':
+      return { kind: 'delete', ok: true, path: request.operation.path };
     case 'read':
       return request.operation.path.endsWith('.png')
         ? { kind: 'read_image', base64: 'iVBORw==', mimeType: 'image/png' }

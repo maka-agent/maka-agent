@@ -16,6 +16,7 @@ import {
   isThinkingLevel,
   resolveModelVisionSupport,
 } from '@maka/core';
+import { resolveFileEditToolset } from '@maka/core/file-edit-toolset';
 import {
   AgentGraphCoordinator,
   AGENT_TOOL_GROUP_ID,
@@ -353,6 +354,11 @@ export async function runHarborCellWithStorage(
       ['llmConnectionSlug', config.llmConnectionSlug, resumedSession.llmConnectionSlug],
       ['model', config.model, resumedSession.model],
       ['thinkingLevel', config.thinkingLevel, resumedSession.thinkingLevel],
+      [
+        'fileEditToolset',
+        resolveFileEditToolset(config.fileEditToolset),
+        resolveFileEditToolset(resumedSession.fileEditToolset),
+      ],
     ] as const;
     for (const [name, expected, observed] of executionFacts) {
       if (expected !== observed) {
@@ -367,6 +373,7 @@ export async function runHarborCellWithStorage(
     input.realBackendIsolation?.toolExecutor,
     {
       agentTools: config.agentTools,
+      fileEditToolset: config.fileEditToolset,
       snapshotImage: createReadImageSnapshotter(storage.artifactStore),
     },
   );
@@ -429,6 +436,7 @@ export async function runHarborCellWithStorage(
         model: config.model,
         ...(config.thinkingLevel ? { thinkingLevel: config.thinkingLevel } : {}),
         permissionMode: 'ask',
+        ...(config.fileEditToolset ? { fileEditToolset: config.fileEditToolset } : {}),
         name: `harbor-cell:${input.config.id}`,
       },
       { initialBoundary: { kind: 'external', revision: 0 } },

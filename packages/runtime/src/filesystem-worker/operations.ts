@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { glob as nodeGlob } from 'node:fs/promises';
-import { dirname, isAbsolute, parse, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, parse, resolve } from 'node:path';
 import { isPathInside, realpathAllowMissing } from '../path-containment.js';
 import { sandboxBoundaryExpansionAllowsPath } from '@maka/core';
 
 import { computeEditedSource } from '../edit-replace.js';
 import { createUnifiedDiff } from '../unified-diff.js';
 import { isSupportedImagePath, readWorkspaceImage } from '../image-file.js';
+import { assertFilesystemEntryRevision, snapshotFilesystemEntry } from '../filesystem-revision.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   type FilesystemWorkerErrorCode,
@@ -50,7 +52,13 @@ export async function executeFilesystemWorkerRequest(
   dependencies: FilesystemWorkerOperationDependencies = {},
 ): Promise<FilesystemWorkerResponse> {
   try {
-    await assertTargetUnchanged(request.operation.path, request.expectedTarget);
+    await assertTargetUnchanged(
+      request.operation.path,
+      request.expectedTarget,
+      request.operation.kind === 'lstat' ||
+        request.operation.kind === 'delete' ||
+        (request.operation.kind === 'write' && request.operation.mode === 'create'),
+    );
     return {
       version: FILESYSTEM_WORKER_PROTOCOL_VERSION,
       requestId: request.requestId,
@@ -78,6 +86,16 @@ export async function executeFilesystemOperation(
   dependencies: FilesystemWorkerOperationDependencies = {},
 ): Promise<FilesystemWorkerResult> {
   switch (operation.kind) {
+    case 'lstat': {
+      const path = await resolveLstatOperandAllowed(
+        operation.cwd,
+        operation.path,
+        'ApplyPatch lstat',
+        operationBoundary,
+      );
+      const snapshot = await snapshotFilesystemEntry(path);
+      return { kind: 'lstat', targetType: snapshot.targetType, token: snapshot.token };
+    }
     case 'read': {
       const path = await resolveExistingAllowed(
         operation.cwd,
@@ -110,12 +128,14 @@ export async function executeFilesystemOperation(
       return { kind: 'read', content: lines.slice(start, end).join('\n') };
     }
     case 'write': {
-      const path = await resolveWritableAllowed(
-        operation.cwd,
-        operation.path,
-        'Write',
-        operationBoundary,
-      );
+      const path = operation.mode
+        ? await resolvePatchMutationOperandAllowed(
+            operation.cwd,
+            operation.path,
+            `ApplyPatch ${operation.mode}`,
+            operationBoundary,
+          )
+        : await resolveWritableAllowed(operation.cwd, operation.path, 'Write', operationBoundary);
       // Read-before-write: the diff of an overwrite is what tells the reader
       // what was lost. Only a missing file means the whole content is new —
       // any other read failure leaves the previous state unknown, and
@@ -127,18 +147,43 @@ export async function executeFilesystemOperation(
         const code = (error as NodeJS.ErrnoException).code;
         previous = code === 'ENOENT' || code === 'ENOTDIR' ? 'new' : 'unknown';
       }
-      await fs.writeFile(path, operation.content, 'utf8');
+      if (operation.mode === 'create') {
+        if (!operation.expectedToken) {
+          throw operationError('invalid_request', 'Patch create requires an expected revision.');
+        }
+        await createPatchFile(path, operation.content, operation.expectedToken);
+      } else if (operation.mode === 'replace') {
+        if (!operation.expectedToken) {
+          throw operationError('invalid_request', 'Patch replace requires an expected revision.');
+        }
+        await replacePatchFile(path, operation.content, operation.expectedToken);
+      } else {
+        await fs.writeFile(path, operation.content, 'utf8');
+      }
       const diff =
         previous === 'unknown'
           ? undefined
           : createUnifiedDiff(path, previous === 'new' ? undefined : previous, operation.content);
+      const token = operation.mode ? (await snapshotFilesystemEntry(path)).token : undefined;
       return {
         kind: 'write',
         ok: true,
         path,
         bytes: Buffer.byteLength(operation.content, 'utf8'),
+        ...(token ? { token } : {}),
         ...(diff !== undefined ? { diff } : {}),
       };
+    }
+    case 'delete': {
+      const path = await resolvePatchMutationOperandAllowed(
+        operation.cwd,
+        operation.path,
+        'ApplyPatch delete',
+        operationBoundary,
+      );
+      await assertFilesystemEntryRevision(path, operation.expectedToken);
+      await fs.unlink(path);
+      return { kind: 'delete', ok: true, path };
     }
     case 'edit': {
       const path = await resolveExistingAllowed(
@@ -308,6 +353,11 @@ function sortKeysDeep(value: unknown): unknown {
 function normalizeOperationError(error: unknown): FilesystemOperationError {
   if (error instanceof FilesystemOperationError) return error;
   const code = nodeErrorCode(error);
+  if (code === 'ESTALE')
+    return operationError(
+      'path_changed',
+      'The approved filesystem target changed before execution.',
+    );
   if (code === 'ENOENT' || code === 'ENOTDIR')
     return operationError('not_found', 'The requested path was not found.');
   if (code === 'EACCES' || code === 'EPERM')
@@ -318,15 +368,24 @@ function normalizeOperationError(error: unknown): FilesystemOperationError {
 async function assertTargetUnchanged(
   path: string,
   expected: FilesystemWorkerTarget,
+  noFollowFinalSymlink = false,
 ): Promise<void> {
-  const enforcementPath = await realpathAllowMissing(path);
-  const targetType = await targetTypeOf(enforcementPath);
+  const enforcementPath = noFollowFinalSymlink
+    ? await canonicalDirectoryEntryPath(path)
+    : await realpathAllowMissing(path);
+  const targetType = noFollowFinalSymlink
+    ? await lstatTargetTypeOf(enforcementPath)
+    : await targetTypeOf(enforcementPath);
   if (enforcementPath !== expected.enforcementPath || targetType !== expected.targetType) {
     throw operationError(
       'path_changed',
       'The approved filesystem target changed before execution.',
     );
   }
+}
+
+async function canonicalDirectoryEntryPath(path: string): Promise<string> {
+  return resolve(await realpathAllowMissing(dirname(path)), basename(path));
 }
 
 async function resolveWritableAllowed(
@@ -358,6 +417,86 @@ async function resolveWritableAllowed(
     );
   }
   return followed;
+}
+
+async function resolveLstatOperandAllowed(
+  cwd: string,
+  inputPath: string,
+  label: string,
+  permission: FilesystemWorkerRequest['operationBoundary'],
+): Promise<string> {
+  const { root, candidate } = await resolveCandidate(cwd, inputPath, label, 'read', permission);
+  const parent = await realpathAllowMissing(dirname(candidate));
+  if (!isPathInside(root, parent)) {
+    throw operationError('path_denied', `${label} path escaped its approved target.`);
+  }
+  const operand = resolve(parent, basename(candidate));
+  const metadata = await fs.lstat(operand).catch((error) => {
+    if (nodeErrorCode(error) === 'ENOENT') return undefined;
+    throw error;
+  });
+  if (metadata === undefined || metadata.isSymbolicLink()) return operand;
+  const target = await fs.realpath(operand);
+  assertAllowed(root, target, label, 'read', permission);
+  return operand;
+}
+
+async function resolvePatchMutationOperandAllowed(
+  cwd: string,
+  inputPath: string,
+  label: string,
+  permission: FilesystemWorkerRequest['operationBoundary'],
+): Promise<string> {
+  const { root, candidate } = await resolveCandidate(cwd, inputPath, label, 'write', permission);
+  const parent = await realpathAllowMissing(dirname(candidate));
+  const operand = resolve(parent, basename(candidate));
+  assertAllowed(root, operand, label, 'write', permission);
+  return operand;
+}
+
+async function createPatchFile(
+  path: string,
+  content: string,
+  expectedToken: string,
+): Promise<void> {
+  await assertFilesystemEntryRevision(path, expectedToken);
+  await fs.mkdir(dirname(path), { recursive: true });
+  await assertFilesystemEntryRevision(path, expectedToken);
+  const handle = await fs.open(path, 'wx');
+  try {
+    await handle.writeFile(content, 'utf8');
+    await handle.sync();
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await fs.unlink(path).catch(() => {});
+    throw error;
+  }
+  await handle.close();
+}
+
+async function replacePatchFile(
+  path: string,
+  content: string,
+  expectedToken: string,
+): Promise<void> {
+  await assertFilesystemEntryRevision(path, expectedToken);
+  const metadata = await fs.lstat(path);
+  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+    throw operationError('path_changed', 'The patch target is no longer a regular file.');
+  }
+  const temp = resolve(dirname(path), `.maka-apply-patch-${process.pid}-${randomUUID()}.tmp`);
+  const handle = await fs.open(temp, 'wx', metadata.mode);
+  try {
+    await handle.writeFile(content, 'utf8');
+    await handle.sync();
+    await handle.close();
+    await assertFilesystemEntryRevision(path, expectedToken);
+    await fs.rename(temp, path);
+  } catch (error) {
+    await handle.close().catch(() => {});
+    await fs.unlink(temp).catch(() => {});
+    throw error;
+  }
 }
 
 async function resolveExistingAllowed(
@@ -428,6 +567,19 @@ function assertContainedGlobPattern(pattern: string): void {
 async function targetTypeOf(path: string): Promise<FilesystemWorkerTarget['targetType']> {
   try {
     const metadata = await fs.stat(path);
+    if (metadata.isFile()) return 'file';
+    if (metadata.isDirectory()) return 'directory';
+    return 'other';
+  } catch (error) {
+    if (nodeErrorCode(error) === 'ENOENT') return 'missing';
+    throw error;
+  }
+}
+
+async function lstatTargetTypeOf(path: string): Promise<FilesystemWorkerTarget['targetType']> {
+  try {
+    const metadata = await fs.lstat(path);
+    if (metadata.isSymbolicLink()) return 'symlink';
     if (metadata.isFile()) return 'file';
     if (metadata.isDirectory()) return 'directory';
     return 'other';

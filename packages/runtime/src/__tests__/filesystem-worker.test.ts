@@ -1,10 +1,21 @@
 import { strict as assert } from 'node:assert';
-import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  lstat,
+  mkdtemp,
+  mkdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 import { afterEach, describe, test } from 'node:test';
 
 import { executeFilesystemWorkerRequest } from '../filesystem-worker/operations.js';
+import { snapshotFilesystemEntry } from '../filesystem-revision.js';
 import {
   FILESYSTEM_WORKER_PROTOCOL_VERSION,
   type FilesystemWorkerOperation,
@@ -23,6 +34,130 @@ afterEach(async () => {
 });
 
 describe('filesystem worker operations', () => {
+  test('classifies a missing directory entry for ApplyPatch preflight', async () => {
+    const root = await temporaryDirectory('maka-worker-lstat-missing-');
+    const target = join(root, 'nested', 'missing.txt');
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'lstat', cwd: root, path: target },
+        { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'missing' },
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    if (response.ok && response.result.kind === 'lstat') {
+      assert.equal(response.result.targetType, 'missing');
+      assert.match(response.result.token, /^(?:sha256|missing):/);
+    }
+  });
+
+  test('creates a nested patch target without clobbering a concurrent file', async () => {
+    const root = await temporaryDirectory('maka-worker-patch-create-');
+    const target = join(root, 'nested', 'created.txt');
+    const operation = {
+      kind: 'write' as const,
+      cwd: root,
+      path: target,
+      content: 'created',
+      mode: 'create' as const,
+      expectedToken: (await snapshotFilesystemEntry(target)).token,
+    };
+    const expected = {
+      enforcementPath: target,
+      access: 'write' as const,
+      scope: 'exact' as const,
+      targetType: 'missing' as const,
+    };
+
+    const created = await executeFilesystemWorkerRequest(requestFor(operation, expected));
+    assert.equal(created.ok, true, JSON.stringify(created));
+    assert.equal(await readFile(target, 'utf8'), 'created');
+
+    const raced = await executeFilesystemWorkerRequest(requestFor(operation, expected));
+    assert.equal(raced.ok, false);
+    if (!raced.ok) assert.equal(raced.error.code, 'path_changed');
+    assert.equal(await readFile(target, 'utf8'), 'created');
+  });
+
+  test('rejects replacing a regular file that changed after its snapshot', async () => {
+    const root = await temporaryDirectory('maka-worker-patch-stale-');
+    const target = join(root, 'target.txt');
+    const replacement = join(root, 'replacement.txt');
+    await writeFile(target, 'original', 'utf8');
+
+    const snapshot = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'lstat', cwd: root, path: target },
+        { enforcementPath: target, access: 'read', scope: 'exact', targetType: 'file' },
+      ),
+    );
+    assert.equal(snapshot.ok, true);
+    if (!snapshot.ok || snapshot.result.kind !== 'lstat') return;
+
+    await writeFile(replacement, 'replacement', 'utf8');
+    await rename(replacement, target);
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        {
+          kind: 'write',
+          cwd: root,
+          path: target,
+          content: 'patched',
+          mode: 'replace',
+          expectedToken: snapshot.result.token,
+        },
+        { enforcementPath: target, access: 'write', scope: 'exact', targetType: 'file' },
+      ),
+    );
+
+    assert.equal(response.ok, false);
+    if (!response.ok) assert.equal(response.error.code, 'path_changed');
+    assert.equal(await readFile(target, 'utf8'), 'replacement');
+  });
+
+  test('deletes a symlink entry without deleting its target', async () => {
+    const root = await temporaryDirectory('maka-worker-patch-delete-');
+    const target = join(root, 'target.txt');
+    const link = join(root, 'link.txt');
+    await writeFile(target, 'keep', 'utf8');
+    await symlink(target, link);
+    const expectedToken = (await snapshotFilesystemEntry(link)).token;
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'delete', cwd: root, path: link, expectedToken },
+        { enforcementPath: link, access: 'write', scope: 'exact', targetType: 'symlink' },
+      ),
+    );
+
+    assert.equal(response.ok, true);
+    if (response.ok) assert.deepEqual(response.result, { kind: 'delete', ok: true, path: link });
+    await assert.rejects(lstat(link), { code: 'ENOENT' });
+    assert.equal(await readFile(target, 'utf8'), 'keep');
+  });
+
+  test('rejects deleting a regular file that changed after its snapshot', async () => {
+    const root = await temporaryDirectory('maka-worker-delete-stale-');
+    const target = join(root, 'target.txt');
+    const replacement = join(root, 'replacement.txt');
+    await writeFile(target, 'original', 'utf8');
+    const expectedToken = (await snapshotFilesystemEntry(target)).token;
+    await writeFile(replacement, 'replacement', 'utf8');
+    await rename(replacement, target);
+
+    const response = await executeFilesystemWorkerRequest(
+      requestFor(
+        { kind: 'delete', cwd: root, path: target, expectedToken },
+        { enforcementPath: target, access: 'write', scope: 'exact', targetType: 'file' },
+      ),
+    );
+
+    assert.equal(response.ok, false);
+    if (!response.ok) assert.equal(response.error.code, 'path_changed');
+    assert.equal(await readFile(target, 'utf8'), 'replacement');
+  });
+
   test('runs Grep from the filesystem root without broadening its target permission', async () => {
     const root = await temporaryDirectory('maka-worker-grep-root-');
     const target = join(root, 'file.ts');

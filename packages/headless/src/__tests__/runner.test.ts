@@ -655,6 +655,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
         backend: 'ai-sdk',
         llmConnectionSlug: 'deepseek',
         model: 'deepseek-chat',
+        fileEditToolset: 'apply_patch',
       };
       const task: Task = {
         id: 'real-task',
@@ -667,7 +668,15 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       const result = await runExperiment(realConfig, task, {
         storageRoot,
         registerBackends: registerIsolatedRealBackend(contexts),
-        realBackendIsolation: { kind: 'external', label: 'unit-test isolated backend' },
+        realBackendIsolation: {
+          kind: 'external',
+          label: 'unit-test isolated backend',
+          toolExecutor: {
+            async exec() {
+              return { exitCode: 0, stdout: '', stderr: '' };
+            },
+          },
+        },
       });
 
       assert.equal(result.status, 'completed');
@@ -676,6 +685,24 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.equal(contexts[0]?.realBackendIsolation?.label, 'unit-test isolated backend');
       assert.equal(contexts[0]?.config.id, 'real-cfg');
       assert.equal(contexts[0]?.task.id, 'real-task');
+      assert.match(contexts[0]?.config.systemPrompt ?? '', /ApplyPatch for file changes/);
+      assert.doesNotMatch(
+        contexts[0]?.config.systemPrompt ?? '',
+        /Edit and Write for file changes/,
+      );
+      assert.deepEqual(contexts[0]?.productToolSurface?.identity.policy, {
+        economy: true,
+        fileEditToolset: 'apply_patch',
+        disabledSurfaceIds: ['agent'],
+      });
+      assert.ok(
+        contexts[0]?.productToolSurface?.tools.some((candidate) => candidate.name === 'ApplyPatch'),
+      );
+      assert.ok(
+        !contexts[0]?.productToolSurface?.tools.some(
+          (candidate) => candidate.name === 'Write' || candidate.name === 'Edit',
+        ),
+      );
       assert.equal(typeof contexts[0]?.spawnChildAgent, 'function');
       assert.equal(typeof contexts[0]?.spawnChildSession, 'function');
       assert.equal(typeof contexts[0]?.retryChildAgent, 'function');
@@ -684,6 +711,7 @@ describe('fail-closed (a model-backed backend does not run without isolation)', 
       assert.ok(Array.isArray((await contexts[0]!.listChildAgents!(result.sessionId)).definitions));
       const sessions = createSessionStore(storageRoot);
       try {
+        assert.equal((await sessions.readHeader(result.sessionId)).fileEditToolset, 'apply_patch');
         assert.deepEqual(await sessions.readExecutionBoundary(result.sessionId), {
           kind: 'external',
           revision: 0,

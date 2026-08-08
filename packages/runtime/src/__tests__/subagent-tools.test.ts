@@ -263,6 +263,7 @@ describe('subagent tools', () => {
       'Grep',
       'Write',
       'Edit',
+      'ApplyPatch',
       'Bash',
     ]);
     expect(IMPLEMENTATION_AGENT_DEFINITION.tools.includes('WebSearch')).toBe(false);
@@ -326,6 +327,28 @@ describe('subagent tools', () => {
         testCatalogTool('Bash', 'shell_unsafe'),
       ],
     });
+
+    const applyPatchTools = [
+      testCatalogTool('Read', 'read'),
+      testCatalogTool('Glob', 'read'),
+      testCatalogTool('Grep', 'read'),
+      testCatalogTool('ApplyPatch', 'file_write'),
+      testCatalogTool('Bash', 'shell_unsafe'),
+    ];
+    expect(
+      evaluateAgentDefinitionAvailability({
+        definition: IMPLEMENTATION_AGENT_DEFINITION,
+        tools: applyPatchTools,
+        worktreeChildExecutorAvailable: true,
+      }),
+    ).toEqual({ status: 'available' });
+    expect(buildChildAgentTools(applyPatchTools).map((tool) => tool.name)).toEqual([
+      'Read',
+      'Glob',
+      'Grep',
+      'ApplyPatch',
+      'Bash',
+    ]);
   });
 
   test('agent definition availability depends on exposed tools, not legacy parent modes', () => {
@@ -438,6 +461,7 @@ describe('subagent tools', () => {
       'WebSearch',
       'Write',
       'Edit',
+      'ApplyPatch',
       'Bash',
     ]);
     expect([...CHILD_AGENT_TOOL_NAMES]).toEqual([
@@ -447,6 +471,7 @@ describe('subagent tools', () => {
       'WebSearch',
       'Write',
       'Edit',
+      'ApplyPatch',
       'Bash',
     ]);
   });

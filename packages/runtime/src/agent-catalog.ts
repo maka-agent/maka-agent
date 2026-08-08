@@ -161,7 +161,7 @@ export const IMPLEMENTATION_AGENT_DEFINITION: AgentDefinition = {
     supportedWriteBack: [AGENT_WRITE_BACK_PATCH],
   },
   permissionMode: 'execute',
-  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'],
+  tools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'ApplyPatch', 'Bash'],
   systemPrompt: [
     'You are a foreground implementation child agent.',
     'Run only inside a dedicated worktree child executor when the host provides one.',
@@ -282,12 +282,21 @@ export function evaluateAgentDefinitionAvailability(input: {
   }
 
   const byName = new Map(tools.map((tool) => [tool.name, tool]));
-  const missingTools = definition.tools.filter((name) => !byName.has(name));
+  let missingTools = definition.tools.filter((name) => !byName.has(name));
+  if (definition.id === IMPLEMENTATION_AGENT_ID && hasCompleteFileEditToolset(byName)) {
+    missingTools = missingTools.filter(
+      (name) => name !== 'Write' && name !== 'Edit' && name !== 'ApplyPatch',
+    );
+  }
   if (missingTools.length > 0) {
     return { status: 'unavailable', reason: 'missing_tools', missingTools };
   }
 
   return { status: 'available' };
+}
+
+function hasCompleteFileEditToolset(byName: ReadonlyMap<string, MakaTool>): boolean {
+  return byName.has('ApplyPatch') || (byName.has('Write') && byName.has('Edit'));
 }
 
 export function buildToolsForAgentDefinition(

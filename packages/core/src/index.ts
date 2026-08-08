@@ -11,6 +11,7 @@ export * from './mcp.js';
 export * from './collaboration.js';
 export * from './orchestration.js';
 export * from './tool-mode.js';
+export * from './file-edit-toolset.js';
 export * from './swarm-command.js';
 export * from './graph-command.js';
 export * from './plan.js';
@@ -1879,6 +1880,25 @@ export {
   catalogToolNameSet,
   unknownBoundToolNames,
 } from './tool-catalog.js';
+
+// apply-patch.ts — pure ApplyPatch parsing and mutation planning.
+export type {
+  ApplyPatchContentOutcome,
+  ApplyPatchHunk,
+  ApplyPatchParseError,
+  ApplyPatchParseOutcome,
+  ApplyPatchPathState,
+  ApplyPatchUpdateChunk,
+  PlannedPatchMutation,
+} from './apply-patch.js';
+export {
+  applyUpdateChunksToContent,
+  assertSafePatchPath,
+  canonicalApplyPatchPath,
+  canonicalizeApplyPatchHunks,
+  parseApplyPatch,
+  planApplyPatchMutations,
+} from './apply-patch.js';
 
 // attachments.ts
 export {

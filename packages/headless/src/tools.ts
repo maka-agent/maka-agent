@@ -1,6 +1,8 @@
 import { MAX_READ_IMAGE_BYTES, type BackendKind, type StorageRef } from '@maka/core';
+import type { FileEditToolset } from '@maka/core/file-edit-toolset';
 import type { EffectiveProductToolSurface, MakaTool } from '@maka/runtime';
 import {
+  applyPatchToolResultToModelOutput,
   assertProductBindingCatalogClean,
   bashToolShellGuidance,
   buildForegroundBashTool,
@@ -14,6 +16,11 @@ import {
   projectEffectiveProductToolSurface,
   validateImageBytes,
 } from '@maka/runtime';
+import {
+  executeApplyPatchWithAdapter,
+  type ApplyPatchFsAdapter,
+  type ApplyPatchSnapshot,
+} from '@maka/runtime/apply-patch-engine';
 import { withFileWriteLock } from '@maka/runtime/file-write-lock';
 import { createHash } from 'node:crypto';
 import { posix as pathPosix } from 'node:path';
@@ -35,6 +42,7 @@ import {
 
 export interface BuildIsolatedHeadlessToolsOptions {
   agentTools?: boolean;
+  fileEditToolset?: FileEditToolset;
   heavyTaskEvidence?: HeavyTaskEvidenceRecorder;
   heavyTaskProgress?: HeavyTaskProgressRecorder;
   heavyTaskSelfCheck?: HeavyTaskSelfCheckRecorder;
@@ -64,6 +72,10 @@ const fileWriteKey = (cwd: string, normalizedPath: string) =>
 const EDIT_READ_FRAME_END = 'MAKA_EDIT_BYTES_END';
 const EDIT_READ_FRAME_HEADER_PATTERN =
   /^MAKA_EDIT_BYTES_V1 length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
+const APPLY_PATCH_SNAPSHOT_FRAME_END = 'MAKA_APPLY_PATCH_SNAPSHOT_END';
+const APPLY_PATCH_SNAPSHOT_FRAME_HEADER_PATTERN =
+  /^MAKA_APPLY_PATCH_SNAPSHOT_V1 kind=(missing|file|directory|symlink|other) token=([A-Za-z0-9:._-]+) length=(0|[1-9]\d*) sha256=([a-f0-9]{64})$/;
+const APPLY_PATCH_TOKEN_PATTERN = /^[A-Za-z0-9:._-]+$/;
 const FILE_TOOL_OUTPUT_FRAME_END = 'MAKA_FILE_TOOL_OUTPUT_END';
 const FILE_TOOL_OUTPUT_FRAME_HEADER_PATTERN =
   /^MAKA_FILE_TOOL_OUTPUT_V1 tool=([A-Za-z]+) nonce=(0|[1-9]\d*)$/;
@@ -92,7 +104,7 @@ export function buildIsolatedHeadlessProductToolSurface(
   executor: IsolatedToolExecutor,
   options: Pick<
     BuildIsolatedHeadlessToolsOptions,
-    'agentTools' | 'heavyTaskEvidence' | 'snapshotImage'
+    'agentTools' | 'fileEditToolset' | 'heavyTaskEvidence' | 'snapshotImage'
   > = {},
 ): EffectiveProductToolSurface {
   const productTools = [
@@ -109,6 +121,7 @@ export function buildIsolatedHeadlessProductToolSurface(
     buildIsolatedReadTool(executor, options),
     buildIsolatedWriteTool(executor, options),
     buildIsolatedEditTool(executor, options),
+    buildIsolatedApplyPatchTool(executor, options),
     buildIsolatedGlobTool(executor, options),
     buildIsolatedGrepTool(executor, options),
     ...buildParentAgentTools(),
@@ -122,6 +135,7 @@ export function buildIsolatedHeadlessProductToolSurface(
     tools: productTools,
     policy: {
       economy: true,
+      ...(options.fileEditToolset ? { fileEditToolset: options.fileEditToolset } : {}),
       ...(options.agentTools ? {} : { disabledSurfaceIds: ['agent'] }),
     },
   });
@@ -136,11 +150,104 @@ export function buildHeadlessProductToolSurfaceForBackend(
   executor: IsolatedToolExecutor | undefined,
   options: Pick<
     BuildIsolatedHeadlessToolsOptions,
-    'agentTools' | 'heavyTaskEvidence' | 'snapshotImage'
+    'agentTools' | 'fileEditToolset' | 'heavyTaskEvidence' | 'snapshotImage'
   > = {},
 ): EffectiveProductToolSurface | undefined {
   if (!headlessBackendBindsMakaProductTools(backend) || !executor) return undefined;
   return buildIsolatedHeadlessProductToolSurface(executor, options);
+}
+
+export function buildIsolatedApplyPatchTool(
+  executor: IsolatedToolExecutor,
+  options: Pick<BuildIsolatedHeadlessToolsOptions, 'heavyTaskEvidence'> = {},
+): MakaTool {
+  return {
+    name: 'ApplyPatch',
+    activityKind: 'edit',
+    categoryHint: 'file_write',
+    description:
+      'Apply one patch that creates, updates, or deletes one or more files in the isolated workspace. ' +
+      'Use the complete *** Begin Patch / *** End Patch envelope with relative file paths.',
+    parameters: z.object({ patch: z.string().min(1) }).strict(),
+    impl: async ({ patch }, ctx) => {
+      const result = await executeApplyPatchWithAdapter(
+        patch,
+        createIsolatedApplyPatchFs(executor, ctx.cwd, ctx.abortSignal),
+        withFileWriteLock,
+      );
+      await options.heavyTaskEvidence?.recordToolEvidence(
+        { name: 'ApplyPatch', input: { cwd: ctx.cwd, patch }, result },
+        ctx,
+      );
+      return result;
+    },
+    toModelOutput: ({ output }) => applyPatchToolResultToModelOutput(output),
+  };
+}
+
+function createIsolatedApplyPatchFs(
+  executor: IsolatedToolExecutor,
+  cwd: string,
+  abortSignal: AbortSignal,
+): ApplyPatchFsAdapter {
+  const normalized = (path: string, label: string) => normalizeWorkspacePath(path, cwd, label);
+  const snapshot = async (relativePath: string) => {
+    const stdout = await execFileCommand(
+      executor,
+      cwd,
+      shellFileCommand(APPLY_PATCH_SNAPSHOT_SCRIPT, [relativePath]),
+      abortSignal,
+    );
+    return parseApplyPatchSnapshot(stdout, relativePath);
+  };
+  return {
+    async lockKey(path) {
+      return fileWriteKey(cwd, normalized(path, 'ApplyPatch path'));
+    },
+    async snapshot(path) {
+      const relativePath = normalized(path, 'ApplyPatch snapshot path');
+      return await snapshot(relativePath);
+    },
+    async writeText(path, content, mode, expectedToken) {
+      const relativePath = normalized(path, 'ApplyPatch write path');
+      const bytes = Buffer.from(content, 'utf8');
+      const stdout = await execFileCommand(
+        executor,
+        cwd,
+        shellFileCommand(APPLY_PATCH_WRITE_SCRIPT, [
+          relativePath,
+          mode,
+          expectedToken,
+          bytes.toString('base64'),
+        ]),
+        abortSignal,
+      );
+      const token = stdout.trim();
+      if (!APPLY_PATCH_TOKEN_PATTERN.test(token)) {
+        throw new Error(`ApplyPatch write returned an invalid revision for ${relativePath}`);
+      }
+      return { path: relativePath, bytes: bytes.length, token };
+    },
+    async deletePath(path, expectedToken) {
+      const relativePath = normalized(path, 'ApplyPatch delete path');
+      await execFileCommand(
+        executor,
+        cwd,
+        shellFileCommand(APPLY_PATCH_DELETE_SCRIPT, [relativePath, expectedToken]),
+        abortSignal,
+      );
+      try {
+        const inspected = await snapshot(relativePath);
+        if (inspected.state.kind !== 'missing') {
+          throw new Error('ApplyPatch delete target was recreated before settlement');
+        }
+        return { path: relativePath, token: inspected.token };
+      } catch (error) {
+        const failure = error instanceof Error ? error : new Error(String(error));
+        throw Object.assign(failure, { effectUnknown: true });
+      }
+    },
+  };
 }
 
 export function buildIsolatedHeadlessSupplementalTools(
@@ -630,6 +737,56 @@ function parseEditReadFrame(stdout: string, integrityLabel = 'Edit read'): Buffe
   return decoded;
 }
 
+function parseApplyPatchSnapshot(stdout: string, path: string): ApplyPatchSnapshot {
+  const lines = stdout.split('\n');
+  if (lines.length !== 4 || lines[3] !== '' || lines[2] !== APPLY_PATCH_SNAPSHOT_FRAME_END) {
+    throw new Error(
+      `ApplyPatch snapshot transport integrity check failed for ${path}: malformed frame`,
+    );
+  }
+  const header = lines[0]?.match(APPLY_PATCH_SNAPSHOT_FRAME_HEADER_PATTERN);
+  if (!header) {
+    throw new Error(
+      `ApplyPatch snapshot transport integrity check failed for ${path}: malformed header`,
+    );
+  }
+  const [, kind, token, lengthText, expectedDigest] = header;
+  const payload = lines[1] ?? '';
+  if (!CANONICAL_BASE64_PATTERN.test(payload)) {
+    throw new Error(
+      `ApplyPatch snapshot transport integrity check failed for ${path}: invalid Base64`,
+    );
+  }
+  const bytes = Buffer.from(payload, 'base64');
+  const length = Number(lengthText);
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  if (
+    !Number.isSafeInteger(length) ||
+    bytes.length !== length ||
+    bytes.toString('base64') !== payload ||
+    digest !== expectedDigest
+  ) {
+    throw new Error(
+      `ApplyPatch snapshot transport integrity check failed for ${path}: content mismatch`,
+    );
+  }
+  if (kind === 'file') {
+    const content = bytes.toString('utf8');
+    if (!Buffer.from(content, 'utf8').equals(bytes)) {
+      throw new Error(`ApplyPatch does not support non-UTF-8 files: ${path}`);
+    }
+    return { state: { kind: 'file', content }, token: token! };
+  }
+  if (bytes.length !== 0) {
+    throw new Error(
+      `ApplyPatch snapshot transport integrity check failed for ${path}: unexpected content`,
+    );
+  }
+  if (kind === 'missing') return { state: { kind: 'missing' }, token: token! };
+  if (kind === 'symlink') return { state: { kind: 'symlink' }, token: token! };
+  return { state: { kind: 'other' }, token: token! };
+}
+
 function editReadIntegrityError(reason: string, label: string): Error {
   return new Error(`${label} transport integrity check failed: ${reason}`);
 }
@@ -883,6 +1040,163 @@ writable_target() {
   [ -L "$real" ] && fail "$label must stay inside workspace"
   printf '%s\n' "$real"
 }
+`;
+
+const APPLY_PATCH_SHELL_HELPERS = `${COMMON_SHELL_HELPERS}
+patch_stat() {
+  (stat -c '%d:%i:%s:%Y:%Z' "$1" 2>/dev/null || stat -f '%d:%i:%z:%m:%c' "$1" 2>/dev/null) | head -n 1
+}
+
+patch_digest() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    fail 'SHA-256 utility is required for ApplyPatch'
+  fi
+}
+
+patch_parent() {
+  input_path=$1
+  create=$2
+  parent=$root
+  remaining=$(dirname "$input_path")
+  while [ "$remaining" != "." ] && [ -n "$remaining" ]; do
+    case "$remaining" in
+      */*)
+        segment=\${remaining%%/*}
+        remaining=\${remaining#*/}
+        ;;
+      *)
+        segment=$remaining
+        remaining=.
+        ;;
+    esac
+    [ "$segment" = "." ] && continue
+    next=$parent/$segment
+    [ ! -L "$next" ] || fail 'ApplyPatch parent must stay inside workspace'
+    if [ ! -e "$next" ]; then
+      if [ "$create" = "yes" ]; then
+        mkdir "$next" || fail 'ApplyPatch parent directory creation failed'
+      else
+        printf 'missing %s\n' "$parent"
+        return 0
+      fi
+    fi
+    [ -d "$next" ] || fail 'ApplyPatch parent is not a directory'
+    parent=$(cd -P "$next" 2>/dev/null && pwd -P) ||
+      fail 'ApplyPatch parent must stay inside workspace'
+    inside_workspace "$parent" || fail 'ApplyPatch parent must stay inside workspace'
+  done
+  printf 'ready %s\n' "$parent"
+}
+
+patch_token_for() {
+  input_path=$1
+  parent_info=$(patch_parent "$input_path" no) || exit 1
+  parent_kind=\${parent_info%% *}
+  parent=\${parent_info#* }
+  if [ "$parent_kind" = "missing" ]; then
+    parent_stat=$(patch_stat "$parent") || fail 'ApplyPatch could not stat parent'
+    printf 'missing:%s\n' "$parent_stat"
+    return 0
+  fi
+  target=$parent/$(basename "$input_path")
+  if [ -L "$target" ]; then
+    printf 'symlink:%s\n' "$(patch_stat "$target")"
+  elif [ -f "$target" ]; then
+    printf 'file:%s:%s\n' "$(patch_stat "$target")" "$(patch_digest "$target")"
+  elif [ -d "$target" ]; then
+    printf 'directory:%s\n' "$(patch_stat "$target")"
+  elif [ -e "$target" ]; then
+    printf 'other:%s\n' "$(patch_stat "$target")"
+  else
+    printf 'missing:%s\n' "$(patch_stat "$parent")"
+  fi
+}
+
+patch_decode() {
+  payload=$1
+  output_path=$2
+  if printf '%s' "$payload" | base64 -d > "$output_path" 2>/dev/null; then
+    return 0
+  fi
+  printf '%s' "$payload" | base64 -D > "$output_path" 2>/dev/null ||
+    fail 'base64 decode failed for ApplyPatch payload'
+}
+`;
+
+const APPLY_PATCH_SNAPSHOT_SCRIPT = `${APPLY_PATCH_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+input_path=$1
+token=$(patch_token_for "$input_path") || exit 1
+kind=\${token%%:*}
+empty_digest=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+if [ "$kind" != "file" ]; then
+  printf 'MAKA_APPLY_PATCH_SNAPSHOT_V1 kind=%s token=%s length=0 sha256=%s\n\nMAKA_APPLY_PATCH_SNAPSHOT_END\n' "$kind" "$token" "$empty_digest"
+  exit 0
+fi
+parent_info=$(patch_parent "$input_path" no) || exit 1
+parent=\${parent_info#* }
+target=$parent/$(basename "$input_path")
+size=$(wc -c < "$target" | tr -d '[:space:]') || exit 1
+digest=\${token##*:}
+printf 'MAKA_APPLY_PATCH_SNAPSHOT_V1 kind=file token=%s length=%s sha256=%s\n' "$token" "$size" "$digest"
+base64 < "$target" | LC_ALL=C tr -d '\r\n'
+printf '\nMAKA_APPLY_PATCH_SNAPSHOT_END\n'
+`;
+
+const APPLY_PATCH_WRITE_SCRIPT = `${APPLY_PATCH_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+input_path=$1
+mode=$2
+expected=$3
+payload=$4
+current=$(patch_token_for "$input_path") || exit 1
+[ "$current" = "$expected" ] || fail 'ApplyPatch path changed after preflight'
+if [ "$mode" = "create" ]; then
+  case "$current" in missing:*) ;; *) fail 'ApplyPatch create target already exists' ;; esac
+  parent_info=$(patch_parent "$input_path" yes) || exit 1
+  parent=\${parent_info#* }
+  target=$parent/$(basename "$input_path")
+  [ ! -e "$target" ] && [ ! -L "$target" ] || fail 'ApplyPatch create target already exists'
+  tmp=$(mktemp "$parent/.maka-apply-patch.XXXXXX") || fail 'ApplyPatch temp file creation failed'
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  patch_decode "$payload" "$tmp"
+  ln "$tmp" "$target" || fail 'ApplyPatch create target already exists'
+  rm -f "$tmp" || true
+  trap - EXIT HUP INT TERM
+elif [ "$mode" = "replace" ]; then
+  case "$current" in file:*) ;; *) fail 'ApplyPatch update target is not a regular file' ;; esac
+  parent_info=$(patch_parent "$input_path" no) || exit 1
+  parent=\${parent_info#* }
+  target=$parent/$(basename "$input_path")
+  tmp=$(mktemp "$parent/.maka-apply-patch.XXXXXX") || fail 'ApplyPatch temp file creation failed'
+  trap 'rm -f "$tmp"' EXIT HUP INT TERM
+  patch_decode "$payload" "$tmp"
+  file_mode=$( (stat -c '%a' "$target" 2>/dev/null || stat -f '%Lp' "$target" 2>/dev/null) | head -n 1 )
+  [ -n "$file_mode" ] && chmod "$file_mode" "$tmp" 2>/dev/null || true
+  [ "$(patch_token_for "$input_path")" = "$expected" ] || fail 'ApplyPatch path changed after preflight'
+  mv "$tmp" "$target" || fail 'ApplyPatch atomic rename failed'
+  trap - EXIT HUP INT TERM
+else
+  fail 'ApplyPatch write mode is invalid'
+fi
+patch_token_for "$input_path"
+`;
+
+const APPLY_PATCH_DELETE_SCRIPT = `${APPLY_PATCH_SHELL_HELPERS}
+root=$(pwd -P) || exit 1
+input_path=$1
+expected=$2
+current=$(patch_token_for "$input_path") || exit 1
+[ "$current" = "$expected" ] || fail 'ApplyPatch path changed after preflight'
+case "$current" in file:*|symlink:*) ;; *) fail 'ApplyPatch delete target is not a file' ;; esac
+parent_info=$(patch_parent "$input_path" no) || exit 1
+parent=\${parent_info#* }
+target=$parent/$(basename "$input_path")
+rm -f "$target" || fail 'ApplyPatch delete failed'
 `;
 
 const FRAME_FILE_TOOL_OUTPUT_SCRIPT = String.raw`

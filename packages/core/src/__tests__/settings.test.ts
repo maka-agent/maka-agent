@@ -237,6 +237,26 @@ test('an unset chat-default thinking level stays unset rather than becoming a le
   expect(normalized.chatDefaults.thinkingLevel).toBe(undefined);
 });
 
+test('chat defaults normalize one file-edit toolset', () => {
+  expect(normalizeSettings(createDefaultSettings()).chatDefaults.fileEditToolset).toBe(
+    'edit_write',
+  );
+  expect(
+    normalizeSettings(
+      mergeSettings(createDefaultSettings(), {
+        chatDefaults: { fileEditToolset: 'apply_patch' },
+      }),
+    ).chatDefaults.fileEditToolset,
+  ).toBe('apply_patch');
+  expect(
+    normalizeSettings(
+      mergeSettings(createDefaultSettings(), {
+        chatDefaults: { fileEditToolset: 'unknown' as 'apply_patch' },
+      }),
+    ).chatDefaults.fileEditToolset,
+  ).toBe('edit_write');
+});
+
 test('a persisted chat-default thinking level survives normalization', () => {
   const normalized = normalizeSettings(
     mergeSettings(createDefaultSettings(), { chatDefaults: { thinkingLevel: 'high' } }),

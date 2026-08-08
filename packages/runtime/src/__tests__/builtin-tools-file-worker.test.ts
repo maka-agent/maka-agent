@@ -81,6 +81,10 @@ describe('builtin file tools use the sandboxed worker', () => {
         execute: async (input) => {
           calls.push(input);
           switch (input.operation.kind) {
+            case 'lstat':
+              return { kind: 'lstat', targetType: 'missing', token: 'missing' };
+            case 'delete':
+              return { kind: 'delete', ok: true, path: input.operation.path };
             case 'read':
               return { kind: 'read', content: 'worker-content' };
             case 'write':
@@ -384,6 +388,41 @@ describe('file tools surface a file_diff result', () => {
     });
 
     assert.deepEqual(output, { type: 'text', value: 'Created new.md (+2)' });
+  });
+
+  test('ApplyPatch is one file-write tool backed by the shared filesystem authority', async () => {
+    const cwd = await temporaryDirectory('maka-apply-patch-tool-');
+    const tools = buildBuiltinTools();
+    const tool = tools.find((candidate) => candidate.name === 'ApplyPatch');
+    if (!tool?.toModelOutput) throw new Error('ApplyPatch tool missing');
+    assert.equal(tool.categoryHint, 'file_write');
+
+    const result = await tool.impl(
+      {
+        patch: `*** Begin Patch
+*** Add File: added.txt
++added
+*** End Patch`,
+      },
+      {
+        sessionId: 'session-1',
+        turnId: 'turn-1',
+        toolCallId: 'tool-ApplyPatch',
+        cwd,
+        permissionMode: 'ask',
+        executionBoundary: { kind: 'bypass', revision: 1 },
+        abortSignal: new AbortController().signal,
+        emitOutput: () => {},
+      },
+    );
+
+    assert.equal(await readFile(join(cwd, 'added.txt'), 'utf8'), 'added\n');
+    const output = await tool.toModelOutput({
+      toolCallId: 'tool-ApplyPatch',
+      input: { patch: 'redacted by the result projector' },
+      output: result,
+    });
+    assert.deepEqual(output, { type: 'text', value: 'Applied patch:\nA added.txt' });
   });
 });
 

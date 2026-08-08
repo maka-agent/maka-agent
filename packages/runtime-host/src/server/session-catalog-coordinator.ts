@@ -259,6 +259,7 @@ export class HostSessionCatalogCoordinator {
           model: model.model,
           ...(input.thinkingLevel === undefined ? {} : { thinkingLevel: input.thinkingLevel }),
           permissionMode: prepared.permissionMode ?? policy.policy.chatDefaults.permissionMode,
+          fileEditToolset: prepared.fileEditToolset ?? policy.policy.chatDefaults.fileEditToolset,
           collaborationMode: input.collaborationMode ?? 'agent',
           orchestrationMode: input.orchestrationMode ?? 'default',
         };
@@ -696,6 +697,7 @@ interface PreparedSessionCreate {
   readonly name: string;
   readonly labels: readonly string[];
   readonly permissionMode?: SessionCreateInput['permissionMode'];
+  readonly fileEditToolset?: SessionCreateInput['fileEditToolset'];
   readonly requestFingerprint: string;
 }
 
@@ -732,6 +734,7 @@ async function prepareCreate(input: SessionCreateInput): Promise<PreparedSession
       : ['explicit', input.modelTarget.connectionSlug, input.modelTarget.model],
     input.thinkingLevel ?? null,
     permissionMode ?? ['runtime_default'],
+    input.fileEditToolset ?? ['runtime_default'],
     input.collaborationMode ?? 'agent',
     input.orchestrationMode ?? 'default',
   ];
@@ -740,6 +743,7 @@ async function prepareCreate(input: SessionCreateInput): Promise<PreparedSession
     name,
     labels,
     ...(permissionMode === undefined ? {} : { permissionMode }),
+    ...(input.fileEditToolset === undefined ? {} : { fileEditToolset: input.fileEditToolset }),
     requestFingerprint: `sha256:${createHash('sha256')
       .update(JSON.stringify(identity))
       .digest('hex')}`,
@@ -805,6 +809,7 @@ export function projectSessionCatalogRecord(record: SessionCatalogRecord): Sessi
     model: header.model,
     ...(header.thinkingLevel === undefined ? {} : { thinkingLevel: header.thinkingLevel }),
     permissionMode: header.permissionMode,
+    fileEditToolset: header.fileEditToolset ?? 'edit_write',
     collaborationMode: header.collaborationMode ?? 'agent',
     orchestrationMode: header.orchestrationMode ?? 'default',
   };

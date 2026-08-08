@@ -18,6 +18,24 @@ describe('Maka CLI args', () => {
       [['--version'], { kind: 'version', text: '0.1.0' }],
       [['headless'], { kind: 'error', message: 'Unexpected argument: headless', exitCode: 2 }],
       [['--resume', 'abc'], { kind: 'tui', resumeSessionId: 'abc' }],
+      [['--file-edit-toolset', 'apply-patch'], { kind: 'tui', fileEditToolset: 'apply_patch' }],
+      [['--file-edit-toolset', 'edit-write'], { kind: 'tui', fileEditToolset: 'edit_write' }],
+      [
+        ['--file-edit-toolset', 'unknown'],
+        {
+          kind: 'error',
+          message: '--file-edit-toolset must be edit-write or apply-patch',
+          exitCode: 2,
+        },
+      ],
+      [
+        ['--file-edit-toolset'],
+        {
+          kind: 'error',
+          message: '--file-edit-toolset requires a value',
+          exitCode: 2,
+        },
+      ],
       [['--resume'], { kind: 'error', message: '--resume requires a session id', exitCode: 2 }],
       [
         ['--resume', '--help'],

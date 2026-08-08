@@ -8,8 +8,8 @@
  *
  * MVP scope only. Deliberately deferred as pure additions: a matrix /
  * compare layer, LLM/rule evaluators (MVP = command/test only), Docker
- * execution, network allowlist, toolset overrides on Config, and
- * promoting these contracts into @maka/core once a second consumer exists.
+ * execution, network allowlist, and promoting these contracts into @maka/core
+ * once a second consumer exists.
  */
 
 import type {
@@ -19,6 +19,7 @@ import type {
   OrchestrationMode,
   ThinkingLevel,
 } from '@maka/core';
+import type { FileEditToolset } from '@maka/core/file-edit-toolset';
 
 /**
  * A unit of work the lab runs a Config against. Field names lean toward
@@ -167,6 +168,8 @@ export interface Config {
    * deferred `load_tools` activation.
    */
   agentTools?: boolean;
+  /** File mutation interface exposed for this run. Defaults to Write + Edit. */
+  fileEditToolset?: FileEditToolset;
 }
 
 export interface HeavyTaskModeConfig {

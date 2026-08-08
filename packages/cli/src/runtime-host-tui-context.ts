@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import type { FileEditToolset } from '@maka/core/file-edit-toolset';
 import type { ConnectionCatalogEntry, ConnectionCatalogSnapshot } from '@maka/core/runtime-policy';
 import { SessionActivityRegistry, type InvocableSkillEntry } from '@maka/runtime';
 import {
@@ -41,6 +42,7 @@ export interface CreateRuntimeHostTuiContextInput {
   readonly rootPath: string;
   readonly cwd: string;
   readonly resumeSessionId?: string;
+  readonly fileEditToolset?: FileEditToolset;
 }
 
 export async function createRuntimeHostTuiContext(
@@ -63,6 +65,7 @@ export async function createRuntimeHostTuiContext(
       llmConnectionSlug: target.connection.slug,
       model: target.model,
       permissionMode: 'ask',
+      ...(input.fileEditToolset ? { fileEditToolset: input.fileEditToolset } : {}),
     };
     const driver = createRuntimeHostMakaSessionDriver(driverInput);
     return {

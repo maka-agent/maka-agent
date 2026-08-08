@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { resolveFileEditToolset } from '@maka/core/file-edit-toolset';
 import type { Config, HeadlessSystemPromptMode } from './contracts.js';
 import {
   appendEconomyTaskPolicyToSystemPrompt,
@@ -16,6 +17,13 @@ export const DEFAULT_HEADLESS_SYSTEM_PROMPT = [
   'Stop when the task is complete.',
 ].join('\n');
 
+export const DEFAULT_APPLY_PATCH_HEADLESS_SYSTEM_PROMPT = [
+  'Complete the task by acting with the available tools, not by narrating.',
+  'Prefer Read, Glob, and Grep for inspection, ApplyPatch for file changes, and Bash for shell commands and tests.',
+  'Verify the result when practical.',
+  'Stop when the task is complete.',
+].join('\n');
+
 export interface ResolvedHeadlessSystemPrompt {
   mode: HeadlessSystemPromptMode;
   systemPrompt: string;
@@ -28,14 +36,17 @@ export interface ResolveHeadlessSystemPromptOptions {
 }
 
 export function resolveHeadlessSystemPrompt(
-  config: Pick<Config, 'systemPrompt'>,
+  config: Pick<Config, 'systemPrompt' | 'fileEditToolset'>,
   options: ResolveHeadlessSystemPromptOptions = {},
 ): ResolvedHeadlessSystemPrompt {
   let mode: HeadlessSystemPromptMode;
   let systemPrompt: string;
   if (config.systemPrompt === undefined) {
     mode = 'default';
-    systemPrompt = DEFAULT_HEADLESS_SYSTEM_PROMPT;
+    systemPrompt =
+      resolveFileEditToolset(config.fileEditToolset) === 'apply_patch'
+        ? DEFAULT_APPLY_PATCH_HEADLESS_SYSTEM_PROMPT
+        : DEFAULT_HEADLESS_SYSTEM_PROMPT;
   } else if (config.systemPrompt.trim().length === 0) {
     throw new Error('Config.systemPrompt must contain non-whitespace text');
   } else {

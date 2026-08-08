@@ -10,6 +10,7 @@ import {
 import type {
   AppSettings,
   ChatDefaultPermissionMode,
+  FileEditToolset,
   ThinkingLevel,
   LlmConnection,
   NetworkProxySettings,
@@ -139,6 +140,7 @@ export function GeneralSettingsPage(props: {
         defaultSlug={props.defaultSlug}
         onRefresh={props.onRefreshConnections}
         permissionMode={props.settings.chatDefaults.permissionMode}
+        fileEditToolset={props.settings.chatDefaults.fileEditToolset}
         thinkingLevel={props.settings.chatDefaults.thinkingLevel}
         onUpdate={props.onUpdate}
       />
@@ -183,6 +185,7 @@ function GeneralDefaultsCard(props: {
   defaultSlug: string | null;
   onRefresh(): Promise<void>;
   permissionMode: ChatDefaultPermissionMode;
+  fileEditToolset: FileEditToolset;
   thinkingLevel?: ThinkingLevel;
   onUpdate(
     patch: Parameters<typeof window.maka.settings.update>[0],
@@ -198,10 +201,11 @@ function GeneralDefaultsCard(props: {
   const toast = useToast();
   const mountedRef = useMountedRef();
   const persistGuard = useKeyedActionGuard<
-    "default-model" | "permission-mode" | "thinking-level"
+    "default-model" | "file-edit-toolset" | "permission-mode" | "thinking-level"
   >();
   const [saving, setSaving] = useState(false);
   const [savingPermissionMode, setSavingPermissionMode] = useState(false);
+  const [savingFileEditToolset, setSavingFileEditToolset] = useState(false);
   const [savingThinkingLevel, setSavingThinkingLevel] = useState(false);
 
   const modelChoices = useMemo(
@@ -319,6 +323,22 @@ function GeneralDefaultsCard(props: {
     }
   }
 
+  async function persistFileEditToolset(next: FileEditToolset) {
+    const releaseSave = persistGuard.begin("file-edit-toolset");
+    if (!releaseSave) return;
+    setSavingFileEditToolset(true);
+    try {
+      await props.onUpdate({ chatDefaults: { fileEditToolset: next } });
+    } catch (error) {
+      if (mountedRef.current) {
+        toast.error(copy.saveDefaultFileEditToolsetFailed, settingsActionErrorMessage(error, locale));
+      }
+    } finally {
+      releaseSave();
+      if (mountedRef.current) setSavingFileEditToolset(false);
+    }
+  }
+
   return (
     <SettingsSection
       title={sections.chatDefaults}
@@ -353,6 +373,25 @@ function GeneralDefaultsCard(props: {
             align="end"
             disabled={savingPermissionMode}
             ariaLabel={copy.defaultPermission}
+          />
+        }
+      />
+      <SettingsRow
+        label={copy.defaultFileEditToolset}
+        description={copy.defaultFileEditToolsetHelp}
+        end={
+          <Selector
+            label={copy.defaultFileEditToolset}
+            isLabelHidden
+            value={props.fileEditToolset}
+            onChange={(value) => {
+              void persistFileEditToolset(value as FileEditToolset);
+            }}
+            options={[
+              { value: "edit_write", label: copy.fileEditToolsetEditWrite },
+              { value: "apply_patch", label: copy.fileEditToolsetApplyPatch },
+            ]}
+            isDisabled={savingFileEditToolset}
           />
         }
       />

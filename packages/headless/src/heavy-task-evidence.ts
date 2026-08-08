@@ -1,4 +1,5 @@
 import type { MakaToolContext } from '@maka/runtime';
+import type { ApplyPatchEngineResult } from '@maka/runtime/apply-patch-engine';
 import {
   isAcceptedHeavyTaskSelfCheck,
   validateHeavyTaskPublicSelfCheck,
@@ -79,6 +80,11 @@ export type HeavyTaskToolEvidenceInput =
       name: 'Edit';
       input: IsolatedEditFileInput;
       result: IsolatedEditFileResult;
+    }
+  | {
+      name: 'ApplyPatch';
+      input: { cwd: string; patch: string };
+      result: ApplyPatchEngineResult;
     }
   | {
       name: 'Glob';
@@ -243,6 +249,25 @@ export function compactToolEvidence(
           ok: input.result.ok,
           outputs: [omittedOutput('diff')],
           diff: notCapturedDiff(input.result.path),
+        },
+      };
+    case 'ApplyPatch':
+      return {
+        ...base,
+        tool: {
+          name: 'ApplyPatch',
+          inputSummary: {
+            cwd: compactPublicString(input.input.cwd, 500),
+            patchBytes: Buffer.byteLength(input.input.patch, 'utf8'),
+            patchOmitted: true,
+            operationCount: input.result.operations.length,
+          },
+          ok: input.result.ok,
+          outputs: [omittedOutput('diff')],
+          diff: {
+            status: 'not_captured',
+            files: input.result.operations.map((operation) => ({ path: operation.path })),
+          },
         },
       };
     case 'Glob':

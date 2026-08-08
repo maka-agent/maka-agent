@@ -21,6 +21,7 @@ import {
   type ToolCategory,
 } from './permission.js';
 import type { CollaborationMode } from './collaboration.js';
+import type { FileEditToolset } from './file-edit-toolset.js';
 import type { OrchestrationMode } from './orchestration.js';
 import {
   defineObjectShape,
@@ -247,6 +248,8 @@ export interface SessionHeader {
   /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
   thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Fixed at Session creation; legacy records default to `edit_write`. */
+  fileEditToolset?: FileEditToolset;
   /** Defaults to `agent` when absent on legacy session records. */
   collaborationMode?: CollaborationMode;
   /** Defaults to `default` when absent on legacy session records. */
@@ -317,6 +320,8 @@ export interface SessionSummary {
   /** Per-model reasoning-depth variant; `undefined` = model default. Cleared on model switch. */
   thinkingLevel?: import('./model-thinking.js').ThinkingLevel;
   permissionMode: PermissionMode;
+  /** Fixed editing-tool surface for this Session. */
+  fileEditToolset?: FileEditToolset;
   /** Defaults to `agent` when absent on legacy summaries. */
   collaborationMode?: CollaborationMode;
   /** Defaults to `default` when absent on legacy summaries. */

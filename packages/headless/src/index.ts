@@ -346,7 +346,10 @@ export {
   writeTaskRunExport,
 } from './result-export.js';
 export { normalizeVerifier } from './verifier.js';
-export { DEFAULT_HEADLESS_SYSTEM_PROMPT } from './system-prompts.js';
+export {
+  DEFAULT_APPLY_PATCH_HEADLESS_SYSTEM_PROMPT,
+  DEFAULT_HEADLESS_SYSTEM_PROMPT,
+} from './system-prompts.js';
 export {
   appendHeavyTaskPolicyToSystemPrompt,
   buildHeavyTaskSystemPromptPolicy,

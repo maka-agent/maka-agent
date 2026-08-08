@@ -1108,7 +1108,11 @@ describe('runHarborCell', () => {
       assert.equal(observed.spawned, false);
       assert.match(observed.error ?? '', /missing tools/i);
       assert.deepEqual(result.output.executionIdentity?.productToolSurface, {
-        policy: { economy: true, disabledSurfaceIds: ['agent'] },
+        policy: {
+          economy: true,
+          fileEditToolset: 'edit_write',
+          disabledSurfaceIds: ['agent'],
+        },
         productToolNames: ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'],
       });
     });
@@ -2045,6 +2049,7 @@ describe('runHarborCell', () => {
           backend: 'ai-sdk',
           llmConnectionSlug: 'openai',
           model: 'gpt-5.6-sol',
+          fileEditToolset: 'apply_patch',
           systemPrompt: DEFAULT_HEADLESS_SYSTEM_PROMPT,
         },
         task: { id: 'harbor-cell', instruction: 'solve', workspaceDir },
@@ -2060,10 +2065,12 @@ describe('runHarborCell', () => {
       const backendInput = (backend as unknown as { input: AiSdkBackendInput }).input;
       const toolNames = backendInput.tools.map((tool) => tool.name);
 
-      for (const expected of ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep']) {
+      for (const expected of ['Bash', 'Read', 'ApplyPatch', 'Glob', 'Grep']) {
         assert.ok(toolNames.includes(expected), `expected provider schema tool ${expected}`);
       }
       for (const unexpected of [
+        'Write',
+        'Edit',
         'WebSearch',
         'agent_spawn',
         'agent_swarm',
@@ -5111,6 +5118,7 @@ async function registerProjectedAiSdkBackend(
     ...context,
     productToolSurface: buildIsolatedHeadlessProductToolSurface(context.toolExecutor, {
       agentTools: context.config.agentTools,
+      fileEditToolset: context.config.fileEditToolset,
       snapshotImage: createReadImageSnapshotter(context.artifactStore),
     }),
   });

@@ -4,9 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolveMakaWorkspaceRoot } from './workspace-root.js';
+import type { FileEditToolset } from '@maka/core/file-edit-toolset';
 
 export type MakaCliCommand =
-  | { kind: 'tui'; resumeSessionId?: string }
+  | { kind: 'tui'; resumeSessionId?: string; fileEditToolset?: FileEditToolset }
   | { kind: 'run'; args: string[] }
   | { kind: 'activate'; args: string[] }
   | { kind: 'eval'; args: string[] }
@@ -30,6 +31,29 @@ export function parseMakaCliArgs(argv: string[], version: string): MakaCliComman
       return { kind: 'error', message: `Unexpected argument: ${extra}`, exitCode: 2 };
     }
     return { kind: 'tui', resumeSessionId: sessionId };
+  }
+  if (first === '--file-edit-toolset') {
+    const value = argv[1];
+    if (!value) {
+      return {
+        kind: 'error',
+        message: '--file-edit-toolset requires a value',
+        exitCode: 2,
+      };
+    }
+    const fileEditToolset = parseFileEditToolset(value);
+    if (!fileEditToolset) {
+      return {
+        kind: 'error',
+        message: '--file-edit-toolset must be edit-write or apply-patch',
+        exitCode: 2,
+      };
+    }
+    const extra = argv[2];
+    if (extra !== undefined) {
+      return { kind: 'error', message: `Unexpected argument: ${extra}`, exitCode: 2 };
+    }
+    return { kind: 'tui', fileEditToolset };
   }
   if (first === 'run' || first === '-p') return { kind: 'run', args: argv.slice(1) };
   if (first === 'activate') return { kind: 'activate', args: argv.slice(1) };
@@ -93,7 +117,15 @@ function helpText(): string {
     '  -h, --help        Show help',
     '  -v, --version     Show version',
     '  --resume <session-id>  Reopen a previous session in the TUI',
+    '  --file-edit-toolset <edit-write|apply-patch>',
+    '                         Choose file-editing tools for a new TUI session',
   ].join('\n');
+}
+
+function parseFileEditToolset(value: string): FileEditToolset | undefined {
+  if (value === 'edit-write') return 'edit_write';
+  if (value === 'apply-patch') return 'apply_patch';
+  return undefined;
 }
 
 export function formatResumeHint(sessionId: string | null): string | null {
@@ -138,6 +170,7 @@ export async function runMakaCli(argv: string[] = process.argv.slice(2)): Promis
         cwd: process.cwd(),
         onProcessExit: handleMakaCliProcessExit,
         ...(command.resumeSessionId ? { resumeSessionId: command.resumeSessionId } : {}),
+        ...(command.fileEditToolset ? { fileEditToolset: command.fileEditToolset } : {}),
       });
     }
   }

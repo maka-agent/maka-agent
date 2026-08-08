@@ -48,6 +48,39 @@ describe('deriveToolArtifactCandidates', () => {
     ).toBe(true);
   });
 
+  test('ApplyPatch derives file-backed candidates only for completed writes', () => {
+    const candidates = deriveToolArtifactCandidates({
+      toolName: 'ApplyPatch',
+      cwd: '/workspace/maka',
+      args: { patch: 'must not be copied into evidence' },
+      result: {
+        operations: [
+          { operation: 'add', path: 'src/new.ts', status: 'completed', bytes: 12 },
+          { operation: 'update', path: 'src/main.ts', status: 'completed', bytes: 20 },
+          { operation: 'delete', path: 'src/old.ts', status: 'completed' },
+          { operation: 'update', path: 'src/skipped.ts', status: 'skipped' },
+        ],
+      },
+    });
+
+    expect(candidates).toEqual([
+      {
+        kind: 'file',
+        name: 'new.ts',
+        source: 'tool_result',
+        summary: 'ApplyPatch add output',
+        sourcePath: '/workspace/maka/src/new.ts',
+      },
+      {
+        kind: 'file',
+        name: 'main.ts',
+        source: 'tool_result',
+        summary: 'ApplyPatch update output',
+        sourcePath: '/workspace/maka/src/main.ts',
+      },
+    ]);
+  });
+
   test('Bash derives only explicit stdout redirects and does not scan stdout/stderr text', () => {
     const [candidate] = deriveToolArtifactCandidates({
       toolName: 'Bash',

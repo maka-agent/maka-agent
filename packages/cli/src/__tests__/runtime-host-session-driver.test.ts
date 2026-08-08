@@ -22,6 +22,47 @@ import { SkillInvocationBlockedError, type MakaAttachedSessionTurn } from '../se
 import { WAIT_BUDGET_MS } from './tui-terminal-mock.js';
 
 describe('Runtime Host Maka Session driver', () => {
+  test('pins the selected file-edit toolset when creating a Session', async () => {
+    const connection = new FakeConnection([
+      new FakeSubscription(continuitySnapshot(), Promise.resolve([])),
+    ]);
+    const driver = createRuntimeHostMakaSessionDriver({
+      connection: connection.value,
+      cwd: '/tmp',
+      llmConnectionSlug: 'openai-main',
+      model: 'gpt-5',
+      fileEditToolset: 'apply_patch',
+      newId: sequenceIds('session-new'),
+    });
+
+    await driver.createSession({
+      cwd: '/tmp',
+      backend: 'ai-sdk',
+      llmConnectionSlug: 'openai-main',
+      model: 'gpt-5',
+      permissionMode: 'ask',
+    });
+
+    assert.deepEqual(
+      connection.requests.find((request) => request.operation === 'session.create'),
+      {
+        operation: 'session.create',
+        input: {
+          sessionId: 'session-new',
+          cwd: '/tmp',
+          name: 'New Chat',
+          modelTarget: {
+            kind: 'explicit',
+            connectionSlug: 'openai-main',
+            model: 'gpt-5',
+          },
+          permissionMode: 'ask',
+          fileEditToolset: 'apply_patch',
+        },
+      },
+    );
+  });
+
   test('atomically joins an active turn without losing output produced during transcript load', async () => {
     const transcript = deferred<StoredMessage[]>();
     const subscription = new FakeSubscription(continuitySnapshot(), transcript.promise);
@@ -790,6 +831,13 @@ class FakeConnection {
     input: OperationInput<K>,
   ): Promise<OperationOutput<K>> {
     this.requests.push({ operation, input });
+    if (operation === 'session.create') {
+      return sessionProjection({
+        id: (input as { sessionId: string }).sessionId,
+        fileEditToolset: (input as { fileEditToolset?: 'edit_write' | 'apply_patch' })
+          .fileEditToolset,
+      }) as OperationOutput<K>;
+    }
     const turnInput = input as {
       sessionId?: string;
       turnId?: string;
