@@ -2471,6 +2471,37 @@ test('a bound tool ceiling excludes dynamic Client Capability tools', () => {
   );
 });
 
+test('a Session file-edit toolset reaches the Runtime Host model surface', () => {
+  const fileTools = ['Write', 'Edit', 'ApplyPatch'].map(
+    (name): MakaTool => ({
+      name,
+      description: name,
+      parameters: {},
+      impl: async () => name,
+    }),
+  );
+  const composition = createHostExecutionModelComposition({
+    policy: {
+      getSnapshot: async () => ({
+        revision: 0,
+        policy: createDefaultRuntimePolicy(),
+      }),
+    },
+    skills: {
+      readCanonicalModelInventory: async () => ({ inventory: [] }),
+    } as unknown as HostSkillCatalogCoordinator,
+    memory: {} as HostMemoryCoordinator,
+    taskLedger: {} as TaskLedgerStore,
+    boundTools: fileTools,
+    fileEditToolset: 'apply_patch',
+  });
+
+  assert.deepEqual(
+    composition.tools.map((tool) => tool.name),
+    ['ApplyPatch'],
+  );
+});
+
 test('root model composition defers the canonical parent-agent tool group', () => {
   const parentAgentTools = buildParentAgentTools();
   const composition = createHostExecutionModelComposition({

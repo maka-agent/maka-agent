@@ -9,6 +9,7 @@ import { relayModelProfile } from '@maka/core/model-thinking';
 import { activePlanExecution, type PlanSessionState, type PlanStore } from '@maka/core/plan';
 import type { ModelCallAttempt } from '@maka/core/model-call-attempt';
 import type { RuntimePolicy } from '@maka/core/runtime-policy';
+import type { FileEditToolset } from '@maka/core/file-edit-toolset';
 import {
   filterModelVisibleTaskLedgerTasks,
   renderTaskLedgerPromptText,
@@ -120,6 +121,7 @@ export interface HostExecutionModelCompositionInput {
   readonly childInstruction?: string;
   readonly sideConversation?: boolean;
   readonly boundTools?: readonly MakaTool[];
+  readonly fileEditToolset?: FileEditToolset;
   readonly skillBudget?: SkillCatalogBudgetOptions;
   readonly platform?: NodeJS.Platform;
   readonly shell?: string;
@@ -174,7 +176,10 @@ export function createHostExecutionModelComposition(
   const productSurface = projectEffectiveProductToolSurface({
     host: 'runtime-host',
     tools: selectedTools,
-    policy: { economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS },
+    policy: {
+      economy: !process.env.MAKA_DISABLE_DEFERRED_TOOLS,
+      ...(input.fileEditToolset ? { fileEditToolset: input.fileEditToolset } : {}),
+    },
   });
   // A bound tool list is an exact child/local activation ceiling. Dynamic
   // capabilities must be included by the authority that constructs that list,
@@ -409,6 +414,9 @@ export async function createHostAiSdkBackend(input: HostAiSdkBackendInput): Prom
       ...(input.context.systemPrompt ? { childInstruction: input.context.systemPrompt } : {}),
       ...(isSideConversationSession(input.context.header.labels) ? { sideConversation: true } : {}),
       ...(boundTools ? { boundTools } : {}),
+      ...(input.context.header.fileEditToolset
+        ? { fileEditToolset: input.context.header.fileEditToolset }
+        : {}),
       ...(clientCapabilities ? { clientCapabilities } : {}),
       ...(input.builtinTools ? { builtinTools: input.builtinTools } : {}),
       ...(hostTools.length > 0 ? { hostTools } : {}),

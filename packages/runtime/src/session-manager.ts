@@ -2506,11 +2506,15 @@ export class SessionManager {
     const definition = resolvedPreset
       ? requireBuiltinAgentDefinitionByProfile(resolvedPreset.profile)
       : requireBuiltinAgentDefinition(input.agentId!);
+    const availableChildTools = await this.childToolsForSession(input.source.sessionId);
     assertAgentDefinitionRunnable({
       definition,
-      tools: await this.childToolsForSession(input.source.sessionId),
+      tools: availableChildTools,
       worktreeChildExecutorAvailable: await this.isWorktreeChildExecutorAvailable(parentHeader),
     });
+    const runnableToolNames = buildToolsForAgentDefinition(availableChildTools, definition).map(
+      (tool) => tool.name,
+    );
     const childPermissionMode =
       parentHeader.permissionMode === 'bypass' ? 'bypass' : definition.permissionMode;
 
@@ -2535,7 +2539,7 @@ export class SessionManager {
         profile: definition.profile,
         workspace: definition.contract.workspace,
         permissionMode: childPermissionMode,
-        toolNames: [...definition.tools],
+        toolNames: runnableToolNames,
         categoryPolicy: {},
         systemPrompt: definition.systemPrompt,
         ...(resolvedPreset
@@ -2585,6 +2589,7 @@ export class SessionManager {
             ? { thinkingLevel: parentHeader.thinkingLevel }
             : {}),
         permissionMode: childPermissionMode,
+        ...(parentHeader.fileEditToolset ? { fileEditToolset: parentHeader.fileEditToolset } : {}),
         collaborationMode: 'agent',
         orchestrationMode: 'default',
         subagentParent: {
@@ -2610,7 +2615,7 @@ export class SessionManager {
           profile: definition.profile,
           ...(resolvedPreset ? { presetId: resolvedPreset.id } : {}),
           systemPrompt: definition.systemPrompt,
-          toolNames: [...definition.tools],
+          toolNames: runnableToolNames,
           categoryPolicy: {},
         },
         subagentSpawn: {
@@ -3097,6 +3102,9 @@ export class SessionManager {
       tools: availableChildTools,
       worktreeChildExecutorAvailable: await this.isWorktreeChildExecutorAvailable(parentHeader),
     });
+    const runnableToolNames = buildToolsForAgentDefinition(availableChildTools, definition).map(
+      (tool) => tool.name,
+    );
 
     const proposedTurnId = input.turnId ?? this.deps.newId();
     const proposedRunId = input.runId ?? this.deps.newId();
@@ -3121,6 +3129,7 @@ export class SessionManager {
             ? { thinkingLevel: parentHeader.thinkingLevel }
             : {}),
         permissionMode: definition.permissionMode,
+        ...(parentHeader.fileEditToolset ? { fileEditToolset: parentHeader.fileEditToolset } : {}),
         collaborationMode: 'agent',
         orchestrationMode: 'default',
         subagentParent: {
@@ -3138,7 +3147,7 @@ export class SessionManager {
           profile: definition.profile,
           ...(input.resolvedPreset ? { presetId: input.resolvedPreset.id } : {}),
           systemPrompt: definition.systemPrompt,
-          toolNames: [...definition.tools],
+          toolNames: runnableToolNames,
           categoryPolicy: {},
         },
         subagentSpawn: {

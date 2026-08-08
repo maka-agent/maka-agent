@@ -940,7 +940,7 @@ describe('SessionManager graph operator provisioning', () => {
       runStore,
       runtimeEventStore: runStore,
       backends: new BackendRegistry(),
-      childTools: ['Read', 'Glob', 'Grep', 'Write', 'Edit', 'Bash'].map(testTool),
+      childTools: ['Read', 'Glob', 'Grep', 'ApplyPatch', 'Bash'].map(testTool),
       worktreeChildExecutor: {
         isAvailable: async () => true,
         provision: async (input) => {
@@ -970,6 +970,7 @@ describe('SessionManager graph operator provisioning', () => {
         cwd: '/tmp/project',
         projectId: 'project-1',
         permissionMode: 'ask',
+        fileEditToolset: 'apply_patch',
       }),
     );
     await runStore.createRun(
@@ -999,6 +1000,14 @@ describe('SessionManager graph operator provisioning', () => {
     expect(provisioned).toHaveLength(1);
     expect(result.header.projectId).toBe('project-1');
     expect(result.header.permissionMode).toBe('execute');
+    expect(result.header.fileEditToolset).toBe('apply_patch');
+    expect(result.header.subagentRuntime?.toolNames).toEqual([
+      'Read',
+      'Glob',
+      'Grep',
+      'ApplyPatch',
+      'Bash',
+    ]);
     expect(
       result.header.subagentRuntime
         ? 'permissionCeiling' in result.header.subagentRuntime
@@ -19550,6 +19559,7 @@ class MemorySessionStore implements SessionStore {
       model: input.model ?? 'fake-model',
       ...(input.thinkingLevel !== undefined ? { thinkingLevel: input.thinkingLevel } : {}),
       permissionMode: input.permissionMode,
+      ...(input.fileEditToolset ? { fileEditToolset: input.fileEditToolset } : {}),
       collaborationMode: input.collaborationMode ?? 'agent',
       orchestrationMode: input.orchestrationMode ?? 'default',
       schemaVersion: 1,
